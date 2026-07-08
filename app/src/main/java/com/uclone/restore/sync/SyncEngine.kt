@@ -34,7 +34,7 @@ class SyncEngine(
         type = TaskType.CAPTURE_SNAPSHOT_FROM_CLONE,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "检查分身解锁", "停止分身 App", "复制 CE/DE 数据", "写入 manifest", "激活快照"),
+        labels = listOf("检查 root", "检查分身解锁", "停止分身 App", "复制数据", "采集权限/AppOps", "激活快照"),
         script = ShellScripts.capture(packageName, rule, settings, appPackage),
         report = report,
     )
@@ -47,7 +47,7 @@ class SyncEngine(
         type = TaskType.RESTORE_SNAPSHOT_TO_MAIN,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取黄金快照", "停止相关进程", "备份主系统旧数据", "覆盖目录内容", "修正 owner/context"),
+        labels = listOf("检查 root", "读取黄金快照", "备份主系统旧数据", "覆盖目录内容", "恢复权限/AppOps", "完成"),
         script = ShellScripts.restore(packageName, settings, appPackage),
         report = report,
     )
@@ -62,6 +62,37 @@ class SyncEngine(
         return restoreSnapshot(packageName, settings, report)
     }
 
+    suspend fun switchToCloneState(
+        packageName: String,
+        rule: AppRule,
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord {
+        captureSnapshot(packageName, rule, settings, report)
+        return runScriptTask(
+            type = TaskType.SWITCH_TO_CLONE_STATE,
+            packageName = packageName,
+            settings = settings,
+            labels = listOf("检查 root", "读取分身快照", "备份当前主系统", "恢复分身态", "记录还原点", "完成"),
+            script = ShellScripts.restoreForSwitch(packageName, settings, appPackage),
+            report = report,
+        )
+    }
+
+    suspend fun restoreSwitchMainState(
+        packageName: String,
+        rollbackId: String,
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord = runScriptTask(
+        type = TaskType.RESTORE_SWITCH_MAIN_STATE,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查 root", "读取切换还原点", "备份当前状态", "恢复主系统态", "清除切换标记", "完成"),
+        script = ShellScripts.rollback(packageName, rollbackId, settings, appPackage, clearSwitchMarker = true),
+        report = report,
+    )
+
     suspend fun rollback(
         packageName: String,
         rollbackId: String,
@@ -71,7 +102,7 @@ class SyncEngine(
         type = TaskType.ROLLBACK_MAIN_DATA,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取回滚点", "停止相关进程", "恢复旧数据", "修正 owner/context", "完成"),
+        labels = listOf("检查 root", "读取回滚点", "停止相关进程", "恢复旧数据", "恢复权限/AppOps", "完成"),
         script = ShellScripts.rollback(packageName, rollbackId, settings, appPackage),
         report = report,
     )
@@ -124,6 +155,32 @@ class SyncEngine(
 
     suspend fun snapshotTimes(settings: UCloneSettings): Map<String, Long> =
         snapshotMetadata(settings).mapValues { it.value.updatedAt }
+
+    suspend fun switchMarkerIds(settings: UCloneSettings): Map<String, String> {
+        val root = settings.rootDir
+        val switchRoot = "$root/switches"
+        val script = """
+            [ -d ${shellQuote(switchRoot)} ] || exit 0
+            for f in ${shellQuote(switchRoot)}/*/active; do
+              [ -f "${'$'}f" ] || continue
+              pkg=${'$'}(basename "${'$'}(dirname "${'$'}f")")
+              id=${'$'}(sed -n '1p' "${'$'}f" | tr -d '\r')
+              [ -n "${'$'}pkg" ] && [ -n "${'$'}id" ] || continue
+              [ -d ${shellQuote(root)}/rollback/"${'$'}pkg"/"${'$'}id" ] || continue
+              echo "${'$'}pkg ${'$'}id"
+            done
+        """.trimIndent()
+        val result = shell.exec(script, 20)
+        return result.stdout.lineSequence().mapNotNull { line ->
+            val parts = line.trim().split(" ", limit = 2)
+            val packageName = parts.getOrNull(0)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            val rollbackId = parts.getOrNull(1)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            packageName to rollbackId
+        }.toMap()
+    }
+
+    suspend fun switchMarkerId(packageName: String, settings: UCloneSettings): String? =
+        switchMarkerIds(settings)[packageName]
 
     suspend fun listRollbackIds(packageName: String, settings: UCloneSettings): List<String> {
         val path = "${settings.rootDir}/rollback/$packageName"

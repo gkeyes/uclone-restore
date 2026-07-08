@@ -74,6 +74,43 @@ object ShellScripts {
           done
           return 0
         }
+        capture_permission_state() {
+          PERM_DST="${'$'}1"
+          SRC_USER="${'$'}2"
+          mkdir -p "${'$'}PERM_DST" || exit 18
+          dumpsys package "${'$'}PKG" 2>/dev/null | awk -v user="User ${'$'}SRC_USER:" '
+            ${'$'}0 ~ "^    User [0-9]+:" {
+              in_user=(${'$'}0 ~ user)
+              in_runtime=0
+            }
+            in_user && ${'$'}0 ~ "^      runtime permissions:" {
+              in_runtime=1
+              next
+            }
+            in_runtime && ${'$'}0 ~ "^        android\\.permission\\." {
+              name=${'$'}1
+              sub(":", "", name)
+              granted=(${'$'}0 ~ "granted=true")
+              if (granted) print name
+              next
+            }
+            in_runtime && ${'$'}0 !~ "^        " {
+              in_runtime=0
+            }
+          ' | sort -u > "${'$'}PERM_DST/runtime_grants.txt"
+          cmd appops get --user "${'$'}SRC_USER" "${'$'}PKG" 2>/dev/null | awk '
+            /^[A-Z0-9_()]+: (allow|ignore|deny|default|foreground|ask)/ {
+              op=${'$'}1
+              sub(":", "", op)
+              mode=${'$'}2
+              sub(";", "", mode)
+              print op " " mode
+            }
+          ' | sort -u > "${'$'}PERM_DST/appops.txt"
+          PERM_COUNT=${'$'}(wc -l < "${'$'}PERM_DST/runtime_grants.txt" | tr -d ' ')
+          APPOPS_COUNT=${'$'}(wc -l < "${'$'}PERM_DST/appops.txt" | tr -d ' ')
+          echo "PERMISSIONS_CAPTURED:user=${'$'}SRC_USER grants=${'$'}PERM_COUNT appops=${'$'}APPOPS_COUNT"
+        }
         try_user() {
           TRY_USER="${'$'}1"
           TRY_TMP="${'$'}TMP.try_${'$'}TRY_USER"
@@ -95,6 +132,7 @@ object ShellScripts {
           ${if (rule.includeExternal) "copy_first_nonempty \"${'$'}TRY_TMP/external\" \"/data/media/${'$'}TRY_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/data/${'$'}PKG\"" else ":"}
           ${if (rule.includeMedia) "copy_first_nonempty \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\"" else ":"}
           ${if (rule.includeObb) "copy_first_nonempty \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\"" else ":"}
+          ${if (rule.includePermissions) "capture_permission_state \"${'$'}TRY_TMP/permissions\" \"${'$'}TRY_USER\"" else ":"}
           if [ "${'$'}COPIED_PARTS" -gt 0 ]; then
             rm -rf "${'$'}TMP"
             mv "${'$'}TRY_TMP" "${'$'}TMP" || exit 14
@@ -115,7 +153,7 @@ object ShellScripts {
         [ -n "${'$'}DETECTED_USER" ] || { echo "ERR_NOTHING_COPIED: no non-empty selected source paths for candidates:${'$'}CANDIDATE_USERS package:${'$'}PKG" >&2; exit 44; }
         SIZE_KB=${'$'}(du -sk "${'$'}TMP" 2>/dev/null | awk '{print ${'$'}1}')
         cat > "${'$'}TMP/manifest.json" <<EOF
-        {"packageName":"${packageName}","configuredSourceUser":${settings.cloneUserId},"sourceUser":"${'$'}DETECTED_USER","sourceUserState":"${'$'}DETECTED_STATE","targetUser":${settings.mainUserId},"createdAt":"${'$'}TS","includeCe":${rule.includeCe},"includeDe":${rule.includeDe},"includeExternal":${rule.includeExternal},"includeMedia":${rule.includeMedia},"includeObb":${rule.includeObb},"includeAppWebView":${rule.includeAppWebView},"excludeCache":${rule.excludeCache},"snapshotSizeKb":"${'$'}SIZE_KB","copiedParts":"${'$'}COPIED_PARTS","copiedItems":"${'$'}COPIED_ITEMS"}
+        {"packageName":"${packageName}","configuredSourceUser":${settings.cloneUserId},"sourceUser":"${'$'}DETECTED_USER","sourceUserState":"${'$'}DETECTED_STATE","targetUser":${settings.mainUserId},"createdAt":"${'$'}TS","includeCe":${rule.includeCe},"includeDe":${rule.includeDe},"includeExternal":${rule.includeExternal},"includeMedia":${rule.includeMedia},"includeObb":${rule.includeObb},"includePermissions":${rule.includePermissions},"includeAppWebView":${rule.includeAppWebView},"excludeCache":${rule.excludeCache},"snapshotSizeKb":"${'$'}SIZE_KB","copiedParts":"${'$'}COPIED_PARTS","copiedItems":"${'$'}COPIED_ITEMS"}
         EOF
         if [ -d "${'$'}BASE/active" ]; then mv "${'$'}BASE/active" "${'$'}BASE/history/${'$'}TS" || exit 15; fi
         mv "${'$'}TMP" "${'$'}BASE/active" || exit 16
@@ -131,13 +169,28 @@ object ShellScripts {
         rollbackName = """${'$'}TS""",
     )
 
-    fun rollback(packageName: String, rollbackId: String, settings: UCloneSettings, appPackage: String): String =
+    fun restoreForSwitch(packageName: String, settings: UCloneSettings, appPackage: String): String = restoreBody(
+        packageName = packageName,
+        settings = settings,
+        appPackage = appPackage,
+        rollbackName = """${'$'}TS""",
+        writeSwitchMarker = true,
+    )
+
+    fun rollback(
+        packageName: String,
+        rollbackId: String,
+        settings: UCloneSettings,
+        appPackage: String,
+        clearSwitchMarker: Boolean = false,
+    ): String =
         restoreBody(
             packageName = packageName,
             settings = settings,
             appPackage = appPackage,
             rollbackName = """rollback_${'$'}TS""",
             sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId",
+            clearSwitchMarker = clearSwitchMarker,
         )
 
     fun deleteSnapshot(packageName: String, settings: UCloneSettings, appPackage: String): String = """
@@ -166,6 +219,8 @@ object ShellScripts {
         appPackage: String,
         rollbackName: String,
         sourcePrefix: String = "",
+        writeSwitchMarker: Boolean = false,
+        clearSwitchMarker: Boolean = false,
     ): String {
         val sourceRoot = sourcePrefix.ifBlank { "${settings.rootDir}/snapshots/$packageName/active" }
         return """
@@ -176,6 +231,7 @@ object ShellScripts {
             DST_USER=${settings.mainUserId}
             TS=${'$'}(date +%Y%m%d-%H%M%S)
             ACTIVE=${shellQuote(sourceRoot)}
+            ROLLBACK_ID="$rollbackName"
             ROLLBACK="${'$'}ROOT/rollback/${'$'}PKG/$rollbackName"
             [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
             [ -d "${'$'}ACTIVE" ] || { echo "ERR_SNAPSHOT_MISSING:${'$'}ACTIVE" >&2; exit 51; }
@@ -216,6 +272,40 @@ object ShellScripts {
               [ "${'$'}BACKUP_ITEMS" -gt 0 ] || { echo "ERR_BACKUP_EMPTY:${'$'}SRC" >&2; exit 63; }
               BACKUP_PARTS=${'$'}((BACKUP_PARTS + 1))
               echo "BACKUP:${'$'}SRC ITEMS=${'$'}BACKUP_ITEMS"
+            }
+            backup_permission_state() {
+              PERM_DST="${'$'}1"
+              mkdir -p "${'$'}PERM_DST" || exit 54
+              dumpsys package "${'$'}PKG" 2>/dev/null | awk -v user="User ${settings.mainUserId}:" '
+                ${'$'}0 ~ "^    User [0-9]+:" {
+                  in_user=(${'$'}0 ~ user)
+                  in_runtime=0
+                }
+                in_user && ${'$'}0 ~ "^      runtime permissions:" {
+                  in_runtime=1
+                  next
+                }
+                in_runtime && ${'$'}0 ~ "^        android\\.permission\\." {
+                  name=${'$'}1
+                  sub(":", "", name)
+                  granted=(${'$'}0 ~ "granted=true")
+                  if (granted) print name
+                  next
+                }
+                in_runtime && ${'$'}0 !~ "^        " {
+                  in_runtime=0
+                }
+              ' | sort -u > "${'$'}PERM_DST/runtime_grants.txt"
+              cmd appops get --user "${settings.mainUserId}" "${'$'}PKG" 2>/dev/null | awk '
+                /^[A-Z0-9_()]+: (allow|ignore|deny|default|foreground|ask)/ {
+                  op=${'$'}1
+                  sub(":", "", op)
+                  mode=${'$'}2
+                  sub(";", "", mode)
+                  print op " " mode
+                }
+              ' | sort -u > "${'$'}PERM_DST/appops.txt"
+              echo "BACKUP_PERMISSIONS:${'$'}PERM_DST"
             }
             validate_target_path() {
               CHECK_TARGET="${'$'}1"
@@ -297,14 +387,85 @@ object ShellScripts {
               RESTORED_ITEMS=${'$'}((RESTORED_ITEMS + TARGET_ITEMS))
               echo "RESTORED:${'$'}TARGET ITEMS=${'$'}TARGET_ITEMS OWNER=${'$'}TARGET_OWNER CONTEXT=${'$'}TARGET_CONTEXT"
             }
+            restore_permission_state() {
+              PERM_SRC="${'$'}1"
+              [ -d "${'$'}PERM_SRC" ] || { echo "SKIP_PERMISSIONS:${'$'}PERM_SRC"; return 0; }
+              GRANTS_FILE="${'$'}PERM_SRC/runtime_grants.txt"
+              APPOPS_FILE="${'$'}PERM_SRC/appops.txt"
+              GRANT_COUNT=0
+              APPOPS_COUNT=0
+              if [ -f "${'$'}GRANTS_FILE" ]; then
+                CURRENT_GRANTS="${'$'}ROOT/tmp/current_grants_${'$'}{PKG}_${'$'}{TS}.txt"
+                dumpsys package "${'$'}PKG" 2>/dev/null | awk -v user="User ${settings.mainUserId}:" '
+                  ${'$'}0 ~ "^    User [0-9]+:" {
+                    in_user=(${'$'}0 ~ user)
+                    in_runtime=0
+                  }
+                  in_user && ${'$'}0 ~ "^      runtime permissions:" {
+                    in_runtime=1
+                    next
+                  }
+                  in_runtime && ${'$'}0 ~ "^        android\\.permission\\." {
+                    name=${'$'}1
+                    sub(":", "", name)
+                    granted=(${'$'}0 ~ "granted=true")
+                    if (granted) print name
+                    next
+                  }
+                  in_runtime && ${'$'}0 !~ "^        " {
+                    in_runtime=0
+                  }
+                ' | sort -u > "${'$'}CURRENT_GRANTS"
+                while IFS= read -r CURRENT_PERM; do
+                  [ -n "${'$'}CURRENT_PERM" ] || continue
+                  grep -Fxq "${'$'}CURRENT_PERM" "${'$'}GRANTS_FILE" 2>/dev/null && continue
+                  cmd package revoke --user "${'$'}DST_USER" "${'$'}PKG" "${'$'}CURRENT_PERM" >/dev/null 2>&1 || pm revoke --user "${'$'}DST_USER" "${'$'}PKG" "${'$'}CURRENT_PERM" >/dev/null 2>&1 || echo "WARN_REVOKE_FAILED:${'$'}CURRENT_PERM"
+                done < "${'$'}CURRENT_GRANTS"
+                rm -f "${'$'}CURRENT_GRANTS"
+                while IFS= read -r PERM; do
+                  [ -n "${'$'}PERM" ] || continue
+                  case "${'$'}PERM" in android.permission.*) ;; *) continue ;; esac
+                  cmd package grant --user "${'$'}DST_USER" "${'$'}PKG" "${'$'}PERM" >/dev/null 2>&1 || pm grant --user "${'$'}DST_USER" "${'$'}PKG" "${'$'}PERM" >/dev/null 2>&1 || echo "WARN_GRANT_FAILED:${'$'}PERM"
+                  GRANT_COUNT=${'$'}((GRANT_COUNT + 1))
+                done < "${'$'}GRANTS_FILE"
+              fi
+              if [ -f "${'$'}APPOPS_FILE" ]; then
+                cmd appops reset --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+                while read -r OP MODE EXTRA; do
+                  [ -n "${'$'}OP" ] || continue
+                  [ -z "${'$'}EXTRA" ] || continue
+                  case "${'$'}MODE" in allow|ignore|deny|default|foreground|ask) ;; *) continue ;; esac
+                  cmd appops set --user "${'$'}DST_USER" "${'$'}PKG" "${'$'}OP" "${'$'}MODE" >/dev/null 2>&1 || echo "WARN_APPOPS_FAILED:${'$'}OP:${'$'}MODE"
+                  APPOPS_COUNT=${'$'}((APPOPS_COUNT + 1))
+                done < "${'$'}APPOPS_FILE"
+                cmd appops write-settings >/dev/null 2>&1 || true
+              fi
+              echo "RESTORED_PERMISSIONS:grants=${'$'}GRANT_COUNT appops=${'$'}APPOPS_COUNT"
+            }
             backup_dir "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/ce"
             backup_dir "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/de"
+            ${if (settings.includePermissions) "backup_permission_state \"${'$'}ROLLBACK/permissions\"" else ":"}
             restore_part "${'$'}ACTIVE/ce" "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}UID_VALUE"
             restore_part "${'$'}ACTIVE/de" "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}UID_VALUE"
             restore_part "${'$'}ACTIVE/external" "/data/media/${settings.mainUserId}/Android/data/${'$'}PKG" ""
             restore_part "${'$'}ACTIVE/media" "/data/media/${settings.mainUserId}/Android/media/${'$'}PKG" ""
             restore_part "${'$'}ACTIVE/obb" "/data/media/${settings.mainUserId}/Android/obb/${'$'}PKG" ""
+            ${if (settings.includePermissions) "restore_permission_state \"${'$'}ACTIVE/permissions\"" else ":"}
             [ "${'$'}RESTORED_PARTS" -gt 0 ] || { echo "ERR_NOTHING_RESTORED:${'$'}ACTIVE" >&2; exit 62; }
+            ${if (writeSwitchMarker) """
+            SWITCH_DIR="${'$'}ROOT/switches/${'$'}PKG"
+            mkdir -p "${'$'}SWITCH_DIR" || exit 70
+            printf '%s\n' "${'$'}ROLLBACK_ID" > "${'$'}SWITCH_DIR/active" || exit 70
+            echo "SWITCH_MARKER=${'$'}SWITCH_DIR/active ROLLBACK_ID=${'$'}ROLLBACK_ID"
+            """.trimIndent() else ":"}
+            ${if (clearSwitchMarker) """
+            SWITCH_MARKER="${'$'}ROOT/switches/${'$'}PKG/active"
+            case "${'$'}SWITCH_MARKER" in
+              "${'$'}ROOT"/switches/"${'$'}PKG"/active) rm -f "${'$'}SWITCH_MARKER" || exit 70 ;;
+              *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER" >&2; exit 70 ;;
+            esac
+            echo "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER"
+            """.trimIndent() else ":"}
             sync
             force_stop_package_users
             echo "ROLLBACK=${'$'}ROLLBACK"

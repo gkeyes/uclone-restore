@@ -14,9 +14,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -42,20 +45,32 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (app == null) {
             ScreenHeader("详情", "请先在 App 列表选择一个目标。")
             return@Column
         }
         ScreenHeader("App 详情", "备份分身快照，或将已保存快照恢复到主系统。")
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
             AppIcon(app.packageName)
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(app.label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(app.packageName)
+            }
+            IconButton(onClick = { viewModel.toggleFavorite(app.packageName) }) {
+                val favorite = app.packageName in state.settings.favoritePackages
+                Icon(
+                    imageVector = if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
+                    contentDescription = if (favorite) "取消收藏" else "收藏",
+                    tint = if (favorite) IosOrange else IosTertiaryText,
+                )
             }
         }
         SectionCard("安装状态") {
@@ -92,6 +107,9 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             SettingCheck("OBB", state.settings.includeObb) {
                 viewModel.saveSettings(state.settings.copy(includeObb = it))
             }
+            SettingCheck("权限/AppOps", state.settings.includePermissions) {
+                viewModel.saveSettings(state.settings.copy(includePermissions = it))
+            }
             SettingCheck("排除 cache/code_cache", state.settings.excludeCache) {
                 viewModel.saveSettings(state.settings.copy(excludeCache = it))
             }
@@ -116,6 +134,19 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             }
         }
         SectionCard("操作") {
+            IosPrimaryButton(
+                onClick = {
+                    confirm = if (state.selectedSwitchRollbackId == null) {
+                        ConfirmAction.SWITCH
+                    } else {
+                        ConfirmAction.RESTORE_SWITCH
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Sync, contentDescription = null)
+                Text(if (state.selectedSwitchRollbackId == null) "切换到分身态" else "还原主系统态")
+            }
             IosPrimaryButton(onClick = { confirm = ConfirmAction.CAPTURE }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.CloudDownload, contentDescription = null)
                 Text("备份分身快照")
@@ -146,6 +177,8 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             onConfirm = {
                 confirm = null
                 when (action) {
+                    ConfirmAction.SWITCH -> viewModel.switchToCloneStateSelected()
+                    ConfirmAction.RESTORE_SWITCH -> viewModel.restoreSwitchMainStateSelected()
                     ConfirmAction.CAPTURE -> viewModel.captureSelected()
                     ConfirmAction.RESTORE -> viewModel.restoreSelected()
                     ConfirmAction.LATEST -> viewModel.restoreLatestSelected()
@@ -178,17 +211,21 @@ private fun SettingCheck(label: String, checked: Boolean, onChange: (Boolean) ->
     }
 }
 
-private enum class ConfirmAction { CAPTURE, RESTORE, LATEST, DELETE }
+private enum class ConfirmAction { SWITCH, RESTORE_SWITCH, CAPTURE, RESTORE, LATEST, DELETE }
 
 @Composable
 private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     val title = when (action) {
+        ConfirmAction.SWITCH -> "切换到分身态"
+        ConfirmAction.RESTORE_SWITCH -> "还原主系统态"
         ConfirmAction.CAPTURE -> "备份分身快照"
         ConfirmAction.RESTORE -> "恢复到主系统"
         ConfirmAction.LATEST -> "备份并恢复到主系统"
         ConfirmAction.DELETE -> "删除 active 快照"
     }
     val body = when (action) {
+        ConfirmAction.SWITCH -> "会先备份当前 user0 为还原点，再备份分身最新快照并恢复到 user0。完成后按钮会变为还原主系统态。"
+        ConfirmAction.RESTORE_SWITCH -> "会使用切换前保存的 user0 还原点恢复主系统，并清除切换标记。"
         ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 快照。旧 active 快照会移动到 history。"
         ConfirmAction.RESTORE -> "将使用已保存的黄金快照恢复主系统数据。这不会重新读取分身最新数据。"
         ConfirmAction.LATEST -> "将先更新分身快照，再恢复到主系统。该动作会覆盖主系统当前 App 数据。"

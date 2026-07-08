@@ -10,15 +10,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
 fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     val env = state.environment
     Column(
-        modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         ScreenHeader("诊断", "确认 root、用户和工作目录是否满足恢复条件。")
         SectionCard("Root 与用户") {

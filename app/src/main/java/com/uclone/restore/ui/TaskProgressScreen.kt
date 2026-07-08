@@ -24,9 +24,9 @@ fun TaskProgressScreen(state: UiState, modifier: Modifier) {
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         ScreenHeader("进度", "跟踪当前 root 任务、步骤状态和最近日志。")
         val task = state.currentTask.task

@@ -51,6 +51,7 @@ class UCloneViewModel(
             val settings = _state.value.settings
             runBusy("读取 App 列表") {
                 val snapshots = syncEngine.snapshotMetadata(settings)
+                val switchMarkers = syncEngine.switchMarkerIds(settings)
                 val apps = packageInspector.listApps(settings).map { app ->
                     val snapshot = snapshots[app.packageName]
                     app.copy(
@@ -58,7 +59,7 @@ class UCloneViewModel(
                         snapshotSizeKb = snapshot?.sizeKb,
                     )
                 }
-                _state.update { it.copy(apps = apps, message = "已读取 ${apps.size} 个 App") }
+                _state.update { it.copy(apps = apps, switchRollbackIds = switchMarkers, message = "已读取 ${apps.size} 个 App") }
             }
         }
     }
@@ -68,6 +69,7 @@ class UCloneViewModel(
             val settings = _state.value.settings
             val snapshot = syncEngine.latestSnapshotMetadata(packageName, settings)
             val rollbackIds = syncEngine.listRollbackIds(packageName, settings)
+            val switchRollbackId = syncEngine.switchMarkerId(packageName, settings)
             _state.update {
                 val apps = it.apps.map { app ->
                     if (app.packageName == packageName) {
@@ -79,7 +81,17 @@ class UCloneViewModel(
                         app
                     }
                 }
-                it.copy(selectedPackage = packageName, apps = apps, rollbackIds = rollbackIds)
+                val switchRollbackIds = if (switchRollbackId == null) {
+                    it.switchRollbackIds - packageName
+                } else {
+                    it.switchRollbackIds + (packageName to switchRollbackId)
+                }
+                it.copy(
+                    selectedPackage = packageName,
+                    apps = apps,
+                    rollbackIds = rollbackIds,
+                    switchRollbackIds = switchRollbackIds,
+                )
             }
         }
     }
@@ -92,6 +104,16 @@ class UCloneViewModel(
         settingsStore.save(settings)
         _state.update { it.copy(settings = settings, message = "设置已保存") }
         refreshAll()
+    }
+
+    fun toggleFavorite(packageName: String) {
+        val current = _state.value.settings
+        val favorites = if (packageName in current.favoritePackages) {
+            current.favoritePackages - packageName
+        } else {
+            current.favoritePackages + packageName
+        }
+        saveSettings(current.copy(favoritePackages = favorites))
     }
 
     fun captureSelected() {
@@ -115,6 +137,32 @@ class UCloneViewModel(
         runTask("正在从分身最新恢复") { report ->
             syncEngine.restoreFromCloneLatest(packageName, rule, _state.value.settings, report)
         }
+    }
+
+    fun switchToCloneState(packageName: String) {
+        _state.update { it.copy(selectedPackage = packageName) }
+        val rule = _state.value.selectedRule ?: AppRule(packageName)
+        runTask("正在切换到分身态") { report ->
+            syncEngine.switchToCloneState(packageName, rule, _state.value.settings, report)
+        }
+    }
+
+    fun switchToCloneStateSelected() {
+        val packageName = _state.value.selectedPackage ?: return
+        switchToCloneState(packageName)
+    }
+
+    fun restoreSwitchMainState(packageName: String) {
+        _state.update { it.copy(selectedPackage = packageName) }
+        val rollbackId = _state.value.switchRollbackIds[packageName] ?: return
+        runTask("正在还原主系统态") { report ->
+            syncEngine.restoreSwitchMainState(packageName, rollbackId, _state.value.settings, report)
+        }
+    }
+
+    fun restoreSwitchMainStateSelected() {
+        val packageName = _state.value.selectedPackage ?: return
+        restoreSwitchMainState(packageName)
     }
 
     fun rollbackSelected(rollbackId: String) {

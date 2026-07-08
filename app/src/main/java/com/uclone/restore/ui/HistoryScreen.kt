@@ -13,7 +13,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.util.Formatters
@@ -21,8 +20,8 @@ import com.uclone.restore.util.Formatters
 @Composable
 fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     Column(
-        modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         ScreenHeader("历史", "查看任务记录，并从恢复前备份回滚。")
         if (state.selectedPackage != null && state.rollbackIds.isNotEmpty()) {
@@ -35,7 +34,7 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                 }
             }
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.history, key = { it.id }) { task ->
                 SectionCard(task.packageName) {
                     InfoRow("类型", task.type.name)

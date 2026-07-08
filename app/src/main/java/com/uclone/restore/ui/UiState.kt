@@ -17,9 +17,12 @@ data class UiState(
     val currentTask: TaskProgress = TaskProgress(null),
     val history: List<TaskRecord> = emptyList(),
     val rollbackIds: List<String> = emptyList(),
+    val switchRollbackIds: Map<String, String> = emptyMap(),
     val message: String? = null,
 ) {
     val selectedApp: AppEntry? = apps.firstOrNull { it.packageName == selectedPackage }
+    val selectedSwitchRollbackId: String? = selectedPackage?.let(switchRollbackIds::get)
+    val favoriteApps: List<AppEntry> = apps.filter { it.packageName in settings.favoritePackages }
     val selectedRule: AppRule?
         get() = selectedPackage?.let {
             AppRule(
@@ -29,6 +32,7 @@ data class UiState(
                 includeExternal = settings.includeExternal,
                 includeMedia = settings.includeMedia,
                 includeObb = settings.includeObb,
+                includePermissions = settings.includePermissions,
                 excludeCache = settings.excludeCache,
             )
         }

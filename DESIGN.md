@@ -35,12 +35,12 @@ UClone Restore should feel like a precise iOS utility for a risky root workflow:
 
 | Level | Size | Weight | Line Height | Tracking | Usage |
 |-------|------|--------|-------------|----------|-------|
-| Large title | 32sp | 700 | 1.10 | 0 | Screen titles |
-| Title | 22sp | 600 | 1.18 | 0 | Group headings and important app labels |
-| Body | 17sp | 400 | 1.35 | 0 | Row values and action labels |
-| Body emphasis | 17sp | 600 | 1.35 | 0 | Key values and selected labels |
-| Subhead | 15sp | 400 | 1.35 | 0 | Package names and secondary row text |
-| Caption | 13sp | 500 | 1.30 | 0 | Section captions, metadata, chips |
+| Large title | 28sp | 700 | 1.14 | 0 | Screen titles |
+| Title | 20sp | 600 | 1.20 | 0 | Group headings and important app labels |
+| Body | 16sp | 400 | 1.38 | 0 | Row values and action labels |
+| Body emphasis | 16sp | 600 | 1.38 | 0 | Key values and selected labels |
+| Subhead | 14sp | 400 | 1.43 | 0 | Package names and secondary row text |
+| Caption | 12sp | 500 | 1.33 | 0 | Section captions, metadata, chips |
 | Mono | 12sp | 400 | 1.35 | 0 | Logs and filesystem paths |
 
 ### Font Stack
@@ -72,8 +72,9 @@ All spacing derives from 4dp.
 
 - Mobile-first single column.
 - Screen edge padding: 16dp.
-- Groups stack with 12-16dp gaps.
+- Groups stack with 8-12dp gaps.
 - Primary actions use full-width rows on small screens.
+- Tool pages use 12dp horizontal page padding and 10dp vertical page padding.
 
 ### Rules
 
@@ -105,9 +106,16 @@ All spacing derives from 4dp.
 ### IOSActionButton
 - **Structure**: rounded capsule, optional icon, label.
 - **Variants**: primary blue, secondary raised, danger red text.
-- **Spacing**: 14dp vertical, 16dp horizontal.
+- **Spacing**: 10dp vertical, 14dp horizontal.
 - **States**: default, pressed, disabled.
 - **Accessibility**: minimum 44dp touch target.
+
+### IOSCompactButton
+- **Structure**: compact capsule with a short verb.
+- **Variants**: primary blue, secondary raised, disabled.
+- **Spacing**: 7dp vertical, 12dp horizontal.
+- **States**: default, pressed, disabled.
+- **Accessibility**: use only for repeated row actions with very short labels.
 
 ### StatusPill
 - **Structure**: compact rounded capsule with dot and label.
@@ -118,9 +126,20 @@ All spacing derives from 4dp.
 
 ### AppListRow
 - **Structure**: app icon, app label/package, install/snapshot metadata, chevron.
-- **Spacing**: 14-16dp row padding, 12dp icon gap.
+- **Spacing**: 10-12dp row padding, 10dp icon gap.
 - **States**: default, pressed.
 - **Accessibility**: row text includes app name and status.
+
+### FavoriteQuickRow
+- **Structure**: app icon, app name/package/size, right-aligned compact `切换` and `还原` actions.
+- **Spacing**: 10dp vertical row padding, 10dp icon and action gaps.
+- **States**: default, pressed, disabled restore when no switch rollback marker exists.
+- **Accessibility**: destructive state changes still require confirmation.
+
+### CollapsedSearch
+- **Structure**: search icon button in the App header, expanding into a full-width input only when requested.
+- **States**: collapsed, expanded, clear-and-collapse.
+- **Accessibility**: icon has a text content description.
 
 ### LogPanel
 - **Structure**: monospace text inside raised rounded surface.

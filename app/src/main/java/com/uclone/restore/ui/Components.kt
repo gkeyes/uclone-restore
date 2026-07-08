@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,11 +48,11 @@ import com.uclone.restore.model.StepStatus
 fun SectionCard(title: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             content()
         }
@@ -162,20 +163,20 @@ fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
     if (bitmap == null) {
         Box(
             modifier
-                .size(42.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)),
+                .size(36.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Text(packageName.take(1).uppercase())
         }
     } else {
-        Image(bitmap = bitmap, contentDescription = null, modifier = modifier.size(42.dp))
+        Image(bitmap = bitmap, contentDescription = null, modifier = modifier.size(36.dp))
     }
 }
 
 @Composable
 fun ScreenHeader(title: String, subtitle: String? = null) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         if (subtitle != null) {
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -192,7 +193,7 @@ fun IosPrimaryButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 44.dp),
         enabled = enabled,
         shape = RoundedCornerShape(999.dp),
         colors = ButtonDefaults.buttonColors(
@@ -201,7 +202,7 @@ fun IosPrimaryButton(
             disabledContainerColor = IosSeparator,
             disabledContentColor = IosSecondaryText,
         ),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
         content = content,
     )
 }
@@ -215,7 +216,7 @@ fun IosSecondaryButton(
 ) {
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.heightIn(min = 44.dp),
         enabled = enabled,
         shape = RoundedCornerShape(999.dp),
         colors = ButtonDefaults.outlinedButtonColors(
@@ -224,9 +225,40 @@ fun IosSecondaryButton(
             disabledContentColor = IosSecondaryText,
         ),
         border = BorderStroke(0.dp, Color.Transparent),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
         content = content,
     )
+}
+
+@Composable
+fun IosCompactButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    primary: Boolean = false,
+    danger: Boolean = false,
+) {
+    val textColor = when {
+        danger -> IosRed
+        primary -> Color.White
+        else -> IosBlue
+    }
+    Button(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 36.dp),
+        enabled = enabled,
+        shape = RoundedCornerShape(999.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (primary) IosBlue else IosRaised,
+            contentColor = textColor,
+            disabledContainerColor = IosRaised,
+            disabledContentColor = IosTertiaryText,
+        ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    }
 }
 
 fun PackageManager.safeLabel(packageName: String): String =

@@ -21,6 +21,7 @@ data class AppRule(
     val includeExternal: Boolean = false,
     val includeMedia: Boolean = false,
     val includeObb: Boolean = false,
+    val includePermissions: Boolean = true,
     val includeAppWebView: Boolean = true,
     val excludeCache: Boolean = true,
     val highRiskConfirm: Boolean = true,
@@ -72,7 +73,9 @@ data class UCloneSettings(
     val includeExternal: Boolean = false,
     val includeMedia: Boolean = false,
     val includeObb: Boolean = false,
+    val includePermissions: Boolean = true,
     val excludeCache: Boolean = true,
+    val favoritePackages: Set<String> = emptySet(),
 )
 
 enum class RiskLevel {
@@ -86,6 +89,8 @@ enum class TaskType {
     RESTORE_SNAPSHOT_TO_MAIN,
     ROLLBACK_MAIN_DATA,
     RESTORE_FROM_CLONE_LATEST,
+    SWITCH_TO_CLONE_STATE,
+    RESTORE_SWITCH_MAIN_STATE,
     DELETE_SNAPSHOT,
 }
 

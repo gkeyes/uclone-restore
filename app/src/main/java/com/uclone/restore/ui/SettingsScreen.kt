@@ -1,5 +1,6 @@
 package com.uclone.restore.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -27,10 +28,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 @Composable
 fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
+    val context = LocalContext.current
     var draft by remember(state.settings) { mutableStateOf(state.settings) }
     var confirmClearLogs by remember { mutableStateOf(false) }
     Column(
@@ -38,8 +41,8 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         ScreenHeader("设置", "调整用户 ID、保存路径和默认备份范围。")
         SectionCard("用户 ID") {
@@ -65,9 +68,16 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             ToggleRow("external", draft.includeExternal) { draft = draft.copy(includeExternal = it) }
             ToggleRow("media", draft.includeMedia) { draft = draft.copy(includeMedia = it) }
             ToggleRow("obb", draft.includeObb) { draft = draft.copy(includeObb = it) }
+            ToggleRow("权限/AppOps", draft.includePermissions) { draft = draft.copy(includePermissions = it) }
             ToggleRow("排除 cache/code_cache", draft.excludeCache) { draft = draft.copy(excludeCache = it) }
         }
-        IosPrimaryButton(onClick = { viewModel.saveSettings(draft) }, modifier = Modifier.fillMaxWidth()) {
+        IosPrimaryButton(
+            onClick = {
+                viewModel.saveSettings(draft)
+                Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text("保存设置")
         }
         SectionCard("维护") {

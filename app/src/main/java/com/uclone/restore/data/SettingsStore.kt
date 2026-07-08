@@ -15,7 +15,9 @@ class SettingsStore(context: Context) {
         includeExternal = prefs.getBoolean("includeExternal", false),
         includeMedia = prefs.getBoolean("includeMedia", false),
         includeObb = prefs.getBoolean("includeObb", false),
+        includePermissions = prefs.getBoolean("includePermissions", true),
         excludeCache = prefs.getBoolean("excludeCache", true),
+        favoritePackages = prefs.getStringSet("favoritePackages", emptySet()).orEmpty().toSet(),
     )
 
     fun save(settings: UCloneSettings) {
@@ -28,7 +30,9 @@ class SettingsStore(context: Context) {
             .putBoolean("includeExternal", settings.includeExternal)
             .putBoolean("includeMedia", settings.includeMedia)
             .putBoolean("includeObb", settings.includeObb)
+            .putBoolean("includePermissions", settings.includePermissions)
             .putBoolean("excludeCache", settings.excludeCache)
+            .putStringSet("favoritePackages", settings.favoritePackages.toMutableSet())
             .apply()
     }
 }
