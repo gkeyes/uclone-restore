@@ -23,13 +23,18 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
         modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        ScreenHeader("历史", "查看任务记录，并从恢复前备份回滚。")
+        ScreenHeader("历史", "查看任务记录，并恢复操作前的主系统备份。")
         if (state.selectedPackage != null && state.rollbackIds.isNotEmpty()) {
-            SectionCard("可用回滚点") {
+            SectionCard("恢复前备份") {
+                Text(
+                    "这些不是分身快照；只在恢复或切换前生成，用来撤销本次操作并还原 user0。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 state.rollbackIds.take(8).forEach { id ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(id, Modifier.weight(1f))
-                        IosSecondaryButton(onClick = { viewModel.rollbackSelected(id) }) { Text("回滚") }
+                        IosSecondaryButton(onClick = { viewModel.rollbackSelected(id) }) { Text("恢复") }
                     }
                 }
             }

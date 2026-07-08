@@ -102,7 +102,7 @@ class SyncEngine(
         type = TaskType.ROLLBACK_MAIN_DATA,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取回滚点", "停止相关进程", "恢复旧数据", "恢复权限/AppOps", "完成"),
+        labels = listOf("检查 root", "读取恢复前备份", "停止相关进程", "恢复旧数据", "恢复权限/AppOps", "完成"),
         script = ShellScripts.rollback(packageName, rollbackId, settings, appPackage),
         report = report,
     )

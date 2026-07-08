@@ -224,8 +224,8 @@ private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: (
         ConfirmAction.DELETE -> "删除 active 快照"
     }
     val body = when (action) {
-        ConfirmAction.SWITCH -> "会先备份当前 user0 为还原点，再备份分身最新快照并恢复到 user0。完成后按钮会变为还原主系统态。"
-        ConfirmAction.RESTORE_SWITCH -> "会使用切换前保存的 user0 还原点恢复主系统，并清除切换标记。"
+        ConfirmAction.SWITCH -> "会先把当前 user0 保存为恢复前备份，再备份分身最新快照并恢复到 user0。完成后按钮会变为还原主系统态。"
+        ConfirmAction.RESTORE_SWITCH -> "会使用切换前保存的 user0 恢复前备份还原主系统，并清除切换标记。"
         ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 快照。旧 active 快照会移动到 history。"
         ConfirmAction.RESTORE -> "将使用已保存的黄金快照恢复主系统数据。这不会重新读取分身最新数据。"
         ConfirmAction.LATEST -> "将先更新分身快照，再恢复到主系统。该动作会覆盖主系统当前 App 数据。"
