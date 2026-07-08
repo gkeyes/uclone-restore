@@ -27,7 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 private enum class Destination(val label: String) {
     HOME("首页"),
     APPS("App"),
-    PROGRESS("进度"),
+    DATA("数据"),
     HISTORY("历史"),
     SETTINGS("设置"),
     DIAGNOSTICS("诊断"),
@@ -50,7 +50,7 @@ fun UCloneApp(viewModel: UCloneViewModel) {
                     listOf(
                         Destination.HOME to Icons.Default.Home,
                         Destination.APPS to Icons.Default.Apps,
-                        Destination.PROGRESS to Icons.Default.Assessment,
+                        Destination.DATA to Icons.Default.Assessment,
                         Destination.HISTORY to Icons.Default.History,
                         Destination.SETTINGS to Icons.Default.Settings,
                         Destination.DIAGNOSTICS to Icons.Default.Terminal,
@@ -76,7 +76,7 @@ fun UCloneApp(viewModel: UCloneViewModel) {
             when (destination) {
                 Destination.HOME -> HomeScreen(state, viewModel, modifier) { destination = Destination.DETAIL }
                 Destination.APPS -> AppListScreen(state, viewModel, modifier) { destination = Destination.DETAIL }
-                Destination.PROGRESS -> TaskProgressScreen(state, modifier)
+                Destination.DATA -> DataScreen(state, viewModel, modifier) { destination = Destination.DETAIL }
                 Destination.HISTORY -> HistoryScreen(state, viewModel, modifier)
                 Destination.SETTINGS -> SettingsScreen(state, viewModel, modifier)
                 Destination.DIAGNOSTICS -> DiagnosticsScreen(state, viewModel, modifier)

@@ -140,6 +140,18 @@ All spacing derives from 4dp.
 - **States**: default, pressed, disabled restore when no switch rollback marker exists.
 - **Accessibility**: destructive state changes still require confirmation.
 
+### DataSnapshotRow
+- **Structure**: app icon, app name/package, right-aligned snapshot size and time, chevron.
+- **Spacing**: 10dp vertical row padding, 10dp icon and metadata gaps.
+- **States**: default, pressed.
+- **Accessibility**: row opens App detail; no destructive action is embedded.
+
+### CompactTaskStatus
+- **Structure**: package name, task type/status, current step, optional progress bar.
+- **Placement**: Home only; the old standalone progress tab is replaced by the Data tab.
+- **States**: running, success, failed.
+- **Accessibility**: task state is text-first; progress is supporting signal only.
+
 ### CollapsedSearch
 - **Structure**: search icon button in the App header, expanding into a full-width input only when requested.
 - **States**: collapsed, expanded, clear-and-collapse.

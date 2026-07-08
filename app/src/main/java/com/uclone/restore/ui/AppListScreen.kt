@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -58,28 +57,35 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ScreenHeader("App", "点星标收藏到首页。")
-            IconButton(onClick = { searchExpanded = !searchExpanded }) {
-                Icon(Icons.Default.Search, contentDescription = "搜索")
+            if (!searchExpanded) {
+                IconButton(onClick = { searchExpanded = true }) {
+                    Icon(Icons.Default.Search, contentDescription = "搜索")
+                }
             }
         }
         if (searchExpanded) {
-            OutlinedTextField(
-                value = state.search,
-                onValueChange = viewModel::updateSearch,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("搜索包名或 App 名称") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    IconButton(onClick = {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = state.search,
+                    onValueChange = viewModel::updateSearch,
+                    modifier = Modifier.weight(1f),
+                    label = { Text("搜索包名或 App 名称") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true,
+                )
+                IosCompactButton(
+                    text = "收起",
+                    onClick = {
                         viewModel.updateSearch("")
                         searchExpanded = false
-                    }) {
-                        Icon(Icons.Default.Close, contentDescription = "关闭搜索")
-                    }
-                },
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true,
-            )
+                    },
+                )
+            }
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(apps, key = { it.packageName }) { app ->
