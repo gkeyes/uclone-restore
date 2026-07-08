@@ -79,7 +79,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
                 "收藏 App",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp, top = 2.dp),
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp, end = 4.dp),
             )
         }
         if (state.favoriteApps.isEmpty()) {
