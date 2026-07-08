@@ -53,7 +53,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             ScreenHeader("详情", "请先在 App 列表选择一个目标。")
             return@Column
         }
-        ScreenHeader("App 详情", "备份分身快照，或将已保存快照恢复到主系统。")
+        ScreenHeader("App 详情", "建立主动备份，或恢复到主系统。")
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -78,7 +78,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             InfoRow("分身 user${state.settings.cloneUserId}", if (app.user10Installed) "已安装 UID ${app.user10Uid}" else "未安装")
             RiskChip(app.riskLevel)
         }
-        SectionCard("黄金快照") {
+        SectionCard("主动备份") {
             InfoRow("状态", if (app.lastSnapshotAt == null) "未建立" else "已建立")
             InfoRow("时间", Formatters.time(app.lastSnapshotAt))
             InfoRow("大小", Formatters.kilobytes(app.snapshotSizeKb))
@@ -89,7 +89,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Text("恢复到主系统只读取 active 快照，不会实时读取分身最新数据。")
+            Text("恢复到主系统只读取 active 主动备份，不会实时读取分身最新数据。")
         }
         SectionCard("数据范围") {
             SettingCheck("CE App 私有数据", state.settings.includeCe) {
@@ -149,7 +149,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             }
             IosPrimaryButton(onClick = { confirm = ConfirmAction.CAPTURE }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.CloudDownload, contentDescription = null)
-                Text("备份分身快照")
+                Text("建立主动备份")
             }
             IosPrimaryButton(onClick = { confirm = ConfirmAction.RESTORE }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.RestartAlt, contentDescription = null)
@@ -218,18 +218,18 @@ private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: (
     val title = when (action) {
         ConfirmAction.SWITCH -> "切换到分身态"
         ConfirmAction.RESTORE_SWITCH -> "还原主系统态"
-        ConfirmAction.CAPTURE -> "备份分身快照"
+        ConfirmAction.CAPTURE -> "建立主动备份"
         ConfirmAction.RESTORE -> "恢复到主系统"
         ConfirmAction.LATEST -> "备份并恢复到主系统"
         ConfirmAction.DELETE -> "删除 active 快照"
     }
     val body = when (action) {
-        ConfirmAction.SWITCH -> "会先把当前 user0 保存为恢复前备份，再备份分身最新快照并恢复到 user0。完成后按钮会变为还原主系统态。"
-        ConfirmAction.RESTORE_SWITCH -> "会使用切换前保存的 user0 恢复前备份还原主系统，并清除切换标记。"
-        ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 快照。旧 active 快照会移动到 history。"
-        ConfirmAction.RESTORE -> "将使用已保存的黄金快照恢复主系统数据。这不会重新读取分身最新数据。"
-        ConfirmAction.LATEST -> "将先更新分身快照，再恢复到主系统。该动作会覆盖主系统当前 App 数据。"
-        ConfirmAction.DELETE -> "将删除当前 App 的 active 快照。history 和恢复前备份不会被删除。删除后无法直接恢复该 active 快照。"
+        ConfirmAction.SWITCH -> "会先把当前 user0 保存为被动备份，再建立分身主动备份并恢复到 user0。完成后按钮会变为还原主系统态。"
+        ConfirmAction.RESTORE_SWITCH -> "会使用切换前保存的 user0 被动备份还原主系统，并清除切换标记。"
+        ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 主动备份。旧 active 主动备份会移动到 history。"
+        ConfirmAction.RESTORE -> "将使用已保存的 active 主动备份恢复主系统数据。这不会重新读取分身最新数据。"
+        ConfirmAction.LATEST -> "将先更新分身主动备份，再恢复到主系统。该动作会覆盖主系统当前 App 数据。"
+        ConfirmAction.DELETE -> "将删除当前 App 的 active 快照。history 和被动备份不会被删除。删除后无法直接恢复该 active 快照。"
     }
     val text = if (highRisk && action != ConfirmAction.DELETE) {
         "$body\n\n该 App 可能使用 Keystore 或服务端风控，请确认风险。"

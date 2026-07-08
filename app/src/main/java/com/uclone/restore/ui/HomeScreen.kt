@@ -100,7 +100,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             items(state.favoriteApps, key = { it.packageName }) { app ->
                 FavoriteAppRow(
                     app = app,
-                    canRestore = state.switchRollbackIds.containsKey(app.packageName),
+                    switched = state.switchRollbackIds.containsKey(app.packageName),
                     onOpen = {
                         viewModel.selectPackage(app.packageName)
                         openDetail()
@@ -171,7 +171,7 @@ private fun CurrentTaskCard(state: UiState) {
 @Composable
 private fun FavoriteAppRow(
     app: AppEntry,
-    canRestore: Boolean,
+    switched: Boolean,
     onOpen: () -> Unit,
     onSwitch: () -> Unit,
     onRestore: () -> Unit,
@@ -201,8 +201,11 @@ private fun FavoriteAppRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IosCompactButton("切换", onClick = onSwitch, primary = true)
-            IosCompactButton("还原", onClick = onRestore, enabled = canRestore)
+            IosCompactButton(
+                text = if (switched) "还原" else "切换",
+                onClick = if (switched) onRestore else onSwitch,
+                primary = !switched,
+            )
         }
     }
 }
@@ -219,8 +222,8 @@ private fun HomeConfirmDialog(action: HomeConfirm, onDismiss: () -> Unit, onConf
         is HomeConfirm.Restore -> "还原主系统态"
     }
     val body = when (action) {
-        is HomeConfirm.Switch -> "会先保存当前主系统数据为还原点，再使用分身最新状态恢复 ${action.label}。"
-        is HomeConfirm.Restore -> "会用切换前保存的还原点恢复 ${action.label}，并清除首页还原标记。"
+        is HomeConfirm.Switch -> "会先保存当前主系统数据为被动备份，再使用分身最新状态恢复 ${action.label}。"
+        is HomeConfirm.Restore -> "会用切换前保存的被动备份恢复 ${action.label}，并清除首页还原标记。"
     }
     AlertDialog(
         onDismissRequest = onDismiss,

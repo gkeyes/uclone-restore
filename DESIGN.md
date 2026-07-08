@@ -135,16 +135,25 @@ All spacing derives from 4dp.
 - **Accessibility**: row text includes app name and status.
 
 ### FavoriteQuickRow
-- **Structure**: app icon, app name/package/size, right-aligned compact `切换` and `还原` actions.
+- **Structure**: app icon, app name/package/size, right-aligned compact state action.
+- **Behavior**: shows `切换` until a persistent switch marker exists, then changes to `还原`.
 - **Spacing**: 10dp vertical row padding, 10dp icon and action gaps.
-- **States**: default, pressed, disabled restore when no switch rollback marker exists.
+- **States**: default, pressed, switched.
 - **Accessibility**: destructive state changes still require confirmation.
 
-### DataSnapshotRow
-- **Structure**: app icon, app name/package, right-aligned snapshot size and time, chevron.
+### ActiveBackupRow
+- **Structure**: app icon, app name/package, active snapshot size and time, chevron.
+- **Meaning**: active backups are the clone-user snapshots under `snapshots/<package>/active`.
 - **Spacing**: 10dp vertical row padding, 10dp icon and metadata gaps.
 - **States**: default, pressed.
 - **Accessibility**: row opens App detail; no destructive action is embedded.
+
+### PassiveBackupRow
+- **Structure**: app icon, app name, backup id, source-operation note, size/time, restore action.
+- **Meaning**: passive backups are user0 backups created automatically before restore, switch, or restore-backup operations under `rollback/<package>/<time>`.
+- **Spacing**: 10dp vertical row padding, 10dp icon and action gaps.
+- **States**: default, pressed, restore confirmation required.
+- **Accessibility**: restore action opens confirmation before changing data.
 
 ### CompactTaskStatus
 - **Structure**: package name, task type/status, current step, optional progress bar.

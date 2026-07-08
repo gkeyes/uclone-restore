@@ -52,6 +52,7 @@ class UCloneViewModel(
             runBusy("读取 App 列表") {
                 val snapshots = syncEngine.snapshotMetadata(settings)
                 val switchMarkers = syncEngine.switchMarkerIds(settings)
+                val restoreBackups = syncEngine.listRestoreBackups(settings)
                 val apps = packageInspector.listApps(settings).map { app ->
                     val snapshot = snapshots[app.packageName]
                     app.copy(
@@ -59,7 +60,14 @@ class UCloneViewModel(
                         snapshotSizeKb = snapshot?.sizeKb,
                     )
                 }
-                _state.update { it.copy(apps = apps, switchRollbackIds = switchMarkers, message = "已读取 ${apps.size} 个 App") }
+                _state.update {
+                    it.copy(
+                        apps = apps,
+                        restoreBackups = restoreBackups,
+                        switchRollbackIds = switchMarkers,
+                        message = "已读取 ${apps.size} 个 App",
+                    )
+                }
             }
         }
     }
@@ -167,7 +175,12 @@ class UCloneViewModel(
 
     fun rollbackSelected(rollbackId: String) {
         val packageName = _state.value.selectedPackage ?: return
-        runTask("正在回滚主系统数据") { report ->
+        restoreBackup(packageName, rollbackId)
+    }
+
+    fun restoreBackup(packageName: String, rollbackId: String) {
+        _state.update { it.copy(selectedPackage = packageName) }
+        runTask("正在恢复被动备份") { report ->
             syncEngine.rollback(packageName, rollbackId, _state.value.settings, report)
         }
     }
@@ -239,7 +252,12 @@ class UCloneViewModel(
             SyncForegroundService.start(getApplication(), serviceMessage)
             try {
                 block { progress ->
-                    _state.update { it.copy(currentTask = progress, history = syncEngine.history()) }
+                    _state.update {
+                        it.copy(
+                            currentTask = progress,
+                            history = syncEngine.history(),
+                        )
+                    }
                 }
                 val task = _state.value.currentTask.task
                 val message = if (task?.status == TaskStatus.SUCCESS) "任务完成" else task?.message ?: "任务结束"
@@ -248,7 +266,14 @@ class UCloneViewModel(
                 _state.update { it.copy(message = error.message ?: "任务失败") }
             } finally {
                 SyncForegroundService.stop(getApplication())
-                _state.update { it.copy(busy = false, history = syncEngine.history()) }
+                val restoreBackups = syncEngine.listRestoreBackups(_state.value.settings)
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        history = syncEngine.history(),
+                        restoreBackups = restoreBackups,
+                    )
+                }
                 _state.value.selectedPackage?.let(::selectPackage)
             }
         }

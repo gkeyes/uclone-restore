@@ -58,8 +58,8 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 shape = RoundedCornerShape(14.dp),
                 singleLine = true,
             )
-            Text("快照: ${draft.rootDir}/snapshots/<包名>/active")
-            Text("恢复前备份: ${draft.rootDir}/rollback/<包名>/<时间>")
+            Text("主动备份: ${draft.rootDir}/snapshots/<包名>/active")
+            Text("被动备份: ${draft.rootDir}/rollback/<包名>/<时间>")
             Text("日志: ${draft.rootDir}/logs")
         }
         SectionCard("默认数据范围") {
@@ -82,7 +82,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
         }
         SectionCard("维护") {
             InfoRow("日志目录", "${state.settings.rootDir}/logs")
-            Text("清理日志只删除任务日志文件，不会删除快照、history 或 rollback。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("清理日志只删除任务日志文件，不会删除主动备份或被动备份。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             IosSecondaryButton(onClick = { confirmClearLogs = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Delete, contentDescription = null, tint = IosRed)
                 Text("清理任务日志", color = IosRed)
@@ -96,7 +96,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
         AlertDialog(
             onDismissRequest = { confirmClearLogs = false },
             title = { Text("清理任务日志") },
-            text = { Text("将删除 ${state.settings.rootDir}/logs 下的 .log 文件，并清空本次运行中的历史列表。快照和回滚备份不会被删除。") },
+            text = { Text("将删除 ${state.settings.rootDir}/logs 下的 .log 文件，并清空本次运行中的历史列表。主动备份和被动备份不会被删除。") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmClearLogs = false

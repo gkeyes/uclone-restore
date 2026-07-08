@@ -3,6 +3,7 @@ package com.uclone.restore.ui
 import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.EnvironmentStatus
+import com.uclone.restore.model.RestoreBackupEntry
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.UCloneSettings
@@ -17,6 +18,7 @@ data class UiState(
     val currentTask: TaskProgress = TaskProgress(null),
     val history: List<TaskRecord> = emptyList(),
     val rollbackIds: List<String> = emptyList(),
+    val restoreBackups: List<RestoreBackupEntry> = emptyList(),
     val switchRollbackIds: Map<String, String> = emptyMap(),
     val message: String? = null,
 ) {

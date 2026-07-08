@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.RestoreBackupEntry
 import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
@@ -47,7 +48,7 @@ class SyncEngine(
         type = TaskType.RESTORE_SNAPSHOT_TO_MAIN,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取黄金快照", "备份主系统旧数据", "覆盖目录内容", "恢复权限/AppOps", "完成"),
+        labels = listOf("检查 root", "读取主动备份", "生成被动备份", "覆盖目录内容", "恢复权限/AppOps", "完成"),
         script = ShellScripts.restore(packageName, settings, appPackage),
         report = report,
     )
@@ -73,7 +74,7 @@ class SyncEngine(
             type = TaskType.SWITCH_TO_CLONE_STATE,
             packageName = packageName,
             settings = settings,
-            labels = listOf("检查 root", "读取分身快照", "备份当前主系统", "恢复分身态", "记录还原点", "完成"),
+            labels = listOf("检查 root", "读取分身快照", "生成被动备份", "恢复分身态", "记录还原按钮", "完成"),
             script = ShellScripts.restoreForSwitch(packageName, settings, appPackage),
             report = report,
         )
@@ -88,7 +89,7 @@ class SyncEngine(
         type = TaskType.RESTORE_SWITCH_MAIN_STATE,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取切换还原点", "备份当前状态", "恢复主系统态", "清除切换标记", "完成"),
+        labels = listOf("检查 root", "读取切换前被动备份", "生成被动备份", "恢复主系统态", "清除切换标记", "完成"),
         script = ShellScripts.rollback(packageName, rollbackId, settings, appPackage, clearSwitchMarker = true),
         report = report,
     )
@@ -102,7 +103,7 @@ class SyncEngine(
         type = TaskType.ROLLBACK_MAIN_DATA,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取恢复前备份", "停止相关进程", "恢复旧数据", "恢复权限/AppOps", "完成"),
+        labels = listOf("检查 root", "读取被动备份", "停止相关进程", "恢复旧数据", "恢复权限/AppOps", "完成"),
         script = ShellScripts.rollback(packageName, rollbackId, settings, appPackage),
         report = report,
     )
@@ -186,6 +187,53 @@ class SyncEngine(
         val path = "${settings.rootDir}/rollback/$packageName"
         val result = shell.exec("[ -d ${shellQuote(path)} ] && ls -1 ${shellQuote(path)} || true", 20)
         return result.stdout.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
+    }
+
+    suspend fun listRestoreBackups(settings: UCloneSettings): List<RestoreBackupEntry> {
+        val rollbackRoot = "${settings.rootDir}/rollback"
+        val switchRoot = "${settings.rootDir}/switches"
+        val script = """
+            ROLLBACK_ROOT=${shellQuote(rollbackRoot)}
+            SWITCH_ROOT=${shellQuote(switchRoot)}
+            [ -d "${'$'}ROLLBACK_ROOT" ] || exit 0
+            for d in "${'$'}ROLLBACK_ROOT"/*/*; do
+              [ -d "${'$'}d" ] || continue
+              pkg=${'$'}(basename "${'$'}(dirname "${'$'}d")")
+              id=${'$'}(basename "${'$'}d")
+              ts=${'$'}(stat -c %Y "${'$'}d" 2>/dev/null || echo 0)
+              size=${'$'}(du -sk "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
+              active=0
+              if [ -f "${'$'}SWITCH_ROOT/${'$'}pkg/active" ] && [ "${'$'}(sed -n '1p' "${'$'}SWITCH_ROOT/${'$'}pkg/active" | tr -d '\r')" = "${'$'}id" ]; then
+                active=1
+              fi
+              reason=""
+              if [ -f "${'$'}d/manifest.json" ]; then
+                reason=${'$'}(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
+              fi
+              if [ -z "${'$'}reason" ]; then
+                case "${'$'}id" in
+                  rollback_*) reason="恢复主系统备份前生成" ;;
+                  *) if [ "${'$'}active" = "1" ]; then reason="切换到分身态前生成"; else reason="恢复或切换前生成"; fi ;;
+                esac
+              fi
+              printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${'$'}pkg" "${'$'}id" "${'$'}ts" "${'$'}size" "${'$'}active" "${'$'}reason"
+            done
+        """.trimIndent()
+        val result = shell.exec(script, 30)
+        return result.stdout.lineSequence().mapNotNull { line ->
+            val parts = line.split("\t", limit = 6)
+            val packageName = parts.getOrNull(0)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            val rollbackId = parts.getOrNull(1)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            val createdAt = parts.getOrNull(2)?.toLongOrNull()?.times(1000) ?: 0L
+            RestoreBackupEntry(
+                packageName = packageName,
+                rollbackId = rollbackId,
+                createdAt = createdAt,
+                sizeKb = parts.getOrNull(3)?.toLongOrNull(),
+                isActiveSwitchBackup = parts.getOrNull(4) == "1",
+                reason = parts.getOrNull(5)?.takeIf(String::isNotBlank) ?: "被动备份",
+            )
+        }.sortedByDescending { it.createdAt }
     }
 
     fun history(): List<TaskRecord> = logStore.all()

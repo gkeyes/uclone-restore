@@ -64,6 +64,15 @@ data class TaskProgress(
     val liveLog: String = "",
 )
 
+data class RestoreBackupEntry(
+    val packageName: String,
+    val rollbackId: String,
+    val createdAt: Long,
+    val sizeKb: Long?,
+    val reason: String,
+    val isActiveSwitchBackup: Boolean,
+)
+
 data class UCloneSettings(
     val mainUserId: Int = 0,
     val cloneUserId: Int = 10,

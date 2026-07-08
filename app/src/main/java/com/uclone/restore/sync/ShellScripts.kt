@@ -167,6 +167,7 @@ object ShellScripts {
         settings = settings,
         appPackage = appPackage,
         rollbackName = """${'$'}TS""",
+        rollbackReason = "恢复到主系统前生成",
     )
 
     fun restoreForSwitch(packageName: String, settings: UCloneSettings, appPackage: String): String = restoreBody(
@@ -174,6 +175,7 @@ object ShellScripts {
         settings = settings,
         appPackage = appPackage,
         rollbackName = """${'$'}TS""",
+        rollbackReason = "切换到分身态前生成",
         writeSwitchMarker = true,
     )
 
@@ -189,6 +191,7 @@ object ShellScripts {
             settings = settings,
             appPackage = appPackage,
             rollbackName = """rollback_${'$'}TS""",
+            rollbackReason = if (clearSwitchMarker) "还原主系统态前生成" else "恢复主系统备份前生成",
             sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId",
             clearSwitchMarker = clearSwitchMarker,
         )
@@ -218,6 +221,7 @@ object ShellScripts {
         settings: UCloneSettings,
         appPackage: String,
         rollbackName: String,
+        rollbackReason: String,
         sourcePrefix: String = "",
         writeSwitchMarker: Boolean = false,
         clearSwitchMarker: Boolean = false,
@@ -445,6 +449,10 @@ object ShellScripts {
             backup_dir "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/ce"
             backup_dir "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/de"
             ${if (settings.includePermissions) "backup_permission_state \"${'$'}ROLLBACK/permissions\"" else ":"}
+            ROLLBACK_SIZE_KB=${'$'}(du -sk "${'$'}ROLLBACK" 2>/dev/null | awk '{print ${'$'}1}')
+            cat > "${'$'}ROLLBACK/manifest.json" <<EOF
+            {"packageName":"${'$'}PKG","rollbackId":"${'$'}ROLLBACK_ID","createdAt":"${'$'}TS","reason":"$rollbackReason","sizeKb":"${'$'}ROLLBACK_SIZE_KB"}
+            EOF
             restore_part "${'$'}ACTIVE/ce" "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}UID_VALUE"
             restore_part "${'$'}ACTIVE/de" "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}UID_VALUE"
             restore_part "${'$'}ACTIVE/external" "/data/media/${settings.mainUserId}/Android/data/${'$'}PKG" ""
