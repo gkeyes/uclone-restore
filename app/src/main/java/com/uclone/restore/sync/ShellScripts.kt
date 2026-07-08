@@ -5,6 +5,8 @@ import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.root.shellQuote
 
 object ShellScripts {
+    private val rollbackIdPattern = Regex("[A-Za-z0-9_.-]+")
+
     fun capture(packageName: String, rule: AppRule, settings: UCloneSettings, appPackage: String): String = """
         set -u
         ROOT=${shellQuote(settings.rootDir)}
@@ -185,16 +187,19 @@ object ShellScripts {
         settings: UCloneSettings,
         appPackage: String,
         clearSwitchMarker: Boolean = false,
-    ): String =
-        restoreBody(
+    ): String {
+        requireSafeRollbackId(rollbackId)
+        return restoreBody(
             packageName = packageName,
             settings = settings,
             appPackage = appPackage,
             rollbackName = """rollback_${'$'}TS""",
             rollbackReason = if (clearSwitchMarker) "还原主系统态前生成" else "恢复主系统备份前生成",
             sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId",
+            sourceRollbackId = rollbackId,
             clearSwitchMarker = clearSwitchMarker,
         )
+    }
 
     fun deleteSnapshot(packageName: String, settings: UCloneSettings, appPackage: String): String = """
         set -u
@@ -221,7 +226,9 @@ object ShellScripts {
         rollbackId: String,
         settings: UCloneSettings,
         appPackage: String,
-    ): String = """
+    ): String {
+        requireSafeRollbackId(rollbackId)
+        return """
         set -u
         ROOT=${shellQuote(settings.rootDir)}
         PKG=${shellQuote(packageName)}
@@ -232,11 +239,15 @@ object ShellScripts {
         SWITCH_MARKER="${'$'}ROOT/switches/${'$'}PKG/active"
         [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
         [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "ERR_BAD_ROOT:${'$'}ROOT" >&2; exit 71; }
-        [ -n "${'$'}ROLLBACK_ID" ] || { echo "ERR_BAD_ROLLBACK_ID:${'$'}ROLLBACK_ID" >&2; exit 73; }
-        [ "${'$'}ROLLBACK_ID" != "." ] && [ "${'$'}ROLLBACK_ID" != ".." ] || { echo "ERR_BAD_ROLLBACK_ID:${'$'}ROLLBACK_ID" >&2; exit 73; }
-        case "${'$'}ROLLBACK_ID" in
-          *[!A-Za-z0-9_.-]*) echo "ERR_BAD_ROLLBACK_ID:${'$'}ROLLBACK_ID" >&2; exit 73 ;;
-        esac
+        validate_rollback_id() {
+          CHECK_ROLLBACK_ID="${'$'}1"
+          [ -n "${'$'}CHECK_ROLLBACK_ID" ] || { echo "ERR_BAD_ROLLBACK_ID:${'$'}CHECK_ROLLBACK_ID" >&2; exit 73; }
+          [ "${'$'}CHECK_ROLLBACK_ID" != "." ] && [ "${'$'}CHECK_ROLLBACK_ID" != ".." ] || { echo "ERR_BAD_ROLLBACK_ID:${'$'}CHECK_ROLLBACK_ID" >&2; exit 73; }
+          case "${'$'}CHECK_ROLLBACK_ID" in
+            *[!A-Za-z0-9_.-]*) echo "ERR_BAD_ROLLBACK_ID:${'$'}CHECK_ROLLBACK_ID" >&2; exit 73 ;;
+          esac
+        }
+        validate_rollback_id "${'$'}ROLLBACK_ID"
         case "${'$'}TARGET" in
           "${'$'}ROOT"/rollback/"${'$'}PKG"/"${'$'}ROLLBACK_ID") ;;
           *) echo "ERR_BAD_ROLLBACK_TARGET:${'$'}TARGET" >&2; exit 72 ;;
@@ -249,15 +260,13 @@ object ShellScripts {
         SIZE_KB=${'$'}(du -sk "${'$'}ROLLBACK_PARENT" 2>/dev/null | awk '{print ${'$'}1}')
         ITEMS=${'$'}(find "${'$'}ROLLBACK_PARENT" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
         EXPECTED_CHILD_PREFIX="${'$'}ROOT/rollback/${'$'}PKG/"
-        ROLLBACK_CHILDREN=${'$'}(find "${'$'}ROLLBACK_PARENT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-        DELETED_COUNT=0
-        for OLD in ${'$'}ROLLBACK_CHILDREN; do
+        DELETED_COUNT=${'$'}(find "${'$'}ROLLBACK_PARENT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+        find "${'$'}ROLLBACK_PARENT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while IFS= read -r OLD; do
           case "${'$'}OLD" in
             "${'$'}EXPECTED_CHILD_PREFIX"*) rm -rf "${'$'}OLD" || exit 75 ;;
             *) echo "ERR_BAD_ROLLBACK_CHILD:${'$'}OLD" >&2; exit 75 ;;
           esac
-          DELETED_COUNT=${'$'}((DELETED_COUNT + 1))
-        done
+        done || exit 75
         if [ -f "${'$'}SWITCH_MARKER" ]; then
           case "${'$'}SWITCH_MARKER" in
             "${'$'}ROOT"/switches/"${'$'}PKG"/active) rm -f "${'$'}SWITCH_MARKER" || exit 76 ;;
@@ -267,6 +276,7 @@ object ShellScripts {
         fi
         echo "DELETED_RESTORE_BACKUPS=${'$'}ROLLBACK_PARENT COUNT=${'$'}DELETED_COUNT SIZE_KB=${'$'}SIZE_KB ITEMS=${'$'}ITEMS"
     """.trimIndent()
+    }
 
     private fun restoreBody(
         packageName: String,
@@ -275,10 +285,12 @@ object ShellScripts {
         rollbackName: String,
         rollbackReason: String,
         sourcePrefix: String = "",
+        sourceRollbackId: String? = null,
         writeSwitchMarker: Boolean = false,
         clearSwitchMarker: Boolean = false,
     ): String {
         val sourceRoot = sourcePrefix.ifBlank { "${settings.rootDir}/snapshots/$packageName/active" }
+        sourceRollbackId?.let(::requireSafeRollbackId)
         return """
             set -u
             ROOT=${shellQuote(settings.rootDir)}
@@ -287,10 +299,26 @@ object ShellScripts {
             DST_USER=${settings.mainUserId}
             TS=${'$'}(date +%Y%m%d-%H%M%S)
             ACTIVE=${shellQuote(sourceRoot)}
+            SOURCE_ROLLBACK_ID=${shellQuote(sourceRollbackId.orEmpty())}
             ROLLBACK_ID="$rollbackName"
             ROLLBACK="${'$'}ROOT/rollback/${'$'}PKG/$rollbackName"
             [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
             [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "ERR_BAD_ROOT:${'$'}ROOT" >&2; exit 71; }
+            validate_rollback_id() {
+              CHECK_ROLLBACK_ID="${'$'}1"
+              [ -n "${'$'}CHECK_ROLLBACK_ID" ] || { echo "ERR_BAD_ROLLBACK_ID:${'$'}CHECK_ROLLBACK_ID" >&2; exit 73; }
+              [ "${'$'}CHECK_ROLLBACK_ID" != "." ] && [ "${'$'}CHECK_ROLLBACK_ID" != ".." ] || { echo "ERR_BAD_ROLLBACK_ID:${'$'}CHECK_ROLLBACK_ID" >&2; exit 73; }
+              case "${'$'}CHECK_ROLLBACK_ID" in
+                *[!A-Za-z0-9_.-]*) echo "ERR_BAD_ROLLBACK_ID:${'$'}CHECK_ROLLBACK_ID" >&2; exit 73 ;;
+              esac
+            }
+            if [ -n "${'$'}SOURCE_ROLLBACK_ID" ]; then
+              validate_rollback_id "${'$'}SOURCE_ROLLBACK_ID"
+              EXPECTED_ACTIVE="${'$'}ROOT/rollback/${'$'}PKG/${'$'}SOURCE_ROLLBACK_ID"
+            else
+              EXPECTED_ACTIVE="${'$'}ROOT/snapshots/${'$'}PKG/active"
+            fi
+            [ "${'$'}ACTIVE" = "${'$'}EXPECTED_ACTIVE" ] || { echo "ERR_BAD_RESTORE_SOURCE:${'$'}ACTIVE" >&2; exit 72; }
             [ -d "${'$'}ACTIVE" ] || { echo "ERR_SNAPSHOT_MISSING:${'$'}ACTIVE" >&2; exit 51; }
             [ "${'$'}ACTIVE" != "${'$'}ROLLBACK" ] || { echo "ERR_ROLLBACK_SOURCE_CONFLICT:${'$'}ACTIVE" >&2; exit 61; }
             UID_VALUE=${'$'}(cmd package list packages -U --user "${'$'}DST_USER" | awk -v p="package:${'$'}PKG" '${'$'}1==p { sub("uid:","",${'$'}2); print ${'$'}2; exit }')
@@ -508,8 +536,7 @@ object ShellScripts {
               fi
               [ -d "${'$'}ROLLBACK_PARENT" ] || return 0
               EXPECTED_CHILD_PREFIX="${'$'}ROOT/rollback/${'$'}PKG/"
-              ROLLBACK_CHILDREN=${'$'}(find "${'$'}ROLLBACK_PARENT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-              for OLD in ${'$'}ROLLBACK_CHILDREN; do
+              find "${'$'}ROLLBACK_PARENT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while IFS= read -r OLD; do
                 OLD_ID=${'$'}(basename "${'$'}OLD")
                 [ "${'$'}OLD_ID" = "${'$'}ROLLBACK_ID" ] && continue
                 case "${'$'}OLD" in
@@ -526,7 +553,16 @@ object ShellScripts {
                     echo "WARN_SKIP_BAD_ROLLBACK_PATH:${'$'}OLD"
                     ;;
                 esac
-              done
+              done || exit 70
+              if [ -f "${'$'}SWITCH_MARKER_FOR_PRUNE" ]; then
+                SWITCH_ID_AFTER_PRUNE=${'$'}(sed -n '1p' "${'$'}SWITCH_MARKER_FOR_PRUNE" | tr -d '\r')
+                if [ "${'$'}SWITCH_ID_AFTER_PRUNE" != "${'$'}ROLLBACK_ID" ] || [ ! -d "${'$'}ROLLBACK_PARENT/${'$'}SWITCH_ID_AFTER_PRUNE" ]; then
+                  case "${'$'}SWITCH_MARKER_FOR_PRUNE" in
+                    "${'$'}ROOT"/switches/"${'$'}PKG"/active) rm -f "${'$'}SWITCH_MARKER_FOR_PRUNE" && echo "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER_FOR_PRUNE" || exit 70 ;;
+                    *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER_FOR_PRUNE" >&2; exit 70 ;;
+                  esac
+                fi
+              fi
             }
             backup_dir "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/ce"
             backup_dir "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/de"
@@ -562,5 +598,11 @@ object ShellScripts {
             echo "ROLLBACK=${'$'}ROLLBACK"
             echo "RESTORE_SUMMARY: restoredParts=${'$'}RESTORED_PARTS restoredItems=${'$'}RESTORED_ITEMS backupParts=${'$'}BACKUP_PARTS"
         """.trimIndent()
+    }
+
+    private fun requireSafeRollbackId(rollbackId: String) {
+        require(rollbackId.isNotBlank() && rollbackId != "." && rollbackId != ".." && rollbackIdPattern.matches(rollbackId)) {
+            "Unsafe rollback id: $rollbackId"
+        }
     }
 }
