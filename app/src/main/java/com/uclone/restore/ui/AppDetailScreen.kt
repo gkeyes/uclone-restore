@@ -80,7 +80,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
     confirm?.let { action ->
         ConfirmDialog(
             action = action,
-            highRisk = app.riskLevel != RiskLevel.NORMAL,
+            highRisk = state.selectedApp?.riskLevel != RiskLevel.NORMAL,
             onDismiss = { confirm = null },
             onConfirm = {
                 confirm = null
