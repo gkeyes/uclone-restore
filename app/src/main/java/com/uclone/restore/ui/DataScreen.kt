@@ -71,7 +71,7 @@ fun DataScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
         if (activeBackups.isEmpty()) {
             item {
                 SectionCard("暂无主动备份") {
-                    Text("点击 App 详情里的“备份分身快照”后会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("点击 App 详情里的“建立主动备份”后会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {

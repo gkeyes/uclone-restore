@@ -168,7 +168,10 @@ private fun AppFilterButton(selectedFilters: Set<AppListFilter>, onChange: (Set<
                             Text(filter.label, style = MaterialTheme.typography.bodyMedium)
                         }
                     },
-                    onClick = { onChange(selectedFilters.toggle(filter)) },
+                    onClick = {
+                        onChange(selectedFilters.toggle(filter))
+                        expanded = false
+                    },
                 )
             }
         }
