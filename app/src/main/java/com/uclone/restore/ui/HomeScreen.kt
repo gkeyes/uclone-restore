@@ -1,6 +1,7 @@
 package com.uclone.restore.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -136,7 +137,8 @@ private fun FavoriteAppRow(
             .fillMaxWidth()
             .clickable(onClick = onOpen),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = IosGlass),
+        border = BorderStroke(1.dp, IosGlassBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(

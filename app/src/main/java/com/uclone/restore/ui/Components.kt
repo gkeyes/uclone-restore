@@ -49,7 +49,8 @@ fun SectionCard(title: String, modifier: Modifier = Modifier, content: @Composab
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = IosGlass),
+        border = BorderStroke(1.dp, IosGlassBorder),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -164,7 +165,7 @@ fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
         Box(
             modifier
                 .size(36.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)),
+                .background(IosGlassRaised, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Text(packageName.take(1).uppercase())
@@ -220,11 +221,11 @@ fun IosSecondaryButton(
         enabled = enabled,
         shape = RoundedCornerShape(999.dp),
         colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = IosRaised,
+            containerColor = IosGlassRaised,
             contentColor = IosText,
             disabledContentColor = IosSecondaryText,
         ),
-        border = BorderStroke(0.dp, Color.Transparent),
+        border = BorderStroke(1.dp, IosGlassBorder),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
         content = content,
     )
@@ -250,9 +251,9 @@ fun IosCompactButton(
         enabled = enabled,
         shape = RoundedCornerShape(999.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = if (primary) IosBlue else IosRaised,
+            containerColor = if (primary) IosBlue else IosGlassRaised,
             contentColor = textColor,
-            disabledContainerColor = IosRaised,
+            disabledContainerColor = IosGlassRaised,
             disabledContentColor = IosTertiaryText,
         ),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),

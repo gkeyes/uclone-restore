@@ -13,6 +13,9 @@ UClone Restore should feel like a precise iOS utility for a risky root workflow:
 | Surface/page | iosPage | #F5F5F7 | Main app background |
 | Surface/group | iosGroup | #FFFFFF | Grouped list cards and panels |
 | Surface/raised | iosRaised | #FAFAFC | Search fields and secondary fills |
+| Surface/glass | iosGlass | rgba(255,255,255,0.85) | Liquid Glass grouped cards and list rows |
+| Surface/glass raised | iosGlassRaised | rgba(255,255,255,0.75) | Secondary and compact glass controls |
+| Border/glass | iosGlassBorder | rgba(255,255,255,0.72) | Liquid Glass rim highlight |
 | Text/primary | iosText | #1D1D1F | Titles and primary row text |
 | Text/secondary | iosSecondary | #6E6E73 | Labels, package names, helper text |
 | Text/tertiary | iosTertiary | #8E8E93 | Metadata and muted hints |
@@ -28,6 +31,7 @@ UClone Restore should feel like a precise iOS utility for a risky root workflow:
 - Blue is reserved for actions, selection, and links.
 - White groups sit on the pale gray page; separators are used inside groups instead of heavy card shadows.
 - Status colors appear only in compact chips, status text, or progress rows.
+- Liquid Glass is applied only to grouped containers, list rows, and secondary controls; primary destructive or restore actions keep explicit blue/red semantics.
 
 ## 3. Typography
 
@@ -90,8 +94,8 @@ All spacing derives from 4dp.
 - **Accessibility**: title is the first meaningful text on the screen.
 
 ### IOSGroup
-- **Structure**: rounded white container with vertical content.
-- **Variants**: normal, compact.
+- **Structure**: rounded translucent glass container with vertical content and a subtle white rim.
+- **Variants**: normal, compact, list-row.
 - **Spacing**: 16dp padding, 12dp internal gap.
 - **States**: default only; contents own interaction states.
 - **Accessibility**: group title is visible when it adds context.
@@ -105,14 +109,14 @@ All spacing derives from 4dp.
 
 ### IOSActionButton
 - **Structure**: rounded capsule, optional icon, label.
-- **Variants**: primary blue, secondary raised, danger red text.
+- **Variants**: primary blue, secondary glass, danger red text.
 - **Spacing**: 10dp vertical, 14dp horizontal.
 - **States**: default, pressed, disabled.
 - **Accessibility**: minimum 44dp touch target.
 
 ### IOSCompactButton
 - **Structure**: compact capsule with a short verb.
-- **Variants**: primary blue, secondary raised, disabled.
+- **Variants**: primary blue, secondary glass, disabled.
 - **Spacing**: 7dp vertical, 12dp horizontal.
 - **States**: default, pressed, disabled.
 - **Accessibility**: use only for repeated row actions with very short labels.
@@ -166,10 +170,17 @@ All spacing derives from 4dp.
 
 ### Strategy
 
-Use tonal-shift plus subtle separators. The page is pale gray, groups are white, raised controls are off-white, and depth is communicated mostly by shape and contrast. Shadows stay minimal.
+Use Liquid Glass sparingly. The page is pale gray, groups and quick rows are translucent glass, raised controls are lightly tinted glass, and depth is communicated by rim highlight plus shape. Shadows stay minimal.
 
 | Level | Treatment | Usage |
 |-------|-----------|-------|
 | Level 0 | #F5F5F7 | Page background |
-| Level 1 | #FFFFFF, 18dp radius | Group panels |
-| Level 2 | #FAFAFC, 14dp radius, subtle separator | Search, logs, secondary controls |
+| Level 1 | rgba(255,255,255,0.85), 16dp radius, 1dp glass rim | Group panels and list rows |
+| Level 2 | rgba(255,255,255,0.75), capsule radius, 1dp glass rim | Secondary and compact controls |
+
+### Liquid Glass Rules
+
+- Treat cards and sibling row actions as one visual glass group rather than scattering independent translucent surfaces.
+- Use interactivity only on actual buttons, toggles, and tappable rows.
+- Do not nest multiple glass containers inside each other.
+- Keep text on glass at normal primary/secondary contrast; do not lower alpha on text.
