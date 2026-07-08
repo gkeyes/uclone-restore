@@ -46,6 +46,7 @@ class PackageInspector(
             isSystemApp = system,
             riskLevel = RiskClassifier.classify(packageName, label, system),
             lastSnapshotAt = null,
+            snapshotSizeKb = null,
             lastRestoreAt = null,
         )
     }

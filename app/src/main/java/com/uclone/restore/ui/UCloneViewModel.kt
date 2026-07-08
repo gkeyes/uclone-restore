@@ -50,9 +50,13 @@ class UCloneViewModel(
         viewModelScope.launch {
             val settings = _state.value.settings
             runBusy("读取 App 列表") {
-                val snapshots = syncEngine.snapshotTimes(settings)
+                val snapshots = syncEngine.snapshotMetadata(settings)
                 val apps = packageInspector.listApps(settings).map { app ->
-                    app.copy(lastSnapshotAt = snapshots[app.packageName])
+                    val snapshot = snapshots[app.packageName]
+                    app.copy(
+                        lastSnapshotAt = snapshot?.updatedAt,
+                        snapshotSizeKb = snapshot?.sizeKb,
+                    )
                 }
                 _state.update { it.copy(apps = apps, message = "已读取 ${apps.size} 个 App") }
             }
@@ -62,11 +66,18 @@ class UCloneViewModel(
     fun selectPackage(packageName: String) {
         viewModelScope.launch {
             val settings = _state.value.settings
-            val snapshotAt = syncEngine.latestSnapshotTime(packageName, settings)
+            val snapshot = syncEngine.latestSnapshotMetadata(packageName, settings)
             val rollbackIds = syncEngine.listRollbackIds(packageName, settings)
             _state.update {
                 val apps = it.apps.map { app ->
-                    if (app.packageName == packageName) app.copy(lastSnapshotAt = snapshotAt) else app
+                    if (app.packageName == packageName) {
+                        app.copy(
+                            lastSnapshotAt = snapshot?.updatedAt,
+                            snapshotSizeKb = snapshot?.sizeKb,
+                        )
+                    } else {
+                        app
+                    }
                 }
                 it.copy(selectedPackage = packageName, apps = apps, rollbackIds = rollbackIds)
             }
@@ -110,6 +121,33 @@ class UCloneViewModel(
         val packageName = _state.value.selectedPackage ?: return
         runTask("正在回滚主系统数据") { report ->
             syncEngine.rollback(packageName, rollbackId, _state.value.settings, report)
+        }
+    }
+
+    fun deleteSnapshotSelected() {
+        val packageName = _state.value.selectedPackage ?: return
+        runTask("正在删除 active 快照") { report ->
+            syncEngine.deleteSnapshot(packageName, _state.value.settings, report)
+        }
+    }
+
+    fun clearLogs() {
+        viewModelScope.launch {
+            runBusy("清理日志") {
+                val result = syncEngine.clearLogs(_state.value.settings)
+                val message = if (result.isSuccess) {
+                    result.stdout.trim().ifBlank { "日志已清理" }
+                } else {
+                    result.stderr.trim().ifBlank { "日志清理失败：${result.exitCode}" }
+                }
+                _state.update {
+                    it.copy(
+                        currentTask = TaskProgress(null),
+                        history = syncEngine.history(),
+                        message = message,
+                    )
+                }
+            }
         }
     }
 

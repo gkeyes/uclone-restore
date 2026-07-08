@@ -10,10 +10,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -22,13 +27,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.uclone.restore.model.UCloneSettings
 
 @Composable
 fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     var draft by remember(state.settings) { mutableStateOf(state.settings) }
+    var confirmClearLogs by remember { mutableStateOf(false) }
     Column(
         modifier
             .fillMaxSize()
@@ -66,6 +70,33 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
         IosPrimaryButton(onClick = { viewModel.saveSettings(draft) }, modifier = Modifier.fillMaxWidth()) {
             Text("保存设置")
         }
+        SectionCard("维护") {
+            InfoRow("日志目录", "${state.settings.rootDir}/logs")
+            Text("清理日志只删除任务日志文件，不会删除快照、history 或 rollback。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            IosSecondaryButton(onClick = { confirmClearLogs = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Delete, contentDescription = null, tint = IosRed)
+                Text("清理任务日志", color = IosRed)
+            }
+        }
+        if (state.message != null) {
+            Text(state.message, color = MaterialTheme.colorScheme.secondary)
+        }
+    }
+    if (confirmClearLogs) {
+        AlertDialog(
+            onDismissRequest = { confirmClearLogs = false },
+            title = { Text("清理任务日志") },
+            text = { Text("将删除 ${state.settings.rootDir}/logs 下的 .log 文件，并清空本次运行中的历史列表。快照和回滚备份不会被删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClearLogs = false
+                    viewModel.clearLogs()
+                }) {
+                    Text("继续", color = IosRed)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmClearLogs = false }) { Text("取消") } },
+        )
     }
 }
 

@@ -78,7 +78,7 @@ private fun AppRow(app: AppEntry, onClick: () -> Unit) {
                 Text(app.label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(app.packageName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    "user0 ${if (app.user0Installed) "已安装" else "缺失"} · user10 ${if (app.user10Installed) "已安装" else "缺失"} · ${Formatters.time(app.lastSnapshotAt)}",
+                    "user0 ${if (app.user0Installed) "已安装" else "缺失"} · user10 ${if (app.user10Installed) "已安装" else "缺失"} · ${Formatters.time(app.lastSnapshotAt)} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = IosTertiaryText,
                 )

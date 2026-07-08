@@ -10,6 +10,7 @@ data class AppEntry(
     val isSystemApp: Boolean,
     val riskLevel: RiskLevel,
     val lastSnapshotAt: Long?,
+    val snapshotSizeKb: Long?,
     val lastRestoreAt: Long?,
 )
 
@@ -85,6 +86,7 @@ enum class TaskType {
     RESTORE_SNAPSHOT_TO_MAIN,
     ROLLBACK_MAIN_DATA,
     RESTORE_FROM_CLONE_LATEST,
+    DELETE_SNAPSHOT,
 }
 
 enum class TaskStatus {

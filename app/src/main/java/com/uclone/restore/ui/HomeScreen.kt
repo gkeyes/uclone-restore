@@ -65,6 +65,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             SectionCard(app.label) {
                 InfoRow("包名", app.packageName)
                 InfoRow("快照", Formatters.time(app.lastSnapshotAt))
+                InfoRow("大小", Formatters.kilobytes(app.snapshotSizeKb))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     IosPrimaryButton(onClick = {
                         viewModel.selectPackage(app.packageName)

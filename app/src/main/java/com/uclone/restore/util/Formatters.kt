@@ -23,4 +23,10 @@ object Formatters {
         }
         return "%.1f %s".format(Locale.US, size, units[index])
     }
+
+    fun kilobytes(value: Long?): String = when {
+        value == null -> "未建立"
+        value <= 0L -> "0 KB"
+        else -> bytes(value * 1024)
+    }
 }

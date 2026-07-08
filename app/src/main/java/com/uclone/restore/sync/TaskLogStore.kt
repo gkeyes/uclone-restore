@@ -13,6 +13,10 @@ class TaskLogStore(private val shell: RootShellExecutor) {
 
     fun all(): List<TaskRecord> = records.sortedByDescending { it.startedAt }
 
+    fun clear() {
+        records.clear()
+    }
+
     fun running(type: TaskType, packageName: String, logPath: String): TaskRecord =
         TaskRecord(
             id = ids.incrementAndGet(),

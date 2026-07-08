@@ -12,6 +12,11 @@ import com.uclone.restore.root.RootEnvironmentChecker
 import com.uclone.restore.root.RootShellExecutor
 import com.uclone.restore.root.shellQuote
 
+data class SnapshotMetadata(
+    val updatedAt: Long,
+    val sizeKb: Long?,
+)
+
 class SyncEngine(
     private val shell: RootShellExecutor,
     private val environmentChecker: RootEnvironmentChecker,
@@ -42,7 +47,7 @@ class SyncEngine(
         type = TaskType.RESTORE_SNAPSHOT_TO_MAIN,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取黄金快照", "备份主系统旧数据", "恢复到 user0", "修正 UID/GID", "执行 restorecon"),
+        labels = listOf("检查 root", "读取黄金快照", "停止相关进程", "备份主系统旧数据", "覆盖目录内容", "修正 owner/context"),
         script = ShellScripts.restore(packageName, settings, appPackage),
         report = report,
     )
@@ -66,18 +71,33 @@ class SyncEngine(
         type = TaskType.ROLLBACK_MAIN_DATA,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取回滚点", "停止主系统 App", "恢复旧数据", "修正权限", "完成"),
+        labels = listOf("检查 root", "读取回滚点", "停止相关进程", "恢复旧数据", "修正 owner/context", "完成"),
         script = ShellScripts.rollback(packageName, rollbackId, settings, appPackage),
         report = report,
     )
 
+    suspend fun deleteSnapshot(
+        packageName: String,
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord = runScriptTask(
+        type = TaskType.DELETE_SNAPSHOT,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查 root", "读取 active 快照", "统计大小", "删除 active", "确认清理"),
+        script = ShellScripts.deleteSnapshot(packageName, settings, appPackage),
+        report = report,
+    )
+
     suspend fun latestSnapshotTime(packageName: String, settings: UCloneSettings): Long? {
-        val path = "${settings.rootDir}/snapshots/$packageName/active/manifest.json"
-        val result = shell.exec("[ -f ${shellQuote(path)} ] && stat -c %Y ${shellQuote(path)} || true", 20)
-        return result.stdout.trim().toLongOrNull()?.times(1000)
+        return latestSnapshotMetadata(packageName, settings)?.updatedAt
     }
 
-    suspend fun snapshotTimes(settings: UCloneSettings): Map<String, Long> {
+    suspend fun latestSnapshotMetadata(packageName: String, settings: UCloneSettings): SnapshotMetadata? {
+        return snapshotMetadata(settings).getValueOrNull(packageName)
+    }
+
+    suspend fun snapshotMetadata(settings: UCloneSettings): Map<String, SnapshotMetadata> {
         val root = "${settings.rootDir}/snapshots"
         val script = """
             [ -d ${shellQuote(root)} ] || exit 0
@@ -85,16 +105,25 @@ class SyncEngine(
               [ -f "${'$'}f" ] || continue
               pkg=${'$'}(basename "${'$'}(dirname "${'$'}(dirname "${'$'}f")")")
               ts=${'$'}(stat -c %Y "${'$'}f" 2>/dev/null || echo 0)
-              echo "${'$'}pkg ${'$'}ts"
+              size=${'$'}(sed -n 's/.*"snapshotSizeKb":"\([0-9][0-9]*\)".*/\1/p' "${'$'}f" | head -1)
+              [ -n "${'$'}size" ] || size=${'$'}(du -sk "${'$'}(dirname "${'$'}f")" 2>/dev/null | awk '{print ${'$'}1}')
+              echo "${'$'}pkg ${'$'}ts ${'$'}size"
             done
         """.trimIndent()
         val result = shell.exec(script, 30)
         return result.stdout.lineSequence().mapNotNull { line ->
             val parts = line.trim().split(" ")
+            val packageName = parts.firstOrNull() ?: return@mapNotNull null
             val millis = parts.getOrNull(1)?.toLongOrNull()?.times(1000) ?: return@mapNotNull null
-            parts.firstOrNull()?.let { it to millis }
+            packageName to SnapshotMetadata(
+                updatedAt = millis,
+                sizeKb = parts.getOrNull(2)?.toLongOrNull(),
+            )
         }.toMap()
     }
+
+    suspend fun snapshotTimes(settings: UCloneSettings): Map<String, Long> =
+        snapshotMetadata(settings).mapValues { it.value.updatedAt }
 
     suspend fun listRollbackIds(packageName: String, settings: UCloneSettings): List<String> {
         val path = "${settings.rootDir}/rollback/$packageName"
@@ -103,6 +132,26 @@ class SyncEngine(
     }
 
     fun history(): List<TaskRecord> = logStore.all()
+
+    suspend fun clearLogs(settings: UCloneSettings) =
+        shell.exec(
+            """
+                LOG_DIR=${shellQuote("${settings.rootDir}/logs")}
+                mkdir -p "${'$'}LOG_DIR" || exit 10
+                COUNT=0
+                for f in "${'$'}LOG_DIR"/*.log; do
+                  [ -f "${'$'}f" ] || continue
+                  rm -f "${'$'}f" || exit 11
+                  COUNT=${'$'}((COUNT + 1))
+                done
+                echo "CLEARED_LOGS=${'$'}COUNT"
+            """.trimIndent(),
+            timeoutSeconds = 60,
+        ).also { result ->
+            if (result.isSuccess) {
+                logStore.clear()
+            }
+        }
 
     suspend fun startCloneUser(settings: UCloneSettings) =
         shell.exec("am start-user -w ${settings.cloneUserId}", timeoutSeconds = 60)
@@ -177,3 +226,5 @@ class SyncEngine(
             }
         }
 }
+
+private fun <K, V> Map<K, V>.getValueOrNull(key: K): V? = if (containsKey(key)) getValue(key) else null

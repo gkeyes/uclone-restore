@@ -140,6 +140,26 @@ object ShellScripts {
             sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId",
         )
 
+    fun deleteSnapshot(packageName: String, settings: UCloneSettings, appPackage: String): String = """
+        set -u
+        ROOT=${shellQuote(settings.rootDir)}
+        PKG=${shellQuote(packageName)}
+        APP_PKG=${shellQuote(appPackage)}
+        ACTIVE="${'$'}ROOT/snapshots/${'$'}PKG/active"
+        [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
+        [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "ERR_BAD_ROOT:${'$'}ROOT" >&2; exit 71; }
+        case "${'$'}ACTIVE" in
+          "${'$'}ROOT"/snapshots/"${'$'}PKG"/active) ;;
+          *) echo "ERR_BAD_DELETE_TARGET:${'$'}ACTIVE" >&2; exit 72 ;;
+        esac
+        [ -d "${'$'}ACTIVE" ] || { echo "ERR_SNAPSHOT_MISSING:${'$'}ACTIVE" >&2; exit 73; }
+        SIZE_KB=${'$'}(du -sk "${'$'}ACTIVE" 2>/dev/null | awk '{print ${'$'}1}')
+        ITEMS=${'$'}(find "${'$'}ACTIVE" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+        rm -rf "${'$'}ACTIVE" || exit 74
+        [ ! -e "${'$'}ACTIVE" ] || { echo "ERR_DELETE_FAILED:${'$'}ACTIVE" >&2; exit 75; }
+        echo "DELETED_SNAPSHOT=${'$'}ACTIVE SIZE_KB=${'$'}SIZE_KB ITEMS=${'$'}ITEMS"
+    """.trimIndent()
+
     private fun restoreBody(
         packageName: String,
         settings: UCloneSettings,
@@ -163,7 +183,20 @@ object ShellScripts {
             UID_VALUE=${'$'}(cmd package list packages -U --user "${'$'}DST_USER" | awk -v p="package:${'$'}PKG" '${'$'}1==p { sub("uid:","",${'$'}2); print ${'$'}2; exit }')
             [ -n "${'$'}UID_VALUE" ] || { echo "ERR_TARGET_UID_MISSING" >&2; exit 52; }
             mkdir -p "${'$'}ROLLBACK" "${'$'}ROOT/tmp" || exit 53
-            am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+            force_stop_package_users() {
+              STOPPED_USERS=""
+              for U in ${'$'}(pm list users 2>/dev/null | sed -n 's/.*UserInfo{\([0-9][0-9]*\):.*/\1/p'); do
+                [ -n "${'$'}U" ] || continue
+                am force-stop --user "${'$'}U" "${'$'}PKG" >/dev/null 2>&1 || true
+                STOPPED_USERS="${'$'}STOPPED_USERS ${'$'}U"
+              done
+              case " ${'$'}STOPPED_USERS " in
+                *" ${'$'}DST_USER "*) ;;
+                *) am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || true ;;
+              esac
+              echo "FORCE_STOP_USERS:${'$'}STOPPED_USERS"
+            }
+            force_stop_package_users
             BACKUP_PARTS=0
             RESTORED_PARTS=0
             RESTORED_ITEMS=0
@@ -184,26 +217,85 @@ object ShellScripts {
               BACKUP_PARTS=${'$'}((BACKUP_PARTS + 1))
               echo "BACKUP:${'$'}SRC ITEMS=${'$'}BACKUP_ITEMS"
             }
+            validate_target_path() {
+              CHECK_TARGET="${'$'}1"
+              [ -n "${'$'}CHECK_TARGET" ] && [ "${'$'}CHECK_TARGET" != "/" ] || { echo "ERR_UNSAFE_TARGET:${'$'}CHECK_TARGET" >&2; exit 66; }
+              case "${'$'}CHECK_TARGET" in
+                /data/user/${settings.mainUserId}/${'$'}PKG|/data/user_de/${settings.mainUserId}/${'$'}PKG|/data/media/${settings.mainUserId}/Android/data/${'$'}PKG|/data/media/${settings.mainUserId}/Android/media/${'$'}PKG|/data/media/${settings.mainUserId}/Android/obb/${'$'}PKG) ;;
+                *) echo "ERR_UNSAFE_TARGET:${'$'}CHECK_TARGET" >&2; exit 66 ;;
+              esac
+            }
+            clear_target_contents() {
+              CLEAR_TARGET="${'$'}1"
+              validate_target_path "${'$'}CLEAR_TARGET"
+              [ -d "${'$'}CLEAR_TARGET" ] || { echo "ERR_TARGET_MISSING:${'$'}CLEAR_TARGET" >&2; exit 67; }
+              find "${'$'}CLEAR_TARGET" -mindepth 1 -maxdepth 1 -exec rm -rf {} \; || exit 68
+            }
+            read_target_context() {
+              CONTEXT_TARGET="${'$'}1"
+              ls -Zd "${'$'}CONTEXT_TARGET" 2>/dev/null | awk '{print ${'$'}1; exit}'
+            }
+            apply_target_security() {
+              SEC_TARGET="${'$'}1"
+              SEC_OWNER="${'$'}2"
+              SEC_CONTEXT="${'$'}3"
+              if [ -n "${'$'}SEC_OWNER" ]; then
+                chown -R "${'$'}SEC_OWNER" "${'$'}SEC_TARGET" || exit 59
+                OWNER_UID=${'$'}(echo "${'$'}SEC_OWNER" | cut -d: -f1)
+                case "${'$'}OWNER_UID" in
+                  ''|*[!0-9]*) ;;
+                  *)
+                    APP_ID=${'$'}((OWNER_UID % 100000))
+                    CACHE_GID=${'$'}((20000 + APP_ID))
+                    [ -d "${'$'}SEC_TARGET/cache" ] && chown -R "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SEC_TARGET/cache" >/dev/null 2>&1 || true
+                    [ -d "${'$'}SEC_TARGET/code_cache" ] && chown -R "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SEC_TARGET/code_cache" >/dev/null 2>&1 || true
+                    ;;
+                esac
+              fi
+              if [ -n "${'$'}SEC_CONTEXT" ]; then
+                chcon -R -h "${'$'}SEC_CONTEXT" "${'$'}SEC_TARGET" >/dev/null 2>&1 || restorecon -RF "${'$'}SEC_TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}SEC_TARGET" >/dev/null 2>&1 || exit 60
+              else
+                restorecon -RF "${'$'}SEC_TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}SEC_TARGET" >/dev/null 2>&1 || exit 60
+              fi
+            }
             restore_part() {
               SNAP="${'$'}1"
               TARGET="${'$'}2"
-              OWNER="${'$'}3"
+              OWNER_UID="${'$'}3"
               [ -d "${'$'}SNAP" ] || { echo "SKIP_PART:${'$'}SNAP"; return 0; }
+              validate_target_path "${'$'}TARGET"
               SNAP_ITEMS=${'$'}(count_items "${'$'}SNAP")
               [ "${'$'}SNAP_ITEMS" -gt 0 ] || { echo "ERR_EMPTY_SNAPSHOT_PART:${'$'}SNAP" >&2; exit 64; }
-              TMP="${'$'}TARGET.tmp.uclone.${'$'}TS"
+              mkdir -p "${'$'}TARGET" || exit 56
+              TARGET_CONTEXT=${'$'}(read_target_context "${'$'}TARGET")
+              case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
+              if [ -z "${'$'}TARGET_CONTEXT" ]; then
+                restorecon -RF "${'$'}TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}TARGET" >/dev/null 2>&1 || true
+                TARGET_CONTEXT=${'$'}(read_target_context "${'$'}TARGET")
+                case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
+              fi
+              if [ -n "${'$'}OWNER_UID" ]; then
+                TARGET_OWNER="${'$'}OWNER_UID:${'$'}OWNER_UID"
+              else
+                TARGET_OWNER=${'$'}(stat -c '%u:%g' "${'$'}TARGET" 2>/dev/null || true)
+                case "${'$'}TARGET_OWNER" in *:*) ;; *) TARGET_OWNER="" ;; esac
+              fi
+              TMP_INDEX=${'$'}((RESTORED_PARTS + 1))
+              TMP="${'$'}ROOT/tmp/restore_${'$'}{PKG}_${'$'}{TS}_${'$'}TMP_INDEX"
               rm -rf "${'$'}TMP"
               mkdir -p "${'$'}TMP" || exit 56
               (cd "${'$'}SNAP" && tar -cpf - .) | (cd "${'$'}TMP" && tar -xpf -) || exit 57
-              rm -rf "${'$'}TARGET"
-              mv "${'$'}TMP" "${'$'}TARGET" || exit 58
-              if [ -n "${'$'}OWNER" ]; then chown -R "${'$'}OWNER:${'$'}OWNER" "${'$'}TARGET" || exit 59; fi
-              restorecon -RF "${'$'}TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}TARGET" >/dev/null 2>&1 || exit 60
+              TMP_ITEMS=${'$'}(count_items "${'$'}TMP")
+              [ "${'$'}TMP_ITEMS" -gt 0 ] || { echo "ERR_EXTRACT_EMPTY:${'$'}SNAP" >&2; exit 69; }
+              clear_target_contents "${'$'}TARGET"
+              (cd "${'$'}TMP" && tar -cpf - .) | (cd "${'$'}TARGET" && tar -xpf -) || exit 58
+              rm -rf "${'$'}TMP"
+              apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT"
               TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET")
               [ "${'$'}TARGET_ITEMS" -gt 0 ] || { echo "ERR_RESTORE_EMPTY:${'$'}TARGET" >&2; exit 65; }
               RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
               RESTORED_ITEMS=${'$'}((RESTORED_ITEMS + TARGET_ITEMS))
-              echo "RESTORED:${'$'}TARGET ITEMS=${'$'}TARGET_ITEMS"
+              echo "RESTORED:${'$'}TARGET ITEMS=${'$'}TARGET_ITEMS OWNER=${'$'}TARGET_OWNER CONTEXT=${'$'}TARGET_CONTEXT"
             }
             backup_dir "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/ce"
             backup_dir "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/de"
@@ -214,7 +306,7 @@ object ShellScripts {
             restore_part "${'$'}ACTIVE/obb" "/data/media/${settings.mainUserId}/Android/obb/${'$'}PKG" ""
             [ "${'$'}RESTORED_PARTS" -gt 0 ] || { echo "ERR_NOTHING_RESTORED:${'$'}ACTIVE" >&2; exit 62; }
             sync
-            am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+            force_stop_package_users
             echo "ROLLBACK=${'$'}ROLLBACK"
             echo "RESTORE_SUMMARY: restoredParts=${'$'}RESTORED_PARTS restoredItems=${'$'}RESTORED_ITEMS backupParts=${'$'}BACKUP_PARTS"
         """.trimIndent()

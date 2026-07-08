@@ -12,10 +12,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -64,6 +66,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         SectionCard("黄金快照") {
             InfoRow("状态", if (app.lastSnapshotAt == null) "未建立" else "已建立")
             InfoRow("时间", Formatters.time(app.lastSnapshotAt))
+            InfoRow("大小", Formatters.kilobytes(app.snapshotSizeKb))
             Text("保存位置", color = MaterialTheme.colorScheme.onSurfaceVariant)
             SelectionContainer {
                 Text(
@@ -93,6 +96,25 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 viewModel.saveSettings(state.settings.copy(excludeCache = it))
             }
         }
+        val task = state.currentTask.task
+        if (task?.packageName == app.packageName && (state.busy || state.currentTask.steps.isNotEmpty())) {
+            SectionCard("任务进度") {
+                Text(task.type.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (state.busy) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+                state.currentTask.steps.forEach { step ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        StepIcon(step.status)
+                        Text(step.label)
+                    }
+                }
+            }
+        }
         SectionCard("操作") {
             IosPrimaryButton(onClick = { confirm = ConfirmAction.CAPTURE }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.CloudDownload, contentDescription = null)
@@ -105,6 +127,14 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             IosSecondaryButton(onClick = { confirm = ConfirmAction.LATEST }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Sync, contentDescription = null)
                 Text("备份并恢复到主系统")
+            }
+            IosSecondaryButton(
+                onClick = { confirm = ConfirmAction.DELETE },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = app.lastSnapshotAt != null,
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = null, tint = IosRed)
+                Text("删除 active 快照", color = IosRed)
             }
         }
     }
@@ -119,6 +149,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                     ConfirmAction.CAPTURE -> viewModel.captureSelected()
                     ConfirmAction.RESTORE -> viewModel.restoreSelected()
                     ConfirmAction.LATEST -> viewModel.restoreLatestSelected()
+                    ConfirmAction.DELETE -> viewModel.deleteSnapshotSelected()
                 }
             },
         )
@@ -147,7 +178,7 @@ private fun SettingCheck(label: String, checked: Boolean, onChange: (Boolean) ->
     }
 }
 
-private enum class ConfirmAction { CAPTURE, RESTORE, LATEST }
+private enum class ConfirmAction { CAPTURE, RESTORE, LATEST, DELETE }
 
 @Composable
 private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
@@ -155,16 +186,23 @@ private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: (
         ConfirmAction.CAPTURE -> "备份分身快照"
         ConfirmAction.RESTORE -> "恢复到主系统"
         ConfirmAction.LATEST -> "备份并恢复到主系统"
+        ConfirmAction.DELETE -> "删除 active 快照"
     }
     val body = when (action) {
         ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 快照。旧 active 快照会移动到 history。"
         ConfirmAction.RESTORE -> "将使用已保存的黄金快照恢复主系统数据。这不会重新读取分身最新数据。"
         ConfirmAction.LATEST -> "将先更新分身快照，再恢复到主系统。该动作会覆盖主系统当前 App 数据。"
+        ConfirmAction.DELETE -> "将删除当前 App 的 active 快照。history 和恢复前备份不会被删除。删除后无法直接恢复该 active 快照。"
+    }
+    val text = if (highRisk && action != ConfirmAction.DELETE) {
+        "$body\n\n该 App 可能使用 Keystore 或服务端风控，请确认风险。"
+    } else {
+        body
     }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { Text(if (highRisk) "$body\n\n该 App 可能使用 Keystore 或服务端风控，请确认风险。" else body) },
+        text = { Text(text) },
         confirmButton = { TextButton(onClick = onConfirm) { Text("继续") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
