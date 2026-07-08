@@ -1,14 +1,16 @@
 package com.uclone.restore.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -25,23 +27,27 @@ import com.uclone.restore.model.UCloneSettings
 @Composable
 fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     var draft by remember(state.settings) { mutableStateOf(state.settings) }
-    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("设置", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+    Column(
+        modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        ScreenHeader("设置", "调整用户 ID、保存路径和默认备份范围。")
         SectionCard("用户 ID") {
             NumberField("主系统 ID", draft.mainUserId) { draft = draft.copy(mainUserId = it) }
             NumberField("分身系统 ID", draft.cloneUserId) { draft = draft.copy(cloneUserId = it) }
         }
-        SectionCard("路径") {
+        SectionCard("设备内保存路径") {
             OutlinedTextField(
                 value = draft.rootDir,
                 onValueChange = { draft = draft.copy(rootDir = it) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Root 数据目录") },
+                shape = RoundedCornerShape(14.dp),
                 singleLine = true,
             )
-            Text("${draft.rootDir}/snapshots")
-            Text("${draft.rootDir}/rollback")
-            Text("${draft.rootDir}/logs")
+            Text("快照: ${draft.rootDir}/snapshots/<包名>/active")
+            Text("恢复前备份: ${draft.rootDir}/rollback/<包名>/<时间>")
+            Text("日志: ${draft.rootDir}/logs")
         }
         SectionCard("默认数据范围") {
             ToggleRow("CE 数据", draft.includeCe) { draft = draft.copy(includeCe = it) }
@@ -51,7 +57,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             ToggleRow("obb", draft.includeObb) { draft = draft.copy(includeObb = it) }
             ToggleRow("排除 cache/code_cache", draft.excludeCache) { draft = draft.copy(excludeCache = it) }
         }
-        Button(onClick = { viewModel.saveSettings(draft) }) {
+        IosPrimaryButton(onClick = { viewModel.saveSettings(draft) }, modifier = Modifier.fillMaxWidth()) {
             Text("保存设置")
         }
     }
@@ -64,6 +70,7 @@ private fun NumberField(label: String, value: Int, onChange: (Int) -> Unit) {
         onValueChange = { text -> text.toIntOrNull()?.let(onChange) },
         modifier = Modifier.fillMaxWidth(),
         label = { Text(label) },
+        shape = RoundedCornerShape(14.dp),
         singleLine = true,
     )
 }
@@ -72,6 +79,16 @@ private fun NumberField(label: String, value: Int, onChange: (Int) -> Unit) {
 private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(label)
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = IosGroup,
+                checkedTrackColor = IosGreen,
+                uncheckedThumbColor = IosGroup,
+                uncheckedTrackColor = IosSeparator,
+                uncheckedBorderColor = IosSeparator,
+            ),
+        )
     }
 }

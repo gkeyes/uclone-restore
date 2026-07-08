@@ -1,5 +1,6 @@
 package com.uclone.restore.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,13 +23,17 @@ import com.uclone.restore.model.StepStatus
 @Composable
 fun TaskProgressScreen(state: UiState, modifier: Modifier) {
     Column(
-        modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text("执行进度", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        ScreenHeader("进度", "跟踪当前 root 任务、步骤状态和最近日志。")
         val task = state.currentTask.task
         SectionCard(task?.packageName ?: "暂无任务") {
-            Text(task?.type?.name ?: "没有正在执行或最近完成的任务")
+            Text(task?.type?.name ?: "没有正在执行或最近完成的任务", color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.currentTask.steps.forEach { step ->
                 Row(

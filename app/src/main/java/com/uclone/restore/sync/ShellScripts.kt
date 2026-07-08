@@ -57,7 +57,13 @@ object ShellScripts {
     )
 
     fun rollback(packageName: String, rollbackId: String, settings: UCloneSettings, appPackage: String): String =
-        restoreBody(packageName, settings, appPackage, rollbackId, sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId")
+        restoreBody(
+            packageName = packageName,
+            settings = settings,
+            appPackage = appPackage,
+            rollbackName = """rollback_${'$'}TS""",
+            sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId",
+        )
 
     private fun restoreBody(
         packageName: String,
@@ -78,6 +84,7 @@ object ShellScripts {
             ROLLBACK="${'$'}ROOT/rollback/${'$'}PKG/$rollbackName"
             [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
             [ -d "${'$'}ACTIVE" ] || { echo "ERR_SNAPSHOT_MISSING:${'$'}ACTIVE" >&2; exit 51; }
+            [ "${'$'}ACTIVE" != "${'$'}ROLLBACK" ] || { echo "ERR_ROLLBACK_SOURCE_CONFLICT:${'$'}ACTIVE" >&2; exit 61; }
             UID_VALUE=${'$'}(cmd package list packages -U --user "${'$'}DST_USER" | awk -v p="package:${'$'}PKG" '${'$'}1==p { sub("uid:","",${'$'}2); print ${'$'}2; exit }')
             [ -n "${'$'}UID_VALUE" ] || { echo "ERR_TARGET_UID_MISSING" >&2; exit 52; }
             mkdir -p "${'$'}ROLLBACK" "${'$'}ROOT/tmp" || exit 53

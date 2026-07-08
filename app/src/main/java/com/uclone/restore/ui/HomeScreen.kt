@@ -1,7 +1,7 @@
 package com.uclone.restore.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -11,10 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -25,12 +23,14 @@ import com.uclone.restore.util.Formatters
 @Composable
 fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, openDetail: () -> Unit) {
     LazyColumn(
-        modifier = modifier.fillMaxSize().padding(16.dp),
+        modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Text("UClone Restore", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("主系统控制端，读取分身快照并恢复到 user${state.settings.mainUserId}")
+            ScreenHeader(
+                title = "UClone Restore",
+                subtitle = "主系统控制端。备份分身登录态，再恢复到 user${state.settings.mainUserId}。",
+            )
         }
         item {
             SectionCard("系统状态") {
@@ -42,13 +42,14 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
                 InfoRow("当前用户", env?.currentUser ?: "未检测")
                 InfoRow("分身状态", env?.user10State ?: "未检测")
                 InfoRow("快照目录", if (env?.snapshotDirReady?.ok == true) "可用" else "待检测")
+                InfoRow("快照根路径", "${state.settings.rootDir}/snapshots")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = viewModel::refreshEnvironment) {
+                    IosPrimaryButton(onClick = viewModel::refreshEnvironment) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Text("环境检测")
                     }
-                    OutlinedButton(onClick = viewModel::startCloneUser) { Text("启动分身") }
-                    OutlinedButton(onClick = viewModel::stopCloneUser) {
+                    IosSecondaryButton(onClick = viewModel::startCloneUser) { Text("启动分身") }
+                    IosSecondaryButton(onClick = viewModel::stopCloneUser) {
                         Icon(Icons.Default.PowerSettingsNew, contentDescription = null)
                         Text("关闭")
                     }
@@ -57,7 +58,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
         }
         item {
             SectionCard("快捷恢复") {
-                Text("选择已有快照的 App 后，可直接恢复到主系统。")
+                Text("选择已有备份快照的 App 后，可直接恢复到主系统。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         items(state.apps.filter { it.lastSnapshotAt != null }.take(5)) { app ->
@@ -65,7 +66,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
                 InfoRow("包名", app.packageName)
                 InfoRow("快照", Formatters.time(app.lastSnapshotAt))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
+                    IosPrimaryButton(onClick = {
                         viewModel.selectPackage(app.packageName)
                         openDetail()
                     }) {

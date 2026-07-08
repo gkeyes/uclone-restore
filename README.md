@@ -12,6 +12,13 @@ First version scope:
 - Repairs ownership with the target app UID and runs `restorecon`.
 - Does not depend on Neo Backup or root inside the clone user.
 
+Storage location:
+
+- Snapshots are stored on the Android device, not on the Mac.
+- Default root data directory: `/data/adb/uclone`.
+- Per-app active snapshot: `/data/adb/uclone/snapshots/<pkg>/active`.
+- Public storage such as `/sdcard/Documents` is not the default because snapshots contain private login-state data.
+
 Default data range:
 
 - CE data: `/data/user/<user>/<pkg>`

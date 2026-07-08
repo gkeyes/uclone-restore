@@ -1,20 +1,24 @@
 package com.uclone.restore.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,11 +36,19 @@ import com.uclone.restore.util.Formatters
 fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     val app = state.selectedApp
     var confirm by remember { mutableStateOf<ConfirmAction?>(null) }
-    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(
+        modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
         if (app == null) {
-            Text("请先在 App 列表选择一个目标。")
+            ScreenHeader("详情", "请先在 App 列表选择一个目标。")
             return@Column
         }
+        ScreenHeader("App 详情", "备份分身快照，或将已保存快照恢复到主系统。")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             AppIcon(app.packageName)
             Column {
@@ -52,28 +64,47 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         SectionCard("黄金快照") {
             InfoRow("状态", if (app.lastSnapshotAt == null) "未建立" else "已建立")
             InfoRow("时间", Formatters.time(app.lastSnapshotAt))
+            Text("保存位置", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SelectionContainer {
+                Text(
+                    "${state.settings.rootDir}/snapshots/${app.packageName}/active",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Text("恢复到主系统只读取 active 快照，不会实时读取分身最新数据。")
         }
         SectionCard("数据范围") {
-            SettingCheck("CE App 私有数据", state.settings.includeCe)
-            SettingCheck("DE Device Protected 数据", state.settings.includeDe)
-            SettingCheck("external Android/data", state.settings.includeExternal)
-            SettingCheck("Android/media", state.settings.includeMedia)
-            SettingCheck("OBB", state.settings.includeObb)
-            SettingCheck("排除 cache/code_cache", state.settings.excludeCache)
+            SettingCheck("CE App 私有数据", state.settings.includeCe) {
+                viewModel.saveSettings(state.settings.copy(includeCe = it))
+            }
+            SettingCheck("DE Device Protected 数据", state.settings.includeDe) {
+                viewModel.saveSettings(state.settings.copy(includeDe = it))
+            }
+            SettingCheck("external Android/data", state.settings.includeExternal) {
+                viewModel.saveSettings(state.settings.copy(includeExternal = it))
+            }
+            SettingCheck("Android/media", state.settings.includeMedia) {
+                viewModel.saveSettings(state.settings.copy(includeMedia = it))
+            }
+            SettingCheck("OBB", state.settings.includeObb) {
+                viewModel.saveSettings(state.settings.copy(includeObb = it))
+            }
+            SettingCheck("排除 cache/code_cache", state.settings.excludeCache) {
+                viewModel.saveSettings(state.settings.copy(excludeCache = it))
+            }
         }
         SectionCard("操作") {
-            Button(onClick = { confirm = ConfirmAction.CAPTURE }) {
+            IosPrimaryButton(onClick = { confirm = ConfirmAction.CAPTURE }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.CloudDownload, contentDescription = null)
-                Text("更新分身快照")
+                Text("备份分身快照")
             }
-            Button(onClick = { confirm = ConfirmAction.RESTORE }) {
+            IosPrimaryButton(onClick = { confirm = ConfirmAction.RESTORE }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.RestartAlt, contentDescription = null)
                 Text("恢复到主系统")
             }
-            OutlinedButton(onClick = { confirm = ConfirmAction.LATEST }) {
+            IosSecondaryButton(onClick = { confirm = ConfirmAction.LATEST }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Sync, contentDescription = null)
-                Text("从分身最新恢复")
+                Text("备份并恢复到主系统")
             }
         }
     }
@@ -95,10 +126,24 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
 }
 
 @Composable
-private fun SettingCheck(label: String, checked: Boolean) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Checkbox(checked = checked, onCheckedChange = null)
-        Text(label)
+private fun SettingCheck(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = IosGroup,
+                checkedTrackColor = IosGreen,
+                uncheckedThumbColor = IosGroup,
+                uncheckedTrackColor = IosSeparator,
+                uncheckedBorderColor = IosSeparator,
+            ),
+        )
     }
 }
 
@@ -107,12 +152,12 @@ private enum class ConfirmAction { CAPTURE, RESTORE, LATEST }
 @Composable
 private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     val title = when (action) {
-        ConfirmAction.CAPTURE -> "更新分身快照"
+        ConfirmAction.CAPTURE -> "备份分身快照"
         ConfirmAction.RESTORE -> "恢复到主系统"
-        ConfirmAction.LATEST -> "从分身最新恢复"
+        ConfirmAction.LATEST -> "备份并恢复到主系统"
     }
     val body = when (action) {
-        ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并覆盖 active 快照。旧快照会移动到 history。"
+        ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 快照。旧 active 快照会移动到 history。"
         ConfirmAction.RESTORE -> "将使用已保存的黄金快照恢复主系统数据。这不会重新读取分身最新数据。"
         ConfirmAction.LATEST -> "将先更新分身快照，再恢复到主系统。该动作会覆盖主系统当前 App 数据。"
     }
