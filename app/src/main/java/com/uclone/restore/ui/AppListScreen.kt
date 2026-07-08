@@ -125,7 +125,7 @@ private enum class AppListFilter(val label: String) {
 
 private fun Set<AppListFilter>.matches(app: AppEntry): Boolean {
     if (AppListFilter.ALL in this) return true
-    return any { filter ->
+    return all { filter ->
         when (filter) {
             AppListFilter.ALL -> true
             AppListFilter.DUAL_SYSTEM -> app.user0Installed && app.user10Installed

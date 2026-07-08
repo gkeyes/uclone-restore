@@ -238,6 +238,7 @@ object ShellScripts {
             ROLLBACK_ID="$rollbackName"
             ROLLBACK="${'$'}ROOT/rollback/${'$'}PKG/$rollbackName"
             [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
+            [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "ERR_BAD_ROOT:${'$'}ROOT" >&2; exit 71; }
             [ -d "${'$'}ACTIVE" ] || { echo "ERR_SNAPSHOT_MISSING:${'$'}ACTIVE" >&2; exit 51; }
             [ "${'$'}ACTIVE" != "${'$'}ROLLBACK" ] || { echo "ERR_ROLLBACK_SOURCE_CONFLICT:${'$'}ACTIVE" >&2; exit 61; }
             UID_VALUE=${'$'}(cmd package list packages -U --user "${'$'}DST_USER" | awk -v p="package:${'$'}PKG" '${'$'}1==p { sub("uid:","",${'$'}2); print ${'$'}2; exit }')
@@ -446,6 +447,29 @@ object ShellScripts {
               fi
               echo "RESTORED_PERMISSIONS:grants=${'$'}GRANT_COUNT appops=${'$'}APPOPS_COUNT"
             }
+            prune_old_rollbacks() {
+              ROLLBACK_PARENT="${'$'}ROOT/rollback/${'$'}PKG"
+              [ -d "${'$'}ROLLBACK_PARENT" ] || return 0
+              ACTIVE_SWITCH_ID=""
+              SWITCH_MARKER_FOR_KEEP="${'$'}ROOT/switches/${'$'}PKG/active"
+              if [ -f "${'$'}SWITCH_MARKER_FOR_KEEP" ]; then
+                ACTIVE_SWITCH_ID=${'$'}(sed -n '1p' "${'$'}SWITCH_MARKER_FOR_KEEP" | tr -d '\r')
+              fi
+              for OLD in "${'$'}ROLLBACK_PARENT"/*; do
+                [ -d "${'$'}OLD" ] || continue
+                OLD_ID=${'$'}(basename "${'$'}OLD")
+                [ "${'$'}OLD_ID" = "${'$'}ROLLBACK_ID" ] && continue
+                [ -n "${'$'}ACTIVE_SWITCH_ID" ] && [ "${'$'}OLD_ID" = "${'$'}ACTIVE_SWITCH_ID" ] && continue
+                case "${'$'}OLD" in
+                  "${'$'}ROOT"/rollback/"${'$'}PKG"/*)
+                    rm -rf "${'$'}OLD" && echo "PRUNED_ROLLBACK=${'$'}OLD" || echo "WARN_PRUNE_ROLLBACK_FAILED:${'$'}OLD"
+                    ;;
+                  *)
+                    echo "WARN_SKIP_BAD_ROLLBACK_PATH:${'$'}OLD"
+                    ;;
+                esac
+              done
+            }
             backup_dir "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/ce"
             backup_dir "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/de"
             ${if (settings.includePermissions) "backup_permission_state \"${'$'}ROLLBACK/permissions\"" else ":"}
@@ -474,6 +498,7 @@ object ShellScripts {
             esac
             echo "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER"
             """.trimIndent() else ":"}
+            prune_old_rollbacks
             sync
             force_stop_package_users
             echo "ROLLBACK=${'$'}ROLLBACK"

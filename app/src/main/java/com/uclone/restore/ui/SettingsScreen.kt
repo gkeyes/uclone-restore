@@ -58,8 +58,8 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 shape = RoundedCornerShape(14.dp),
                 singleLine = true,
             )
-            Text("主动备份: ${draft.rootDir}/snapshots/<包名>/active")
-            Text("被动备份: ${draft.rootDir}/rollback/<包名>/<时间>")
+            Text("主动快照: ${draft.rootDir}/snapshots/<包名>/active")
+            Text("被动备份: ${draft.rootDir}/rollback/<包名>/<备份ID>")
             Text("日志: ${draft.rootDir}/logs")
         }
         SectionCard("默认数据范围") {

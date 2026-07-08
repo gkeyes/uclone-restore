@@ -39,6 +39,7 @@ import com.uclone.restore.util.Formatters
 fun DataScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, openDetail: () -> Unit) {
     var confirmRestore by remember { mutableStateOf<RestoreBackupEntry?>(null) }
     val appByPackage = state.apps.associateBy { it.packageName }
+    val rootDir = state.settings.rootDir
     val activeBackups = state.apps
         .filter { it.lastSnapshotAt != null }
         .sortedByDescending { it.lastSnapshotAt ?: 0L }
@@ -56,10 +57,10 @@ fun DataScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
         }
         item {
             SectionCard("存储区分") {
-                Text("主动备份: ${state.settings.rootDir}/snapshots/<包名>/active")
-                Text("被动备份: ${state.settings.rootDir}/rollback/<包名>/<时间>")
+                Text("主动快照: $rootDir/snapshots/<包名>/active")
+                Text("被动备份: $rootDir/rollback/<包名>/<备份ID>")
                 Text(
-                    "两类数据在不同目录下保存，不会和 adb 目录里的其它文件混在一起。",
+                    "数据页每个 App 只显示一个被动备份: 当前切换备份优先，否则显示最新一个。",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -95,6 +96,7 @@ fun DataScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             items(passiveBackups, key = { "passive-${it.packageName}-${it.rollbackId}" }) { backup ->
                 PassiveBackupRow(
                     backup = backup,
+                    rootDir = rootDir,
                     app = appByPackage[backup.packageName],
                     onOpenDetail = {
                         viewModel.selectPackage(backup.packageName)
@@ -112,7 +114,7 @@ fun DataScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             title = { Text("恢复被动备份") },
             text = {
                 Text(
-                    "将使用 ${backup.rollbackId} 覆盖主系统 user0 的 ${backup.packageName} 数据。该备份来源: ${backup.reason}。",
+                    "将使用 $rootDir/rollback/${backup.packageName}/${backup.rollbackId} 覆盖主系统 user0 数据。该备份来源: ${backup.reason}。",
                 )
             },
             confirmButton = {
@@ -192,10 +194,12 @@ private fun ActiveBackupRow(app: AppEntry, onClick: () -> Unit) {
 @Composable
 private fun PassiveBackupRow(
     backup: RestoreBackupEntry,
+    rootDir: String,
     app: AppEntry?,
     onOpenDetail: () -> Unit,
     onRestore: () -> Unit,
 ) {
+    val backupPath = "$rootDir/rollback/${backup.packageName}/${backup.rollbackId}"
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -219,7 +223,7 @@ private fun PassiveBackupRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    backup.rollbackId,
+                    backupPath,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RestartAlt
@@ -38,7 +39,7 @@ import com.uclone.restore.model.RiskLevel
 import com.uclone.restore.util.Formatters
 
 @Composable
-fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
+fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, onBack: () -> Unit) {
     val app = state.selectedApp
     var confirm by remember { mutableStateOf<ConfirmAction?>(null) }
     Column(
@@ -50,10 +51,10 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (app == null) {
-            ScreenHeader("详情", "请先在 App 列表选择一个目标。")
+            DetailHeader("详情", "请先在 App 列表选择一个目标。", onBack)
             return@Column
         }
-        ScreenHeader("App 详情", "建立主动备份，或恢复到主系统。")
+        DetailHeader("App 详情", "建立主动备份，或恢复到主系统。", onBack)
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -186,6 +187,23 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun DetailHeader(title: String, subtitle: String, onBack: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

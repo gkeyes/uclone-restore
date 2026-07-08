@@ -233,7 +233,12 @@ class SyncEngine(
                 isActiveSwitchBackup = parts.getOrNull(4) == "1",
                 reason = parts.getOrNull(5)?.takeIf(String::isNotBlank) ?: "被动备份",
             )
-        }.sortedByDescending { it.createdAt }.toList()
+        }.sortedWith(
+            compareByDescending<RestoreBackupEntry> { it.isActiveSwitchBackup }
+                .thenByDescending { it.createdAt },
+        )
+            .distinctBy { it.packageName }
+            .toList()
     }
 
     fun history(): List<TaskRecord> = logStore.all()

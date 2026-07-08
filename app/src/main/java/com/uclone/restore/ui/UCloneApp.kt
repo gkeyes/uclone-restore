@@ -1,5 +1,6 @@
 package com.uclone.restore.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
@@ -38,8 +39,12 @@ private enum class Destination(val label: String) {
 fun UCloneApp(viewModel: UCloneViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(Destination.HOME) }
+    var previousTopLevelDestination by rememberSaveable { mutableStateOf(Destination.HOME) }
 
     UCloneTheme {
+        BackHandler(enabled = destination == Destination.DETAIL) {
+            destination = previousTopLevelDestination
+        }
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
@@ -57,7 +62,10 @@ fun UCloneApp(viewModel: UCloneViewModel) {
                     ).forEach { (item, icon) ->
                         NavigationBarItem(
                             selected = destination == item,
-                            onClick = { destination = item },
+                            onClick = {
+                                previousTopLevelDestination = item
+                                destination = item
+                            },
                             icon = { Icon(icon, contentDescription = null) },
                             label = { Text(item.label) },
                             colors = NavigationBarItemDefaults.colors(
@@ -74,13 +82,24 @@ fun UCloneApp(viewModel: UCloneViewModel) {
         ) { padding ->
             val modifier = Modifier.padding(padding)
             when (destination) {
-                Destination.HOME -> HomeScreen(state, viewModel, modifier) { destination = Destination.DETAIL }
-                Destination.APPS -> AppListScreen(state, viewModel, modifier) { destination = Destination.DETAIL }
-                Destination.DATA -> DataScreen(state, viewModel, modifier) { destination = Destination.DETAIL }
+                Destination.HOME -> HomeScreen(state, viewModel, modifier) {
+                    previousTopLevelDestination = Destination.HOME
+                    destination = Destination.DETAIL
+                }
+                Destination.APPS -> AppListScreen(state, viewModel, modifier) {
+                    previousTopLevelDestination = Destination.APPS
+                    destination = Destination.DETAIL
+                }
+                Destination.DATA -> DataScreen(state, viewModel, modifier) {
+                    previousTopLevelDestination = Destination.DATA
+                    destination = Destination.DETAIL
+                }
                 Destination.HISTORY -> HistoryScreen(state, viewModel, modifier)
                 Destination.SETTINGS -> SettingsScreen(state, viewModel, modifier)
                 Destination.DIAGNOSTICS -> DiagnosticsScreen(state, viewModel, modifier)
-                Destination.DETAIL -> AppDetailScreen(state, viewModel, modifier)
+                Destination.DETAIL -> AppDetailScreen(state, viewModel, modifier) {
+                    destination = previousTopLevelDestination
+                }
             }
         }
     }
