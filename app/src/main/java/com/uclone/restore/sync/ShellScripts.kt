@@ -10,28 +10,36 @@ object ShellScripts {
         ROOT=${shellQuote(settings.rootDir)}
         PKG=${shellQuote(packageName)}
         APP_PKG=${shellQuote(appPackage)}
-        SRC_USER=${settings.cloneUserId}
+        CONFIG_SRC_USER=${settings.cloneUserId}
         TS=${'$'}(date +%Y%m%d-%H%M%S)
         BASE="${'$'}ROOT/snapshots/${'$'}PKG"
         TMP="${'$'}ROOT/tmp/capture_${'$'}{PKG}_${'$'}TS"
         [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
         mkdir -p "${'$'}ROOT/snapshots" "${'$'}ROOT/rollback" "${'$'}ROOT/logs" "${'$'}ROOT/tmp" "${'$'}ROOT/config" "${'$'}BASE/history" || exit 10
-        STATE=${'$'}(am get-started-user-state "${'$'}SRC_USER" 2>/dev/null || true)
-        echo "USER_STATE=${'$'}STATE"
-        case "${'$'}STATE" in *RUNNING_UNLOCKED*) ;; *) echo "ERR_USER_LOCKED:${'$'}STATE" >&2; exit 42;; esac
-        cmd package list packages --user "${'$'}SRC_USER" | grep -qx "package:${'$'}PKG" || { echo "ERR_SOURCE_APP_MISSING"; exit 43; }
-        rm -rf "${'$'}TMP"
-        mkdir -p "${'$'}TMP" || exit 11
-        am force-stop --user "${'$'}SRC_USER" "${'$'}PKG" >/dev/null 2>&1 || true
-        COPIED_PARTS=0
-        COPIED_ITEMS=0
+        rm -rf "${'$'}TMP" "${'$'}TMP".try_*
+        CANDIDATE_USERS=""
+        add_candidate_user() {
+          U="${'$'}1"
+          [ -n "${'$'}U" ] || return 0
+          [ "${'$'}U" != "${settings.mainUserId}" ] || return 0
+          case " ${'$'}CANDIDATE_USERS " in
+            *" ${'$'}U "*) ;;
+            *) CANDIDATE_USERS="${'$'}CANDIDATE_USERS ${'$'}U" ;;
+          esac
+        }
+        add_candidate_user "${'$'}CONFIG_SRC_USER"
+        for U in ${'$'}(pm list users 2>/dev/null | sed -n 's/.*UserInfo{\([0-9][0-9]*\):.*/\1/p'); do
+          add_candidate_user "${'$'}U"
+        done
+        add_candidate_user 999
+        echo "CANDIDATE_USERS=${'$'}CANDIDATE_USERS"
+        [ -n "${'$'}CANDIDATE_USERS" ] || { echo "ERR_NO_CLONE_USER_CANDIDATES" >&2; exit 42; }
         count_items() {
           find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '
         }
         copy_dir_stream() {
           SRC="${'$'}1"
           DST="${'$'}2"
-          [ -d "${'$'}SRC" ] || { echo "SKIP_MISSING:${'$'}SRC"; return 0; }
           SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
           [ "${'$'}SRC_ITEMS" -gt 0 ] || { echo "SKIP_EMPTY:${'$'}SRC"; return 0; }
           rm -rf "${'$'}DST.tmp"
@@ -47,20 +55,73 @@ object ShellScripts {
           COPIED_ITEMS=${'$'}((COPIED_ITEMS + DST_ITEMS))
           echo "COPIED:${'$'}SRC ITEMS=${'$'}DST_ITEMS SIZE_KB=${'$'}PART_SIZE_KB"
         }
-        ${if (rule.includeCe) "copy_dir_stream \"/data/user/${settings.cloneUserId}/${'$'}PKG\" \"${'$'}TMP/ce\"" else ":"}
-        ${if (rule.includeDe) "copy_dir_stream \"/data/user_de/${settings.cloneUserId}/${'$'}PKG\" \"${'$'}TMP/de\"" else ":"}
-        ${if (rule.includeExternal) "copy_dir_stream \"/data/media/${settings.cloneUserId}/Android/data/${'$'}PKG\" \"${'$'}TMP/external\"" else ":"}
-        ${if (rule.includeMedia) "copy_dir_stream \"/data/media/${settings.cloneUserId}/Android/media/${'$'}PKG\" \"${'$'}TMP/media\"" else ":"}
-        ${if (rule.includeObb) "copy_dir_stream \"/data/media/${settings.cloneUserId}/Android/obb/${'$'}PKG\" \"${'$'}TMP/obb\"" else ":"}
-        [ "${'$'}COPIED_PARTS" -gt 0 ] || { echo "ERR_NOTHING_COPIED: no non-empty selected source paths for user ${settings.cloneUserId}/${'$'}PKG" >&2; exit 44; }
+        copy_first_nonempty() {
+          DST="${'$'}1"
+          shift
+          for SRC in "${'$'}@"; do
+            [ -n "${'$'}SRC" ] || continue
+            if [ -d "${'$'}SRC" ]; then
+              SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+              echo "PROBE_PATH:${'$'}SRC ITEMS=${'$'}SRC_ITEMS"
+              if [ "${'$'}SRC_ITEMS" -gt 0 ]; then
+                copy_dir_stream "${'$'}SRC" "${'$'}DST"
+                return 0
+              fi
+              echo "SKIP_EMPTY:${'$'}SRC"
+            else
+              echo "SKIP_MISSING:${'$'}SRC"
+            fi
+          done
+          return 0
+        }
+        try_user() {
+          TRY_USER="${'$'}1"
+          TRY_TMP="${'$'}TMP.try_${'$'}TRY_USER"
+          rm -rf "${'$'}TRY_TMP"
+          mkdir -p "${'$'}TRY_TMP" || exit 11
+          STATE=${'$'}(am get-started-user-state "${'$'}TRY_USER" 2>/dev/null || true)
+          echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
+          case "${'$'}STATE" in *RUNNING_UNLOCKED*) ;; *) echo "WARN_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" ;; esac
+          if cmd package list packages --user "${'$'}TRY_USER" 2>/dev/null | grep -qx "package:${'$'}PKG"; then
+            echo "PACKAGE_LISTED:${'$'}TRY_USER"
+          else
+            echo "WARN_PACKAGE_NOT_LISTED:${'$'}TRY_USER"
+          fi
+          am force-stop --user "${'$'}TRY_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+          COPIED_PARTS=0
+          COPIED_ITEMS=0
+          ${if (rule.includeCe) "copy_first_nonempty \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\"" else ":"}
+          ${if (rule.includeDe) "copy_first_nonempty \"${'$'}TRY_TMP/de\" \"/data/user_de/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}TRY_USER/${'$'}PKG\"" else ":"}
+          ${if (rule.includeExternal) "copy_first_nonempty \"${'$'}TRY_TMP/external\" \"/data/media/${'$'}TRY_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/data/${'$'}PKG\"" else ":"}
+          ${if (rule.includeMedia) "copy_first_nonempty \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\"" else ":"}
+          ${if (rule.includeObb) "copy_first_nonempty \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\"" else ":"}
+          if [ "${'$'}COPIED_PARTS" -gt 0 ]; then
+            rm -rf "${'$'}TMP"
+            mv "${'$'}TRY_TMP" "${'$'}TMP" || exit 14
+            DETECTED_USER="${'$'}TRY_USER"
+            DETECTED_STATE="${'$'}STATE"
+            return 0
+          fi
+          rm -rf "${'$'}TRY_TMP"
+          return 1
+        }
+        DETECTED_USER=""
+        DETECTED_STATE=""
+        for U in ${'$'}CANDIDATE_USERS; do
+          if try_user "${'$'}U"; then
+            break
+          fi
+        done
+        [ -n "${'$'}DETECTED_USER" ] || { echo "ERR_NOTHING_COPIED: no non-empty selected source paths for candidates:${'$'}CANDIDATE_USERS package:${'$'}PKG" >&2; exit 44; }
         SIZE_KB=${'$'}(du -sk "${'$'}TMP" 2>/dev/null | awk '{print ${'$'}1}')
         cat > "${'$'}TMP/manifest.json" <<EOF
-        {"packageName":"${packageName}","sourceUser":${settings.cloneUserId},"targetUser":${settings.mainUserId},"createdAt":"${'$'}TS","includeCe":${rule.includeCe},"includeDe":${rule.includeDe},"includeExternal":${rule.includeExternal},"includeMedia":${rule.includeMedia},"includeObb":${rule.includeObb},"includeAppWebView":${rule.includeAppWebView},"excludeCache":${rule.excludeCache},"snapshotSizeKb":"${'$'}SIZE_KB","copiedParts":"${'$'}COPIED_PARTS","copiedItems":"${'$'}COPIED_ITEMS"}
+        {"packageName":"${packageName}","configuredSourceUser":${settings.cloneUserId},"sourceUser":"${'$'}DETECTED_USER","sourceUserState":"${'$'}DETECTED_STATE","targetUser":${settings.mainUserId},"createdAt":"${'$'}TS","includeCe":${rule.includeCe},"includeDe":${rule.includeDe},"includeExternal":${rule.includeExternal},"includeMedia":${rule.includeMedia},"includeObb":${rule.includeObb},"includeAppWebView":${rule.includeAppWebView},"excludeCache":${rule.excludeCache},"snapshotSizeKb":"${'$'}SIZE_KB","copiedParts":"${'$'}COPIED_PARTS","copiedItems":"${'$'}COPIED_ITEMS"}
         EOF
         if [ -d "${'$'}BASE/active" ]; then mv "${'$'}BASE/active" "${'$'}BASE/history/${'$'}TS" || exit 15; fi
         mv "${'$'}TMP" "${'$'}BASE/active" || exit 16
         chmod -R 700 "${'$'}BASE" >/dev/null 2>&1 || true
         echo "SNAPSHOT_ACTIVE=${'$'}BASE/active"
+        echo "SNAPSHOT_SOURCE_USER=${'$'}DETECTED_USER"
     """.trimIndent()
 
     fun restore(packageName: String, settings: UCloneSettings, appPackage: String): String = restoreBody(
