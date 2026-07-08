@@ -1,0 +1,194 @@
+package com.uclone.restore.ui
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.uclone.restore.AppContainer
+import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.TaskProgress
+import com.uclone.restore.model.TaskStatus
+import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.service.SyncForegroundService
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+class UCloneViewModel(
+    application: Application,
+    private val container: AppContainer,
+) : AndroidViewModel(application) {
+    private val settingsStore = container.settingsStore
+    private val packageInspector = container.packageInspector
+    private val syncEngine = container.syncEngine
+    private val _state = MutableStateFlow(UiState(settings = settingsStore.load()))
+    val state: StateFlow<UiState> = _state
+
+    init {
+        refreshAll()
+    }
+
+    fun refreshAll() {
+        refreshEnvironment()
+        loadApps()
+        refreshHistory()
+    }
+
+    fun refreshEnvironment() {
+        viewModelScope.launch {
+            val settings = _state.value.settings
+            runBusy("环境检测中") {
+                val environment = syncEngine.checkEnvironment(settings)
+                _state.update { it.copy(environment = environment, message = "环境检测完成") }
+            }
+        }
+    }
+
+    fun loadApps() {
+        viewModelScope.launch {
+            val settings = _state.value.settings
+            runBusy("读取 App 列表") {
+                val snapshots = syncEngine.snapshotTimes(settings)
+                val apps = packageInspector.listApps(settings).map { app ->
+                    app.copy(lastSnapshotAt = snapshots[app.packageName])
+                }
+                _state.update { it.copy(apps = apps, message = "已读取 ${apps.size} 个 App") }
+            }
+        }
+    }
+
+    fun selectPackage(packageName: String) {
+        viewModelScope.launch {
+            val settings = _state.value.settings
+            val snapshotAt = syncEngine.latestSnapshotTime(packageName, settings)
+            val rollbackIds = syncEngine.listRollbackIds(packageName, settings)
+            _state.update {
+                val apps = it.apps.map { app ->
+                    if (app.packageName == packageName) app.copy(lastSnapshotAt = snapshotAt) else app
+                }
+                it.copy(selectedPackage = packageName, apps = apps, rollbackIds = rollbackIds)
+            }
+        }
+    }
+
+    fun updateSearch(value: String) {
+        _state.update { it.copy(search = value) }
+    }
+
+    fun saveSettings(settings: UCloneSettings) {
+        settingsStore.save(settings)
+        _state.update { it.copy(settings = settings, message = "设置已保存") }
+        refreshAll()
+    }
+
+    fun captureSelected() {
+        val packageName = _state.value.selectedPackage ?: return
+        val rule = _state.value.selectedRule ?: AppRule(packageName)
+        runTask("正在建立分身快照") { report ->
+            syncEngine.captureSnapshot(packageName, rule, _state.value.settings, report)
+        }
+    }
+
+    fun restoreSelected() {
+        val packageName = _state.value.selectedPackage ?: return
+        runTask("正在恢复到主系统") { report ->
+            syncEngine.restoreSnapshot(packageName, _state.value.settings, report)
+        }
+    }
+
+    fun restoreLatestSelected() {
+        val packageName = _state.value.selectedPackage ?: return
+        val rule = _state.value.selectedRule ?: AppRule(packageName)
+        runTask("正在从分身最新恢复") { report ->
+            syncEngine.restoreFromCloneLatest(packageName, rule, _state.value.settings, report)
+        }
+    }
+
+    fun rollbackSelected(rollbackId: String) {
+        val packageName = _state.value.selectedPackage ?: return
+        runTask("正在回滚主系统数据") { report ->
+            syncEngine.rollback(packageName, rollbackId, _state.value.settings, report)
+        }
+    }
+
+    fun startCloneUser() {
+        viewModelScope.launch {
+            runBusy("启动分身") {
+                val result = syncEngine.startCloneUser(_state.value.settings)
+                _state.update { it.copy(message = result.stdout.ifBlank { result.stderr }) }
+                refreshEnvironment()
+            }
+        }
+    }
+
+    fun switchToCloneUser() {
+        viewModelScope.launch {
+            val result = syncEngine.switchToCloneUser(_state.value.settings)
+            _state.update { it.copy(message = result.stdout.ifBlank { result.stderr }) }
+        }
+    }
+
+    fun stopCloneUser() {
+        viewModelScope.launch {
+            runBusy("关闭分身") {
+                val result = syncEngine.stopCloneUser(_state.value.settings)
+                _state.update { it.copy(message = result.stdout.ifBlank { result.stderr }) }
+                refreshEnvironment()
+            }
+        }
+    }
+
+    private fun refreshHistory() {
+        _state.update { it.copy(history = syncEngine.history()) }
+    }
+
+    private fun runTask(
+        serviceMessage: String,
+        block: suspend (suspend (TaskProgress) -> Unit) -> Unit,
+    ) {
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = serviceMessage) }
+            SyncForegroundService.start(getApplication(), serviceMessage)
+            try {
+                block { progress ->
+                    _state.update { it.copy(currentTask = progress, history = syncEngine.history()) }
+                }
+                val task = _state.value.currentTask.task
+                val message = if (task?.status == TaskStatus.SUCCESS) "任务完成" else task?.message ?: "任务结束"
+                _state.update { it.copy(message = message) }
+            } catch (error: Exception) {
+                _state.update { it.copy(message = error.message ?: "任务失败") }
+            } finally {
+                SyncForegroundService.stop(getApplication())
+                _state.update { it.copy(busy = false, history = syncEngine.history()) }
+                _state.value.selectedPackage?.let(::selectPackage)
+            }
+        }
+    }
+
+    private suspend fun runBusy(label: String, block: suspend () -> Unit) {
+        _state.update { it.copy(busy = true, message = label) }
+        try {
+            block()
+        } catch (error: Exception) {
+            _state.update { it.copy(message = error.message ?: "操作失败") }
+        } finally {
+            _state.update { it.copy(busy = false) }
+        }
+    }
+}
+
+class UCloneViewModelFactory(
+    private val application: Application,
+    private val container: AppContainer,
+) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(UCloneViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return UCloneViewModel(application, container) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
+    }
+}
