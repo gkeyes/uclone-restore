@@ -216,6 +216,58 @@ object ShellScripts {
         echo "DELETED_SNAPSHOT=${'$'}ACTIVE SIZE_KB=${'$'}SIZE_KB ITEMS=${'$'}ITEMS"
     """.trimIndent()
 
+    fun deleteRestoreBackup(
+        packageName: String,
+        rollbackId: String,
+        settings: UCloneSettings,
+        appPackage: String,
+    ): String = """
+        set -u
+        ROOT=${shellQuote(settings.rootDir)}
+        PKG=${shellQuote(packageName)}
+        ROLLBACK_ID=${shellQuote(rollbackId)}
+        APP_PKG=${shellQuote(appPackage)}
+        ROLLBACK_PARENT="${'$'}ROOT/rollback/${'$'}PKG"
+        TARGET="${'$'}ROOT/rollback/${'$'}PKG/${'$'}ROLLBACK_ID"
+        SWITCH_MARKER="${'$'}ROOT/switches/${'$'}PKG/active"
+        [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
+        [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "ERR_BAD_ROOT:${'$'}ROOT" >&2; exit 71; }
+        [ -n "${'$'}ROLLBACK_ID" ] || { echo "ERR_BAD_ROLLBACK_ID:${'$'}ROLLBACK_ID" >&2; exit 73; }
+        [ "${'$'}ROLLBACK_ID" != "." ] && [ "${'$'}ROLLBACK_ID" != ".." ] || { echo "ERR_BAD_ROLLBACK_ID:${'$'}ROLLBACK_ID" >&2; exit 73; }
+        case "${'$'}ROLLBACK_ID" in
+          *[!A-Za-z0-9_.-]*) echo "ERR_BAD_ROLLBACK_ID:${'$'}ROLLBACK_ID" >&2; exit 73 ;;
+        esac
+        case "${'$'}TARGET" in
+          "${'$'}ROOT"/rollback/"${'$'}PKG"/"${'$'}ROLLBACK_ID") ;;
+          *) echo "ERR_BAD_ROLLBACK_TARGET:${'$'}TARGET" >&2; exit 72 ;;
+        esac
+        case "${'$'}ROLLBACK_PARENT" in
+          "${'$'}ROOT"/rollback/"${'$'}PKG") ;;
+          *) echo "ERR_BAD_ROLLBACK_PARENT:${'$'}ROLLBACK_PARENT" >&2; exit 72 ;;
+        esac
+        [ -d "${'$'}TARGET" ] || { echo "ERR_ROLLBACK_MISSING:${'$'}TARGET" >&2; exit 74; }
+        SIZE_KB=${'$'}(du -sk "${'$'}ROLLBACK_PARENT" 2>/dev/null | awk '{print ${'$'}1}')
+        ITEMS=${'$'}(find "${'$'}ROLLBACK_PARENT" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
+        EXPECTED_CHILD_PREFIX="${'$'}ROOT/rollback/${'$'}PKG/"
+        ROLLBACK_CHILDREN=${'$'}(find "${'$'}ROLLBACK_PARENT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+        DELETED_COUNT=0
+        for OLD in ${'$'}ROLLBACK_CHILDREN; do
+          case "${'$'}OLD" in
+            "${'$'}EXPECTED_CHILD_PREFIX"*) rm -rf "${'$'}OLD" || exit 75 ;;
+            *) echo "ERR_BAD_ROLLBACK_CHILD:${'$'}OLD" >&2; exit 75 ;;
+          esac
+          DELETED_COUNT=${'$'}((DELETED_COUNT + 1))
+        done
+        if [ -f "${'$'}SWITCH_MARKER" ]; then
+          case "${'$'}SWITCH_MARKER" in
+            "${'$'}ROOT"/switches/"${'$'}PKG"/active) rm -f "${'$'}SWITCH_MARKER" || exit 76 ;;
+            *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER" >&2; exit 76 ;;
+          esac
+          echo "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER"
+        fi
+        echo "DELETED_RESTORE_BACKUPS=${'$'}ROLLBACK_PARENT COUNT=${'$'}DELETED_COUNT SIZE_KB=${'$'}SIZE_KB ITEMS=${'$'}ITEMS"
+    """.trimIndent()
+
     private fun restoreBody(
         packageName: String,
         settings: UCloneSettings,
@@ -449,20 +501,26 @@ object ShellScripts {
             }
             prune_old_rollbacks() {
               ROLLBACK_PARENT="${'$'}ROOT/rollback/${'$'}PKG"
-              [ -d "${'$'}ROLLBACK_PARENT" ] || return 0
-              ACTIVE_SWITCH_ID=""
-              SWITCH_MARKER_FOR_KEEP="${'$'}ROOT/switches/${'$'}PKG/active"
-              if [ -f "${'$'}SWITCH_MARKER_FOR_KEEP" ]; then
-                ACTIVE_SWITCH_ID=${'$'}(sed -n '1p' "${'$'}SWITCH_MARKER_FOR_KEEP" | tr -d '\r')
+              SWITCH_MARKER_FOR_PRUNE="${'$'}ROOT/switches/${'$'}PKG/active"
+              SWITCH_ID_FOR_PRUNE=""
+              if [ -f "${'$'}SWITCH_MARKER_FOR_PRUNE" ]; then
+                SWITCH_ID_FOR_PRUNE=${'$'}(sed -n '1p' "${'$'}SWITCH_MARKER_FOR_PRUNE" | tr -d '\r')
               fi
-              for OLD in "${'$'}ROLLBACK_PARENT"/*; do
-                [ -d "${'$'}OLD" ] || continue
+              [ -d "${'$'}ROLLBACK_PARENT" ] || return 0
+              EXPECTED_CHILD_PREFIX="${'$'}ROOT/rollback/${'$'}PKG/"
+              ROLLBACK_CHILDREN=${'$'}(find "${'$'}ROLLBACK_PARENT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+              for OLD in ${'$'}ROLLBACK_CHILDREN; do
                 OLD_ID=${'$'}(basename "${'$'}OLD")
                 [ "${'$'}OLD_ID" = "${'$'}ROLLBACK_ID" ] && continue
-                [ -n "${'$'}ACTIVE_SWITCH_ID" ] && [ "${'$'}OLD_ID" = "${'$'}ACTIVE_SWITCH_ID" ] && continue
                 case "${'$'}OLD" in
-                  "${'$'}ROOT"/rollback/"${'$'}PKG"/*)
+                  "${'$'}EXPECTED_CHILD_PREFIX"*)
                     rm -rf "${'$'}OLD" && echo "PRUNED_ROLLBACK=${'$'}OLD" || echo "WARN_PRUNE_ROLLBACK_FAILED:${'$'}OLD"
+                    if [ -n "${'$'}SWITCH_ID_FOR_PRUNE" ] && [ "${'$'}OLD_ID" = "${'$'}SWITCH_ID_FOR_PRUNE" ]; then
+                      case "${'$'}SWITCH_MARKER_FOR_PRUNE" in
+                        "${'$'}ROOT"/switches/"${'$'}PKG"/active) rm -f "${'$'}SWITCH_MARKER_FOR_PRUNE" && echo "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER_FOR_PRUNE" || exit 70 ;;
+                        *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER_FOR_PRUNE" >&2; exit 70 ;;
+                      esac
+                    fi
                     ;;
                   *)
                     echo "WARN_SKIP_BAD_ROLLBACK_PATH:${'$'}OLD"

@@ -134,6 +134,11 @@ class UCloneViewModel(
 
     fun restoreSelected() {
         val packageName = _state.value.selectedPackage ?: return
+        restoreSnapshot(packageName)
+    }
+
+    fun restoreSnapshot(packageName: String) {
+        _state.update { it.copy(selectedPackage = packageName) }
         runTask("正在恢复到主系统") { report ->
             syncEngine.restoreSnapshot(packageName, _state.value.settings, report)
         }
@@ -187,8 +192,20 @@ class UCloneViewModel(
 
     fun deleteSnapshotSelected() {
         val packageName = _state.value.selectedPackage ?: return
+        deleteSnapshot(packageName)
+    }
+
+    fun deleteSnapshot(packageName: String) {
+        _state.update { it.copy(selectedPackage = packageName) }
         runTask("正在删除 active 快照") { report ->
             syncEngine.deleteSnapshot(packageName, _state.value.settings, report)
+        }
+    }
+
+    fun deleteRestoreBackup(packageName: String, rollbackId: String) {
+        _state.update { it.copy(selectedPackage = packageName) }
+        runTask("正在删除被动备份") { report ->
+            syncEngine.deleteRestoreBackup(packageName, rollbackId, _state.value.settings, report)
         }
     }
 

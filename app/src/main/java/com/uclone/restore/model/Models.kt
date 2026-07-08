@@ -101,6 +101,7 @@ enum class TaskType {
     SWITCH_TO_CLONE_STATE,
     RESTORE_SWITCH_MAIN_STATE,
     DELETE_SNAPSHOT,
+    DELETE_RESTORE_BACKUP,
 }
 
 enum class TaskStatus {

@@ -33,6 +33,7 @@ private enum class Destination(val label: String) {
     SETTINGS("设置"),
     DIAGNOSTICS("诊断"),
     DETAIL("详情"),
+    DATA_DETAIL("备份详情"),
 }
 
 @Composable
@@ -40,10 +41,12 @@ fun UCloneApp(viewModel: UCloneViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var destination by rememberSaveable { mutableStateOf(Destination.HOME) }
     var previousTopLevelDestination by rememberSaveable { mutableStateOf(Destination.HOME) }
+    var dataDetailPackage by rememberSaveable { mutableStateOf<String?>(null) }
+    var dataDetailRollbackId by rememberSaveable { mutableStateOf<String?>(null) }
 
     UCloneTheme {
-        BackHandler(enabled = destination == Destination.DETAIL) {
-            destination = previousTopLevelDestination
+        BackHandler(enabled = destination == Destination.DETAIL || destination == Destination.DATA_DETAIL) {
+            destination = if (destination == Destination.DATA_DETAIL) Destination.DATA else previousTopLevelDestination
         }
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
@@ -61,7 +64,7 @@ fun UCloneApp(viewModel: UCloneViewModel) {
                         Destination.DIAGNOSTICS to Icons.Default.Terminal,
                     ).forEach { (item, icon) ->
                         NavigationBarItem(
-                            selected = destination == item,
+                            selected = destination == item || (destination == Destination.DATA_DETAIL && item == Destination.DATA),
                             onClick = {
                                 previousTopLevelDestination = item
                                 destination = item
@@ -90,15 +93,35 @@ fun UCloneApp(viewModel: UCloneViewModel) {
                     previousTopLevelDestination = Destination.APPS
                     destination = Destination.DETAIL
                 }
-                Destination.DATA -> DataScreen(state, viewModel, modifier) {
-                    previousTopLevelDestination = Destination.DATA
-                    destination = Destination.DETAIL
-                }
+                Destination.DATA -> DataScreen(
+                    state = state,
+                    viewModel = viewModel,
+                    modifier = modifier,
+                    openActiveBackup = {
+                        dataDetailPackage = it
+                        dataDetailRollbackId = null
+                        destination = Destination.DATA_DETAIL
+                    },
+                    openPassiveBackup = {
+                        dataDetailPackage = it.packageName
+                        dataDetailRollbackId = it.rollbackId
+                        destination = Destination.DATA_DETAIL
+                    },
+                )
                 Destination.HISTORY -> HistoryScreen(state, viewModel, modifier)
                 Destination.SETTINGS -> SettingsScreen(state, viewModel, modifier)
                 Destination.DIAGNOSTICS -> DiagnosticsScreen(state, viewModel, modifier)
                 Destination.DETAIL -> AppDetailScreen(state, viewModel, modifier) {
                     destination = previousTopLevelDestination
+                }
+                Destination.DATA_DETAIL -> DataBackupDetailScreen(
+                    state = state,
+                    viewModel = viewModel,
+                    modifier = modifier,
+                    packageName = dataDetailPackage,
+                    rollbackId = dataDetailRollbackId,
+                ) {
+                    destination = Destination.DATA
                 }
             }
         }

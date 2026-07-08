@@ -121,6 +121,20 @@ class SyncEngine(
         report = report,
     )
 
+    suspend fun deleteRestoreBackup(
+        packageName: String,
+        rollbackId: String,
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord = runScriptTask(
+        type = TaskType.DELETE_RESTORE_BACKUP,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查 root", "读取被动备份", "删除备份目录", "清理切换标记", "完成"),
+        script = ShellScripts.deleteRestoreBackup(packageName, rollbackId, settings, appPackage),
+        report = report,
+    )
+
     suspend fun latestSnapshotTime(packageName: String, settings: UCloneSettings): Long? {
         return latestSnapshotMetadata(packageName, settings)?.updatedAt
     }
@@ -233,10 +247,7 @@ class SyncEngine(
                 isActiveSwitchBackup = parts.getOrNull(4) == "1",
                 reason = parts.getOrNull(5)?.takeIf(String::isNotBlank) ?: "被动备份",
             )
-        }.sortedWith(
-            compareByDescending<RestoreBackupEntry> { it.isActiveSwitchBackup }
-                .thenByDescending { it.createdAt },
-        )
+        }.sortedByDescending { it.createdAt }
             .distinctBy { it.packageName }
             .toList()
     }
