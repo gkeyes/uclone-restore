@@ -233,7 +233,7 @@ class SyncEngine(
                 isActiveSwitchBackup = parts.getOrNull(4) == "1",
                 reason = parts.getOrNull(5)?.takeIf(String::isNotBlank) ?: "被动备份",
             )
-        }.sortedByDescending { it.createdAt }
+        }.sortedByDescending { it.createdAt }.toList()
     }
 
     fun history(): List<TaskRecord> = logStore.all()
