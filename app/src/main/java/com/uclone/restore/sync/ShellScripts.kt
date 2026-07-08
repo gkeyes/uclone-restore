@@ -23,25 +23,39 @@ object ShellScripts {
         rm -rf "${'$'}TMP"
         mkdir -p "${'$'}TMP" || exit 11
         am force-stop --user "${'$'}SRC_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+        COPIED_PARTS=0
+        COPIED_ITEMS=0
+        count_items() {
+          find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '
+        }
         copy_dir_stream() {
           SRC="${'$'}1"
           DST="${'$'}2"
           [ -d "${'$'}SRC" ] || { echo "SKIP_MISSING:${'$'}SRC"; return 0; }
+          SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+          [ "${'$'}SRC_ITEMS" -gt 0 ] || { echo "SKIP_EMPTY:${'$'}SRC"; return 0; }
+          rm -rf "${'$'}DST.tmp"
           mkdir -p "${'$'}DST.tmp" || exit 12
           (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST.tmp" && tar -xpf -) || exit 13
           rm -rf "${'$'}DST"
           mv "${'$'}DST.tmp" "${'$'}DST" || exit 14
           ${if (rule.excludeCache) "rm -rf \"${'$'}DST/cache\" \"${'$'}DST/code_cache\" 2>/dev/null || true" else ":"}
-          echo "COPIED:${'$'}SRC"
+          DST_ITEMS=${'$'}(count_items "${'$'}DST")
+          [ "${'$'}DST_ITEMS" -gt 0 ] || { echo "ERR_COPY_EMPTY:${'$'}SRC" >&2; exit 17; }
+          PART_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
+          COPIED_PARTS=${'$'}((COPIED_PARTS + 1))
+          COPIED_ITEMS=${'$'}((COPIED_ITEMS + DST_ITEMS))
+          echo "COPIED:${'$'}SRC ITEMS=${'$'}DST_ITEMS SIZE_KB=${'$'}PART_SIZE_KB"
         }
         ${if (rule.includeCe) "copy_dir_stream \"/data/user/${settings.cloneUserId}/${'$'}PKG\" \"${'$'}TMP/ce\"" else ":"}
         ${if (rule.includeDe) "copy_dir_stream \"/data/user_de/${settings.cloneUserId}/${'$'}PKG\" \"${'$'}TMP/de\"" else ":"}
         ${if (rule.includeExternal) "copy_dir_stream \"/data/media/${settings.cloneUserId}/Android/data/${'$'}PKG\" \"${'$'}TMP/external\"" else ":"}
         ${if (rule.includeMedia) "copy_dir_stream \"/data/media/${settings.cloneUserId}/Android/media/${'$'}PKG\" \"${'$'}TMP/media\"" else ":"}
         ${if (rule.includeObb) "copy_dir_stream \"/data/media/${settings.cloneUserId}/Android/obb/${'$'}PKG\" \"${'$'}TMP/obb\"" else ":"}
+        [ "${'$'}COPIED_PARTS" -gt 0 ] || { echo "ERR_NOTHING_COPIED: no non-empty selected source paths for user ${settings.cloneUserId}/${'$'}PKG" >&2; exit 44; }
         SIZE_KB=${'$'}(du -sk "${'$'}TMP" 2>/dev/null | awk '{print ${'$'}1}')
         cat > "${'$'}TMP/manifest.json" <<EOF
-        {"packageName":"${packageName}","sourceUser":${settings.cloneUserId},"targetUser":${settings.mainUserId},"createdAt":"${'$'}TS","includeCe":${rule.includeCe},"includeDe":${rule.includeDe},"includeExternal":${rule.includeExternal},"includeMedia":${rule.includeMedia},"includeObb":${rule.includeObb},"includeAppWebView":${rule.includeAppWebView},"excludeCache":${rule.excludeCache},"snapshotSizeKb":"${'$'}SIZE_KB"}
+        {"packageName":"${packageName}","sourceUser":${settings.cloneUserId},"targetUser":${settings.mainUserId},"createdAt":"${'$'}TS","includeCe":${rule.includeCe},"includeDe":${rule.includeDe},"includeExternal":${rule.includeExternal},"includeMedia":${rule.includeMedia},"includeObb":${rule.includeObb},"includeAppWebView":${rule.includeAppWebView},"excludeCache":${rule.excludeCache},"snapshotSizeKb":"${'$'}SIZE_KB","copiedParts":"${'$'}COPIED_PARTS","copiedItems":"${'$'}COPIED_ITEMS"}
         EOF
         if [ -d "${'$'}BASE/active" ]; then mv "${'$'}BASE/active" "${'$'}BASE/history/${'$'}TS" || exit 15; fi
         mv "${'$'}TMP" "${'$'}BASE/active" || exit 16
@@ -89,19 +103,33 @@ object ShellScripts {
             [ -n "${'$'}UID_VALUE" ] || { echo "ERR_TARGET_UID_MISSING" >&2; exit 52; }
             mkdir -p "${'$'}ROLLBACK" "${'$'}ROOT/tmp" || exit 53
             am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+            BACKUP_PARTS=0
+            RESTORED_PARTS=0
+            RESTORED_ITEMS=0
+            count_items() {
+              find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '
+            }
             backup_dir() {
               SRC="${'$'}1"
               DST="${'$'}2"
               [ -d "${'$'}SRC" ] || return 0
+              SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+              [ "${'$'}SRC_ITEMS" -gt 0 ] || { echo "SKIP_BACKUP_EMPTY:${'$'}SRC"; return 0; }
+              rm -rf "${'$'}DST"
               mkdir -p "${'$'}DST" || exit 54
               (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && tar -xpf -) || exit 55
-              echo "BACKUP:${'$'}SRC"
+              BACKUP_ITEMS=${'$'}(count_items "${'$'}DST")
+              [ "${'$'}BACKUP_ITEMS" -gt 0 ] || { echo "ERR_BACKUP_EMPTY:${'$'}SRC" >&2; exit 63; }
+              BACKUP_PARTS=${'$'}((BACKUP_PARTS + 1))
+              echo "BACKUP:${'$'}SRC ITEMS=${'$'}BACKUP_ITEMS"
             }
             restore_part() {
               SNAP="${'$'}1"
               TARGET="${'$'}2"
               OWNER="${'$'}3"
               [ -d "${'$'}SNAP" ] || { echo "SKIP_PART:${'$'}SNAP"; return 0; }
+              SNAP_ITEMS=${'$'}(count_items "${'$'}SNAP")
+              [ "${'$'}SNAP_ITEMS" -gt 0 ] || { echo "ERR_EMPTY_SNAPSHOT_PART:${'$'}SNAP" >&2; exit 64; }
               TMP="${'$'}TARGET.tmp.uclone.${'$'}TS"
               rm -rf "${'$'}TMP"
               mkdir -p "${'$'}TMP" || exit 56
@@ -110,7 +138,11 @@ object ShellScripts {
               mv "${'$'}TMP" "${'$'}TARGET" || exit 58
               if [ -n "${'$'}OWNER" ]; then chown -R "${'$'}OWNER:${'$'}OWNER" "${'$'}TARGET" || exit 59; fi
               restorecon -RF "${'$'}TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}TARGET" >/dev/null 2>&1 || exit 60
-              echo "RESTORED:${'$'}TARGET"
+              TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET")
+              [ "${'$'}TARGET_ITEMS" -gt 0 ] || { echo "ERR_RESTORE_EMPTY:${'$'}TARGET" >&2; exit 65; }
+              RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
+              RESTORED_ITEMS=${'$'}((RESTORED_ITEMS + TARGET_ITEMS))
+              echo "RESTORED:${'$'}TARGET ITEMS=${'$'}TARGET_ITEMS"
             }
             backup_dir "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/ce"
             backup_dir "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/de"
@@ -119,8 +151,11 @@ object ShellScripts {
             restore_part "${'$'}ACTIVE/external" "/data/media/${settings.mainUserId}/Android/data/${'$'}PKG" ""
             restore_part "${'$'}ACTIVE/media" "/data/media/${settings.mainUserId}/Android/media/${'$'}PKG" ""
             restore_part "${'$'}ACTIVE/obb" "/data/media/${settings.mainUserId}/Android/obb/${'$'}PKG" ""
+            [ "${'$'}RESTORED_PARTS" -gt 0 ] || { echo "ERR_NOTHING_RESTORED:${'$'}ACTIVE" >&2; exit 62; }
+            sync
             am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || true
             echo "ROLLBACK=${'$'}ROLLBACK"
+            echo "RESTORE_SUMMARY: restoredParts=${'$'}RESTORED_PARTS restoredItems=${'$'}RESTORED_ITEMS backupParts=${'$'}BACKUP_PARTS"
         """.trimIndent()
     }
 }
