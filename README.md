@@ -33,7 +33,15 @@ Build:
 gradle --no-daemon :app:assembleDebug
 ```
 
-GitHub Actions compiles the debug APK on every push to `main` and uploads `uclone-restore-debug-apk`.
+GitHub Actions compiles the fixed-signed release APK on every push to `main` and uploads `uclone-restore-release-apk`.
+Release signing is driven by repository secrets:
+
+- `RELEASE_KEYSTORE_BASE64`
+- `RELEASE_STORE_PASSWORD`
+- `RELEASE_KEY_ALIAS`
+- `RELEASE_KEY_PASSWORD`
+
+Installability note: fixed-signed releases can cover-install later fixed-signed releases. Moving from an older debug-signed APK to the fixed-signed release requires a one-time uninstall because Android treats them as different signing identities.
 
 Figma MVP draft:
 
