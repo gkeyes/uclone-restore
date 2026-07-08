@@ -157,6 +157,12 @@ All spacing derives from 4dp.
 - **States**: collapsed, expanded, clear-and-collapse.
 - **Accessibility**: icon has a text content description.
 
+### AppFilterMenu
+- **Structure**: filter icon button placed left of App search; opens a compact checkbox dropdown.
+- **Options**: show all, dual-system apps, user apps, system apps.
+- **States**: all is mutually exclusive; other filters can be combined.
+- **Accessibility**: icon has a text content description and each option keeps a visible text label.
+
 ### LogPanel
 - **Structure**: monospace text inside raised rounded surface.
 - **Variants**: normal, empty.

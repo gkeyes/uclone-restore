@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,11 +15,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,9 +45,13 @@ import com.uclone.restore.util.Formatters
 @Composable
 fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, openDetail: () -> Unit) {
     var searchExpanded by remember { mutableStateOf(state.search.isNotBlank()) }
+    var selectedFilters by remember { mutableStateOf(setOf(AppListFilter.ALL)) }
     val query = state.search.trim().lowercase()
     val apps = state.apps.filter {
-        query.isEmpty() || it.label.lowercase().contains(query) || it.packageName.lowercase().contains(query)
+        val matchesQuery = query.isEmpty() ||
+            it.label.lowercase().contains(query) ||
+            it.packageName.lowercase().contains(query)
+        matchesQuery && selectedFilters.matches(it)
     }
     Column(
         modifier
@@ -58,8 +67,11 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
         ) {
             ScreenHeader("App", "点星标收藏到首页。")
             if (!searchExpanded) {
-                IconButton(onClick = { searchExpanded = true }) {
-                    Icon(Icons.Default.Search, contentDescription = "搜索")
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AppFilterButton(selectedFilters) { selectedFilters = it }
+                    IconButton(onClick = { searchExpanded = true }) {
+                        Icon(Icons.Default.Search, contentDescription = "搜索")
+                    }
                 }
             }
         }
@@ -69,6 +81,7 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                AppFilterButton(selectedFilters) { selectedFilters = it }
                 OutlinedTextField(
                     value = state.search,
                     onValueChange = viewModel::updateSearch,
@@ -97,6 +110,65 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                         viewModel.selectPackage(app.packageName)
                         openDetail()
                     },
+                )
+            }
+        }
+    }
+}
+
+private enum class AppListFilter(val label: String) {
+    ALL("显示全部"),
+    DUAL_SYSTEM("显示双系统 App"),
+    USER("显示用户 App"),
+    SYSTEM("显示系统 App"),
+}
+
+private fun Set<AppListFilter>.matches(app: AppEntry): Boolean {
+    if (AppListFilter.ALL in this) return true
+    return any { filter ->
+        when (filter) {
+            AppListFilter.ALL -> true
+            AppListFilter.DUAL_SYSTEM -> app.user0Installed && app.user10Installed
+            AppListFilter.USER -> !app.isSystemApp
+            AppListFilter.SYSTEM -> app.isSystemApp
+        }
+    }
+}
+
+private fun Set<AppListFilter>.toggle(filter: AppListFilter): Set<AppListFilter> {
+    if (filter == AppListFilter.ALL) return setOf(AppListFilter.ALL)
+    val next = if (filter in this) this - filter else (this - AppListFilter.ALL) + filter
+    return next.ifEmpty { setOf(AppListFilter.ALL) }
+}
+
+@Composable
+private fun AppFilterButton(selectedFilters: Set<AppListFilter>, onChange: (Set<AppListFilter>) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val active = AppListFilter.ALL !in selectedFilters
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Icons.Default.FilterList,
+                contentDescription = "筛选",
+                tint = if (active) IosBlue else IosSecondaryText,
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            AppListFilter.entries.forEach { filter ->
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = filter in selectedFilters,
+                                onCheckedChange = null,
+                            )
+                            Text(filter.label, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    },
+                    onClick = { onChange(selectedFilters.toggle(filter)) },
                 )
             }
         }
