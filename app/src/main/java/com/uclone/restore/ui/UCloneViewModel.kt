@@ -37,7 +37,7 @@ class UCloneViewModel(
     fun refreshAll() {
         refreshEnvironment()
         loadApps()
-        refreshHistory()
+        refreshTaskHistory()
     }
 
     fun refreshEnvironment() {
@@ -404,7 +404,7 @@ class UCloneViewModel(
         }
     }
 
-    private fun refreshHistory() {
+    fun refreshTaskHistory() {
         _state.update { it.copy(history = syncEngine.history()) }
     }
 
