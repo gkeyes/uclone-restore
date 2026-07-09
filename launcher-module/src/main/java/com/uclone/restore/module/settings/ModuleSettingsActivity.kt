@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
@@ -65,7 +66,7 @@ class ModuleSettingsActivity : Activity() {
     private fun buildContent(): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(18), dp(16), dp(20))
+            setPadding(dp(12), statusBarHeight() + dp(10), dp(12), navigationBarHeight() + dp(12))
             background = softBackground()
 
             addView(headerCard(), matchWrap())
@@ -84,7 +85,9 @@ class ModuleSettingsActivity : Activity() {
         }
 
     private fun headerCard(): LinearLayout =
-        glassCard(compact = true).apply {
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), 0, dp(4), dp(2))
             val top = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -96,9 +99,9 @@ class ModuleSettingsActivity : Activity() {
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 setTextColor(Color.WHITE)
-                background = roundedGradient(intArrayOf(BLUE, CYAN), dp(16))
+                background = roundedSolid(BLUE, dp(14))
             }
-            top.addView(mark, LinearLayout.LayoutParams(dp(48), dp(48)))
+            top.addView(mark, LinearLayout.LayoutParams(dp(44), dp(44)))
 
             val titleGroup = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -116,6 +119,7 @@ class ModuleSettingsActivity : Activity() {
                 minWidth = dp(52)
                 minimumWidth = dp(52)
                 minHeight = dp(32)
+                applySwitchStyle()
                 setOnCheckedChangeListener { _, checked ->
                     persistHookEnabled(checked)
                 }
@@ -129,18 +133,19 @@ class ModuleSettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassDrawable(dp(22), alpha = 164)
+            background = glassDrawable(dp(16), alpha = 216)
             SettingsPage.entries.forEach { page ->
                 val item = TextView(this@ModuleSettingsActivity).apply {
                     text = page.label
                     textSize = 13f
                     typeface = Typeface.DEFAULT_BOLD
+                    includeFontPadding = false
                     gravity = Gravity.CENTER
                     foreground = selectableItemBackground()
                     setOnClickListener { showPage(page) }
                 }
                 tabButtons[page] = item
-                addView(item, LinearLayout.LayoutParams(0, dp(36), 1f))
+                addView(item, LinearLayout.LayoutParams(0, dp(38), 1f))
             }
         }
 
@@ -257,13 +262,14 @@ class ModuleSettingsActivity : Activity() {
                 0,
                 1f,
             ))
-            addView(space(10))
+            addView(space(6))
 
             selectedCountText = text("", 13f, TEXT_SECONDARY, true).apply {
                 gravity = Gravity.CENTER
+                includeFontPadding = false
             }
             addView(selectedCountText, matchWrap())
-            addView(space(8))
+            addView(space(6))
             addView(primaryButton("保存目标 App", {
                 saveValues()
                 Toast.makeText(this@ModuleSettingsActivity, "目标 App 已保存", Toast.LENGTH_SHORT).show()
@@ -277,12 +283,13 @@ class ModuleSettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassDrawable(dp(20), alpha = 150)
+            background = glassDrawable(dp(16), alpha = 216)
             AppFilter.entries.forEach { filter ->
                 val button = TextView(this@ModuleSettingsActivity).apply {
                     text = filter.label
                     textSize = 12f
                     typeface = Typeface.DEFAULT_BOLD
+                    includeFontPadding = false
                     gravity = Gravity.CENTER
                     foreground = selectableItemBackground()
                     setOnClickListener {
@@ -292,7 +299,7 @@ class ModuleSettingsActivity : Activity() {
                     }
                 }
                 appFilterButtons[filter] = button
-                addView(button, LinearLayout.LayoutParams(0, dp(34), 1f))
+                addView(button, LinearLayout.LayoutParams(0, dp(36), 1f))
             }
             updateAppFilterStyles()
         }
@@ -406,12 +413,13 @@ class ModuleSettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassDrawable(dp(20), alpha = 150)
+            background = glassDrawable(dp(16), alpha = 216)
             LogFilter.entries.forEach { filter ->
                 val button = TextView(this@ModuleSettingsActivity).apply {
                     text = filter.label
                     textSize = 12f
                     typeface = Typeface.DEFAULT_BOLD
+                    includeFontPadding = false
                     gravity = Gravity.CENTER
                     foreground = selectableItemBackground()
                     setOnClickListener {
@@ -421,7 +429,7 @@ class ModuleSettingsActivity : Activity() {
                     }
                 }
                 logFilterButtons[filter] = button
-                addView(button, LinearLayout.LayoutParams(0, dp(34), 1f))
+                addView(button, LinearLayout.LayoutParams(0, dp(36), 1f))
             }
             updateLogFilterStyles()
         }
@@ -434,6 +442,7 @@ class ModuleSettingsActivity : Activity() {
             minWidth = dp(52)
             minimumWidth = dp(52)
             minHeight = dp(32)
+            applySwitchStyle()
             setOnCheckedChangeListener { _, checked ->
                 if (hookSwitch.isChecked != checked) {
                     hookSwitch.isChecked = checked
@@ -502,6 +511,7 @@ class ModuleSettingsActivity : Activity() {
             minWidth = dp(52)
             minimumWidth = dp(52)
             minHeight = dp(32)
+            applySwitchStyle()
             setOnCheckedChangeListener { _, checked ->
                 if (checked) {
                     selectedPackages.add(app.packageName)
@@ -625,8 +635,8 @@ class ModuleSettingsActivity : Activity() {
     private fun updateTabStyles() {
         tabButtons.forEach { (page, button) ->
             val selected = page == currentPage
-            button.setTextColor(if (selected) Color.WHITE else TEXT_SECONDARY)
-            button.background = if (selected) roundedGradient(intArrayOf(BLUE, CYAN), dp(18)) else null
+            button.setTextColor(if (selected) BLUE else TEXT_SECONDARY)
+            button.background = if (selected) roundedSolid(colorWithAlpha(BLUE, 28), dp(14)) else null
         }
     }
 
@@ -710,9 +720,9 @@ class ModuleSettingsActivity : Activity() {
     private fun glassCard(compact: Boolean = false): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), if (compact) dp(14) else dp(16), dp(16), if (compact) dp(14) else dp(16))
+            setPadding(dp(14), if (compact) dp(10) else dp(12), dp(14), if (compact) dp(10) else dp(12))
             background = glassDrawable()
-            elevation = dp(2).toFloat()
+            elevation = 0f
         }
 
     private fun cardTitle(value: String): TextView =
@@ -819,28 +829,39 @@ class ModuleSettingsActivity : Activity() {
             text = label
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
+            includeFontPadding = false
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            background = roundedGradient(intArrayOf(BLUE, CYAN), dp(24))
+            background = primaryButtonDrawable()
             foreground = selectableItemBackground()
             setOnClickListener { onClick() }
-            layoutParams = params.apply { height = dp(50) }
+            layoutParams = params.apply { height = dp(44) }
         }
 
     private fun secondaryButton(label: String, onClick: () -> Unit): TextView =
-        secondaryButton(label, onClick, matchWrap())
+        secondaryButton(label, onClick, matchWrap(), danger = false)
 
-    private fun secondaryButton(label: String, onClick: () -> Unit, params: LinearLayout.LayoutParams): TextView =
+    private fun secondaryButton(
+        label: String,
+        onClick: () -> Unit,
+        params: LinearLayout.LayoutParams,
+        danger: Boolean = false,
+    ): TextView =
         TextView(this).apply {
             text = label
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
+            includeFontPadding = false
             gravity = Gravity.CENTER
-            setTextColor(BLUE)
-            background = glassDrawable(dp(22), alpha = 150)
+            setTextColor(if (danger) RED else BLUE)
+            background = glassDrawable(
+                radius = dp(22),
+                alpha = 216,
+                strokeColor = if (danger) colorWithAlpha(RED, 52) else CONTROL_BORDER,
+            )
             foreground = selectableItemBackground()
             setOnClickListener { onClick() }
-            layoutParams = params.apply { height = dp(46) }
+            layoutParams = params.apply { height = dp(44) }
         }
 
     private fun iconButton(symbol: String, description: String, onClick: () -> Unit): TextView =
@@ -849,9 +870,10 @@ class ModuleSettingsActivity : Activity() {
             contentDescription = description
             textSize = 18f
             typeface = Typeface.DEFAULT_BOLD
+            includeFontPadding = false
             gravity = Gravity.CENTER
             setTextColor(BLUE)
-            background = glassDrawable(dp(22), alpha = 176)
+            background = glassDrawable(dp(22), alpha = 216)
             foreground = selectableItemBackground()
             setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
@@ -875,16 +897,19 @@ class ModuleSettingsActivity : Activity() {
     private fun softBackground(): Drawable =
         GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
-            intArrayOf(Color.rgb(248, 251, 255), Color.rgb(239, 246, 255), Color.rgb(246, 248, 252)),
+            intArrayOf(SURFACE, Color.rgb(247, 249, 252), SURFACE),
         )
 
-    private fun glassDrawable(radius: Int = dp(24), alpha: Int = 184): Drawable {
+    private fun glassDrawable(radius: Int = dp(16), alpha: Int = 216, strokeColor: Int = GLASS_BORDER): Drawable {
         val fill = roundedSolid(Color.argb(alpha, 255, 255, 255), radius)
-        val stroke = roundedStroke(Color.argb(178, 255, 255, 255), radius, 1)
-        val shadow = roundedSolid(Color.argb(18, 0, 0, 0), radius)
-        return LayerDrawable(arrayOf(shadow, fill, stroke)).apply {
-            setLayerInset(0, 0, dp(2), 0, 0)
-        }
+        val stroke = roundedStroke(strokeColor, radius, 1)
+        return LayerDrawable(arrayOf(fill, stroke))
+    }
+
+    private fun primaryButtonDrawable(): Drawable {
+        val fill = roundedSolid(BLUE, dp(22))
+        val stroke = roundedStroke(colorWithAlpha(Color.WHITE, 72), dp(22), 1)
+        return LayerDrawable(arrayOf(fill, stroke))
     }
 
     private fun roundedSolid(color: Int, radius: Int): GradientDrawable =
@@ -902,15 +927,26 @@ class ModuleSettingsActivity : Activity() {
             setStroke(width, color)
         }
 
-    private fun roundedGradient(colors: IntArray, radius: Int): GradientDrawable =
-        GradientDrawable(GradientDrawable.Orientation.TL_BR, colors).apply {
-            cornerRadius = radius.toFloat()
-        }
-
     private fun selectableItemBackground(): Drawable? {
         val attrs = intArrayOf(android.R.attr.selectableItemBackgroundBorderless)
         val array = obtainStyledAttributes(attrs)
         return array.getDrawable(0).also { array.recycle() }
+    }
+
+    private fun Switch.applySwitchStyle() {
+        val states = arrayOf(
+            intArrayOf(android.R.attr.state_checked, android.R.attr.state_enabled),
+            intArrayOf(-android.R.attr.state_checked, android.R.attr.state_enabled),
+            intArrayOf(-android.R.attr.state_enabled),
+        )
+        thumbTintList = ColorStateList(
+            states,
+            intArrayOf(Color.WHITE, Color.WHITE, Color.rgb(242, 242, 247)),
+        )
+        trackTintList = ColorStateList(
+            states,
+            intArrayOf(GREEN, SEPARATOR, colorWithAlpha(SEPARATOR, 150)),
+        )
     }
 
     private fun colorWithAlpha(color: Int, alpha: Int): Int =
@@ -932,6 +968,17 @@ class ModuleSettingsActivity : Activity() {
                 LinearLayout.LayoutParams(1, dp(value))
             }
         }
+
+    private fun statusBarHeight(): Int =
+        systemDimension("status_bar_height").takeIf { it > 0 } ?: dp(28)
+
+    private fun navigationBarHeight(): Int =
+        systemDimension("navigation_bar_height").coerceAtLeast(0)
+
+    private fun systemDimension(name: String): Int {
+        val id = resources.getIdentifier(name, "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else 0
+    }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
@@ -967,8 +1014,11 @@ class ModuleSettingsActivity : Activity() {
         private val TEXT_SECONDARY = Color.rgb(88, 96, 112)
         private val TEXT_TERTIARY = Color.rgb(130, 138, 153)
         private val BLUE = Color.rgb(0, 122, 255)
-        private val CYAN = Color.rgb(90, 200, 250)
         private val GREEN = Color.rgb(52, 199, 89)
         private val ORANGE = Color.rgb(255, 149, 0)
+        private val RED = Color.rgb(255, 59, 48)
+        private val SEPARATOR = Color.rgb(210, 210, 215)
+        private val CONTROL_BORDER = Color.argb(31, 29, 29, 31)
+        private val GLASS_BORDER = Color.argb(184, 255, 255, 255)
     }
 }
