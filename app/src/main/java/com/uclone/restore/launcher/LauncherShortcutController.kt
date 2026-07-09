@@ -6,6 +6,7 @@ import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
 import android.os.SystemClock
+import androidx.core.graphics.drawable.toBitmap
 import com.uclone.restore.MainActivity
 import com.uclone.restore.R
 
@@ -52,7 +53,7 @@ class LauncherShortcutController(private val context: Context) {
         return ShortcutInfo.Builder(context, shortcutId(packageName))
             .setShortLabel(compactLabel("$actionLabel $label"))
             .setLongLabel("$actionLabel $label")
-            .setIcon(Icon.createWithResource(context, R.mipmap.ic_launcher))
+            .setIcon(shortcutIcon())
             .setIntent(
                 Intent(context, MainActivity::class.java).apply {
                     action = ACTION_TOGGLE_FAVORITE
@@ -69,10 +70,21 @@ class LauncherShortcutController(private val context: Context) {
 
     private fun shortcutId(packageName: String): String = "favorite_toggle_$packageName"
 
+    private fun FavoriteShortcutEntry.shortcutIcon(): Icon = runCatching {
+        Icon.createWithBitmap(
+            context.packageManager
+                .getApplicationIcon(packageName)
+                .toBitmap(SHORTCUT_ICON_SIZE_PX, SHORTCUT_ICON_SIZE_PX),
+        )
+    }.getOrElse {
+        Icon.createWithResource(context, R.mipmap.ic_launcher)
+    }
+
     companion object {
         const val ACTION_TOGGLE_FAVORITE = "com.uclone.restore.action.TOGGLE_FAVORITE"
         const val EXTRA_PACKAGE_NAME = "com.uclone.restore.extra.PACKAGE_NAME"
         private const val MAX_FAVORITE_SHORTCUTS = 4
         private const val SHORT_LABEL_MAX = 12
+        private const val SHORTCUT_ICON_SIZE_PX = 192
     }
 }
