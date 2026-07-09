@@ -116,15 +116,18 @@ class TaskLogStore(
         val parts = line.split("\t")
         if (parts.size != FIELD_COUNT) return null
         return runCatching {
+            val status = TaskStatus.valueOf(parts[5])
+            val interrupted = status == TaskStatus.RUNNING
             TaskRecord(
                 id = parts[0].toLong(),
                 packageName = decode(parts[1]),
                 type = TaskType.valueOf(parts[2]),
                 startedAt = parts[3].toLong(),
-                finishedAt = parts[4].takeIf(String::isNotBlank)?.toLong(),
-                status = TaskStatus.valueOf(parts[5]),
+                finishedAt = parts[4].takeIf(String::isNotBlank)?.toLong()
+                    ?: if (interrupted) System.currentTimeMillis() else null,
+                status = if (interrupted) TaskStatus.FAILED else status,
                 logPath = decode(parts[6]),
-                message = decode(parts[7]),
+                message = if (interrupted) "任务中断" else decode(parts[7]),
             )
         }.getOrNull()
     }

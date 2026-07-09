@@ -33,6 +33,22 @@ class TaskLogStoreTest {
         assertTrue(records.single().finishedAt != null)
     }
 
+    @Test
+    fun persistedRunningRecordLoadsAsInterruptedFailure() {
+        val historyFile = Files.createTempDirectory("uclone-history-running").resolve("task_history.tsv").toFile()
+        TaskLogStore(NoopShell, historyFile).running(
+            type = TaskType.SWITCH_TO_CLONE_STATE,
+            packageName = "com.example.app",
+            logPath = "/data/adb/uclone/logs/running.log",
+        )
+
+        val records = TaskLogStore(NoopShell, historyFile).all()
+
+        assertEquals(TaskStatus.FAILED, records.single().status)
+        assertEquals("任务中断", records.single().message)
+        assertTrue(records.single().finishedAt != null)
+    }
+
     private object NoopShell : RootShellExecutor {
         override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult = ShellResult(0, "", "")
     }
