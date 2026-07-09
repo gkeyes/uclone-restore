@@ -16,7 +16,7 @@ class UCloneApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         val shell = ProcessRootShellExecutor()
-        val logStore = TaskLogStore(shell)
+        val logStore = TaskLogStore(shell, filesDir.resolve("task_history.tsv"))
         container = AppContainer(
             settingsStore = SettingsStore(this),
             packageInspector = PackageInspector(this, shell),

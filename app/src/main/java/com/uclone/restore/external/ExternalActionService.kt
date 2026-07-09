@@ -1,14 +1,9 @@
 package com.uclone.restore.external
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ApplicationInfo
-import android.os.Build
 import android.os.IBinder
-import androidx.core.app.NotificationCompat
-import com.uclone.restore.R
 import com.uclone.restore.UCloneApplication
 import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.TaskProgress
@@ -34,23 +29,27 @@ class ExternalActionService : Service() {
             if (!externalTaskRunning.get()) stopSelf(startId)
             return START_NOT_STICKY
         }
+        val notifier = ExternalActionNotifier(this)
         if (!container.syncEngine.tryBeginOperation()) {
             broadcastStatus(intent, ExternalActionContract.STATUS_BUSY, "已有任务正在执行")
+            notifier.notifyResult(
+                intent.getStringExtra(ExternalActionContract.EXTRA_PACKAGE_NAME),
+                intent.getStringExtra(ExternalActionContract.EXTRA_OPERATION),
+                ExternalActionContract.STATUS_BUSY,
+                "已有任务正在执行",
+            )
             if (!externalTaskRunning.get()) stopSelf(startId)
             return START_NOT_STICKY
         }
         externalTaskRunning.set(true)
         try {
-            ensureChannel()
             startForeground(
                 NOTIFICATION_ID,
-                NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setSmallIcon(R.drawable.ic_launcher)
-                    .setContentTitle("UClone Restore")
-                    .setContentText("正在处理模块操作")
-                    .setOngoing(true)
-                    .setPriority(NotificationCompat.PRIORITY_LOW)
-                    .build(),
+                notifier.running(
+                    intent.getStringExtra(ExternalActionContract.EXTRA_PACKAGE_NAME),
+                    intent.getStringExtra(ExternalActionContract.EXTRA_OPERATION),
+                    "正在启动",
+                ),
             )
         } catch (error: Exception) {
             externalTaskRunning.set(false)
@@ -78,18 +77,27 @@ class ExternalActionService : Service() {
     }
 
     private suspend fun execute(intent: Intent, container: com.uclone.restore.AppContainer) {
+        val notifier = ExternalActionNotifier(this)
         val request = ExternalActionRequest.from(intent)
         if (request == null) {
             broadcastStatus(intent, ExternalActionContract.STATUS_REJECTED, "外部请求参数无效")
+            notifier.notifyResult(
+                intent.getStringExtra(ExternalActionContract.EXTRA_PACKAGE_NAME),
+                intent.getStringExtra(ExternalActionContract.EXTRA_OPERATION),
+                ExternalActionContract.STATUS_REJECTED,
+                "外部请求参数无效",
+            )
             return
         }
         val settings = container.settingsStore.load()
         val rejected = rejectReason(request.packageName, settings)
         if (rejected != null) {
             broadcastStatus(request, ExternalActionContract.STATUS_REJECTED, rejected)
+            notifier.notifyResult(request.packageName, request.operation, ExternalActionContract.STATUS_REJECTED, rejected)
             return
         }
         broadcastStatus(request, ExternalActionContract.STATUS_ACCEPTED, "任务已接收")
+        notifier.updateRunning(request.packageName, request.operation, "开始执行")
         val report: suspend (TaskProgress) -> Unit = {}
         val task = runCatching {
             when (request.operation) {
@@ -118,9 +126,12 @@ class ExternalActionService : Service() {
                     ExternalActionContract.STATUS_FAILED
                 }
                 broadcastStatus(request, status, record.message, record)
+                notifier.notifyResult(request.packageName, request.operation, status, record.message)
             },
             onFailure = { error ->
-                broadcastStatus(request, ExternalActionContract.STATUS_FAILED, error.message ?: "模块操作失败")
+                val message = error.message ?: "模块操作失败"
+                broadcastStatus(request, ExternalActionContract.STATUS_FAILED, message)
+                notifier.notifyResult(request.packageName, request.operation, ExternalActionContract.STATUS_FAILED, message)
             },
         )
     }
@@ -223,51 +234,7 @@ class ExternalActionService : Service() {
         sendBroadcast(statusIntent, ExternalActionContract.PERMISSION_CONTROL)
     }
 
-    private fun ensureChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(CHANNEL_ID, "UClone external actions", NotificationManager.IMPORTANCE_LOW)
-        manager.createNotificationChannel(channel)
-    }
-
     companion object {
-        private const val CHANNEL_ID = "uclone_external_actions"
         private const val NOTIFICATION_ID = 41011
-    }
-}
-
-private data class ExternalActionRequest(
-    val operation: String,
-    val packageName: String,
-    val requestId: String,
-    val source: String,
-) {
-    companion object {
-        fun from(intent: Intent): ExternalActionRequest? {
-            val version = intent.getIntExtra(ExternalActionContract.EXTRA_PROTOCOL_VERSION, 0)
-            if (version != ExternalActionContract.PROTOCOL_VERSION) return null
-            val operation = intent.getStringExtra(ExternalActionContract.EXTRA_OPERATION)
-                ?.takeIf(String::isNotBlank)
-                ?: return null
-            if (operation !in allowedOperations) return null
-            val packageName = intent.getStringExtra(ExternalActionContract.EXTRA_PACKAGE_NAME)
-                ?.takeIf(String::isNotBlank)
-                ?: return null
-            val requestId = intent.getStringExtra(ExternalActionContract.EXTRA_REQUEST_ID).orEmpty()
-            val source = intent.getStringExtra(ExternalActionContract.EXTRA_SOURCE)
-                ?.takeIf(String::isNotBlank)
-                ?: ExternalActionContract.SOURCE_MODULE
-            return ExternalActionRequest(operation, packageName, requestId, source)
-        }
-
-        private val allowedOperations = setOf(
-            ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
-            ExternalActionContract.OPERATION_SWITCH_TO_CLONE,
-            ExternalActionContract.OPERATION_RESTORE_MAIN,
-            ExternalActionContract.OPERATION_BACKUP_DEFAULT,
-            ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP,
-            ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE,
-            ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK,
-        )
     }
 }

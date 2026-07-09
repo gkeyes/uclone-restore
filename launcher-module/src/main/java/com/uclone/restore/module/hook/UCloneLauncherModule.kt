@@ -5,14 +5,11 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.os.UserHandle
 import android.util.Log
 import android.view.View
-import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import com.uclone.restore.module.relay.ModuleConstants
@@ -96,7 +93,6 @@ class UCloneLauncherModule : XposedModule() {
     private fun bindMarkerView(view: View, target: TargetInfo) {
         val context = view.context
         setFieldText(view, "mTitle", ModuleConstants.MENU_LABEL)
-        setFieldIcon(view, "mIcon")
         view.setOnClickListener {
             val state = queryMenuState(context, target)
             val pendingIntent = state?.pendingIntent
@@ -124,16 +120,15 @@ class UCloneLauncherModule : XposedModule() {
         invokeIfExists(item, "setLongTitle", arrayOf(CharSequence::class.java), label)
         invokeIfExists(item, "setComponentName", arrayOf(ComponentName::class.java), MARKER_COMPONENT)
         userHandle?.let { invokeIfExists(item, "setUserHandle", arrayOf(UserHandle::class.java), it) }
-        invokeIfExists(item, "setIconDrawable", arrayOf(android.graphics.drawable.Drawable::class.java), ColorDrawable(Color.rgb(0, 122, 255)))
         return item
     }
 
     private fun findConcreteMenuItemClass(classLoader: ClassLoader): Class<*> {
         val candidates = listOf(
+            "com.miui.home.launcher.shortcuts.AddWidgetShortcutMenuItem",
             "com.miui.home.launcher.shortcuts.SystemShortcutMenuItem\$AppDetailsShortcutMenuItem",
             "com.miui.home.launcher.shortcuts.SystemShortcutMenuItem\$ShareAppShortcutMenuItem",
             "com.miui.home.launcher.shortcuts.SystemShortcutMenuItem\$TipMenuItem",
-            "com.miui.home.launcher.shortcuts.AddWidgetShortcutMenuItem",
         )
         return candidates.firstNotNullOfOrNull { className ->
             runCatching {
@@ -182,11 +177,6 @@ class UCloneLauncherModule : XposedModule() {
     private fun setFieldText(instance: Any, fieldName: String, text: CharSequence) {
         val field = instance.findField(fieldName) ?: return
         (field.get(instance) as? TextView)?.text = text
-    }
-
-    private fun setFieldIcon(instance: Any, fieldName: String) {
-        val field = instance.findField(fieldName) ?: return
-        (field.get(instance) as? ImageView)?.setImageDrawable(ColorDrawable(Color.rgb(0, 122, 255)))
     }
 
     private fun currentApplication(): Application? =
