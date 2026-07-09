@@ -271,6 +271,65 @@ object ShellScripts {
         current_user() {
           am get-current-user 2>&1 || true
         }
+        print_keyguard_summary() {
+          LABEL="${'$'}1"
+          FOCUS=${'$'}(dumpsys window 2>/dev/null | grep -m 1 'mCurrentFocus' | sed 's/[[:space:]][[:space:]]*/ /g' || true)
+          KEYGUARD=${'$'}(dumpsys window 2>/dev/null | grep -m 1 -E 'mShowingLockscreen|isStatusBarKeyguard|mDreamingLockscreen' | sed 's/[[:space:]][[:space:]]*/ /g' || true)
+          echo "${'$'}LABEL"_FOCUS="${'$'}FOCUS"
+          echo "${'$'}LABEL"_KEYGUARD="${'$'}KEYGUARD"
+        }
+        wait_for_current_user() {
+          WANT_USER="${'$'}1"
+          i=0
+          while [ "${'$'}i" -lt 10 ]; do
+            NOW_USER=${'$'}(current_user)
+            [ "${'$'}NOW_USER" = "${'$'}WANT_USER" ] && return 0
+            sleep 1
+            i=${'$'}((i + 1))
+          done
+          return 1
+        }
+        check_unlocked_or_continue() {
+          LABEL="${'$'}1"
+          CHECK_STATE=${'$'}(state_of_clone)
+          echo "${'$'}LABEL=${'$'}CHECK_STATE"
+          case "${'$'}CHECK_STATE" in
+            *RUNNING_UNLOCKED*)
+              echo "USER10_CE_STATE=RUNNING_UNLOCKED"
+              echo "USER10_CE_READY=1"
+              echo "UNLOCK_SUCCESS_STAGE=${'$'}LABEL"
+              return 0
+              ;;
+          esac
+          return 1
+        }
+        prepare_keyguard_input() {
+          echo "WAKE_AND_DISMISS_BEGIN"
+          input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || input keyevent 224 >/dev/null 2>&1 || true
+          input keyevent 82 >/dev/null 2>&1 || true
+          wm dismiss-keyguard >/dev/null 2>&1 || true
+          input swipe "${'$'}X" "${'$'}Y_START" "${'$'}X" "${'$'}Y_END" 350 >/dev/null 2>&1 || true
+          input tap "${'$'}X" "${'$'}Y_FIELD" >/dev/null 2>&1 || true
+          sleep 1
+        }
+        send_digit_keyevents() {
+          case "${'$'}CREDENTIAL" in
+            ''|*[!0-9]*)
+              echo "DIGIT_KEYEVENTS_SKIPPED=non_numeric"
+              return 1
+              ;;
+          esac
+          echo "DIGIT_KEYEVENTS_BEGIN"
+          i=1
+          while [ "${'$'}i" -le ${credential.length} ]; do
+            DIGIT=${'$'}(printf '%s' "${'$'}CREDENTIAL" | cut -c "${'$'}i")
+            input keyevent "KEYCODE_${'$'}DIGIT" >/dev/null 2>&1 || echo "WARN_DIGIT_KEYEVENT_FAILED:index=${'$'}i"
+            i=${'$'}((i + 1))
+          done
+          input keyevent 66 >/dev/null 2>&1 || true
+          echo "DIGIT_KEYEVENTS_SENT=${credential.length}"
+          return 0
+        }
         STATE_BEFORE=${'$'}(state_of_clone)
         echo "STATE_BEFORE=${'$'}STATE_BEFORE"
         CURRENT_BEFORE=${'$'}(current_user)
@@ -279,6 +338,19 @@ object ShellScripts {
           echo "ERR_CREDENTIAL_EMPTY" >&2
           exit 83
         fi
+        case "${'$'}STATE_BEFORE" in
+          *RUNNING_UNLOCKED*)
+            echo "USER10_CE_STATE=RUNNING_UNLOCKED"
+            echo "USER10_CE_READY=1"
+            echo "UNLOCK_SUCCESS_STAGE=STATE_BEFORE"
+            exit 0
+            ;;
+        esac
+        echo "START_USER_BEGIN"
+        START_OUTPUT=${'$'}(am start-user -w "${'$'}CLONE_USER" 2>&1 || true)
+        echo "START_USER_OUTPUT=${'$'}START_OUTPUT"
+        STATE_AFTER_START=${'$'}(state_of_clone)
+        echo "STATE_AFTER_START=${'$'}STATE_AFTER_START"
         VERIFY_EXIT=0
         VERIFY_OUTPUT=${'$'}(cmd lock_settings verify --old "${'$'}CREDENTIAL" --user "${'$'}CLONE_USER" 2>&1) || VERIFY_EXIT=${'$'}?
         echo "LOCK_SETTINGS_VERIFY_EXIT=${'$'}VERIFY_EXIT"
@@ -292,19 +364,11 @@ object ShellScripts {
           *) VERIFY_RESULT="OTHER_OUTPUT_LEN_${'$'}(printf '%s' "${'$'}VERIFY_OUTPUT" | wc -c | tr -d ' ')" ;;
         esac
         echo "LOCK_SETTINGS_VERIFY_RESULT=${'$'}VERIFY_RESULT"
-        STATE_AFTER_VERIFY=${'$'}(state_of_clone)
-        echo "STATE_AFTER_VERIFY=${'$'}STATE_AFTER_VERIFY"
-        case "${'$'}STATE_AFTER_VERIFY" in
-          *RUNNING_UNLOCKED*)
-            echo "USER10_CE_STATE=RUNNING_UNLOCKED"
-            echo "USER10_CE_READY=1"
-            exit 0
-            ;;
-        esac
+        check_unlocked_or_continue "STATE_AFTER_VERIFY" && exit 0
         echo "SWITCH_USER_BEGIN"
         SWITCH_OUTPUT=${'$'}(am switch-user "${'$'}CLONE_USER" 2>&1 || true)
         echo "SWITCH_USER_OUTPUT=${'$'}SWITCH_OUTPUT"
-        sleep 2
+        wait_for_current_user "${'$'}CLONE_USER" || echo "WARN_CURRENT_USER_NOT_CLONE:${'$'}(current_user)"
         SIZE=${'$'}(wm size 2>/dev/null | sed -n 's/.*: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\1 \2/p' | head -1)
         if [ -n "${'$'}SIZE" ]; then
           WIDTH=${'$'}(printf '%s' "${'$'}SIZE" | awk '{print ${'$'}1}')
@@ -316,13 +380,24 @@ object ShellScripts {
         X=${'$'}((WIDTH / 2))
         Y_START=${'$'}((HEIGHT * 4 / 5))
         Y_END=${'$'}((HEIGHT / 3))
+        Y_FIELD=${'$'}((HEIGHT * 3 / 5))
         echo "INPUT_SCREEN=${'$'}WIDTH x ${'$'}HEIGHT"
-        input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || input keyevent 224 >/dev/null 2>&1 || true
-        input swipe "${'$'}X" "${'$'}Y_START" "${'$'}X" "${'$'}Y_END" 250 >/dev/null 2>&1 || true
-        sleep 1
+        print_keyguard_summary "BEFORE_INPUT"
+        prepare_keyguard_input
+        print_keyguard_summary "AFTER_PREPARE"
+        if send_digit_keyevents; then
+          sleep 3
+          check_unlocked_or_continue "STATE_AFTER_DIGIT_KEYEVENTS" && {
+            echo "RETURN_MAIN_AFTER_DIGITS_BEGIN"
+            RETURN_DIGIT_OUTPUT=${'$'}(am switch-user "${'$'}MAIN_USER" 2>&1 || true)
+            echo "RETURN_MAIN_AFTER_DIGITS_OUTPUT=${'$'}RETURN_DIGIT_OUTPUT"
+            exit 0
+          }
+        fi
+        prepare_keyguard_input
         input text "${'$'}INPUT_TEXT" >/dev/null 2>&1 || echo "WARN_INPUT_TEXT_FAILED"
         echo "INPUT_TEXT_SENT_LENGTH=${credential.length}"
-        input keyevent 66 >/dev/null 2>&1 || true
+        input keyevent 66 >/dev/null 2>&1 || input keyevent 160 >/dev/null 2>&1 || true
         sleep 3
         STATE_AFTER_INPUT=${'$'}(state_of_clone)
         echo "STATE_AFTER_INPUT=${'$'}STATE_AFTER_INPUT"
