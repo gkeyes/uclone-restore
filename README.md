@@ -12,6 +12,11 @@ First version scope:
 - Repairs ownership with the target app UID and runs `restorecon`.
 - Does not depend on Neo Backup or root inside the clone user.
 
+Deep research gates:
+
+- Before expanding more UI or automation features, follow `docs/DEEP_RESEARCH_GATES.md`.
+- The next engineering milestone is proving user10 CE availability and restore consistency against Neo Backup on a real rooted HyperOS device.
+
 Storage location:
 
 - Snapshots are stored on the Android device, not on the Mac.
