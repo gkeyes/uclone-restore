@@ -373,6 +373,7 @@ class SyncEngine(
                 isCloneRollback = true,
             )
         }.sortedByDescending { it.createdAt }
+            .toList()
     }
 
     fun history(): List<TaskRecord> = logStore.all()
