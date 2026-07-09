@@ -64,6 +64,13 @@ object ModuleSettingsStore {
 
     fun relayEvents(context: Context): String = prefs(context).getString(ModuleConstants.KEY_RELAY_EVENTS, "").orEmpty()
 
+    fun clearEvents(context: Context) {
+        prefs(context).edit()
+            .remove(ModuleConstants.KEY_HOOK_EVENTS)
+            .remove(ModuleConstants.KEY_RELAY_EVENTS)
+            .apply()
+    }
+
     fun resetAutoDisable(context: Context) {
         prefs(context).edit()
             .putInt(ModuleConstants.KEY_CONSECUTIVE_HOOK_ERRORS, 0)
