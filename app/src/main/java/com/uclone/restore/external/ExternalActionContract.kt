@@ -3,6 +3,7 @@ package com.uclone.restore.external
 object ExternalActionContract {
     const val PERMISSION_CONTROL = "com.uclone.restore.permission.CONTROL"
     const val LAUNCHER_MODULE_PACKAGE = "com.uclone.restore.module"
+    const val LAUNCHER_MODULE_STATUS_RECEIVER = "com.uclone.restore.module.relay.UCloneStatusReceiver"
 
     const val ACTION_EXECUTE = "com.uclone.restore.action.EXECUTE"
     const val ACTION_STATUS = "com.uclone.restore.action.STATUS"

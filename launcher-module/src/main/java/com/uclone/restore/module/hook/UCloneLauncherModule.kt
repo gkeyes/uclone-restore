@@ -311,15 +311,11 @@ private fun View.findFirstImageView(): ImageView? {
 }
 
 private class UCloneMenuLineDrawable : Drawable() {
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.rgb(42, 45, 52)
-    }
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = Color.rgb(42, 45, 52)
+        color = Color.BLACK
     }
 
     override fun draw(canvas: Canvas) {
@@ -329,32 +325,28 @@ private class UCloneMenuLineDrawable : Drawable() {
         val top = b.top + (b.height() - size) / 2f
         val unit = size / 48f
 
-        stroke.strokeWidth = 2.8f * unit
+        stroke.strokeWidth = 2.1f * unit
         canvas.drawRoundRect(
-            RectF(left + 9f * unit, top + 12f * unit, left + 21f * unit, top + 36f * unit),
-            5.5f * unit,
-            5.5f * unit,
+            RectF(left + 7.5f * unit, top + 12f * unit, left + 21.5f * unit, top + 36f * unit),
+            5.2f * unit,
+            5.2f * unit,
             stroke,
         )
         canvas.drawRoundRect(
-            RectF(left + 27f * unit, top + 12f * unit, left + 39f * unit, top + 36f * unit),
-            5.5f * unit,
-            5.5f * unit,
+            RectF(left + 26.5f * unit, top + 12f * unit, left + 40.5f * unit, top + 36f * unit),
+            5.2f * unit,
+            5.2f * unit,
             stroke,
         )
-        stroke.strokeWidth = 2.4f * unit
-        canvas.drawLine(left + 22.5f * unit, top + 24f * unit, left + 25.5f * unit, top + 24f * unit, stroke)
-        canvas.drawCircle(left + 22.5f * unit, top + 24f * unit, 1.7f * unit, fill)
-        canvas.drawCircle(left + 25.5f * unit, top + 24f * unit, 1.7f * unit, fill)
+        stroke.strokeWidth = 1.9f * unit
+        canvas.drawLine(left + 23f * unit, top + 24f * unit, left + 25f * unit, top + 24f * unit, stroke)
     }
 
     override fun setAlpha(alpha: Int) {
-        fill.alpha = alpha
         stroke.alpha = alpha
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
-        fill.colorFilter = colorFilter
         stroke.colorFilter = colorFilter
     }
 

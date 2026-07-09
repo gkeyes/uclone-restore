@@ -26,6 +26,10 @@ class ExternalActionNotifier(private val context: Context) {
         manager.cancel(RESULT_NOTIFICATION_ID)
     }
 
+    fun clearRunning() {
+        manager.cancel(RUNNING_NOTIFICATION_ID)
+    }
+
     fun updateRunning(packageName: String?, operation: String?, message: String) {
         manager.notify(RUNNING_NOTIFICATION_ID, running(packageName, operation, message))
     }

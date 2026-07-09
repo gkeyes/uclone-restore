@@ -2,17 +2,17 @@
 
 Android root tool for moving app data between the Xiaomi/HyperOS main user and clone user.
 
-Current release line: `0.2.0-alpha`
+Current release line: `0.2.0`
 
-- Main app: `0.2.0-alpha.5`
-- Launcher module: `0.1.0-alpha.3`
+- Main app: `0.2.0`
+- Launcher module: `0.2.0`
 - Tested target: rooted Xiaomi/HyperOS multi-user environment, usually `user0` + `user10`
 
 ## What It Does
 
 UClone Restore is built for one practical workflow: keep two Android users on the same device and move an app's usable state between them.
 
-Supported directions in the current alpha:
+Supported directions in the current release:
 
 - Pull clone data from `user10` and restore it to main user `user0`.
 - Push main user `user0` data to clone user `user10`.

@@ -1578,12 +1578,20 @@ object ShellScripts {
             }
             stop_clone_user_after_switch_restore() {
               ${if (settings.stopCloneAfterTask && (writeSwitchMarker || clearSwitchMarker)) """
-              echo "STOP_CLONE_AFTER_TASK=1 reason=switch_restore"
-              echo "STATE_BEFORE_STOP=${'$'}(/system/bin/am get-started-user-state ${settings.cloneUserId} 2>&1 || true)"
-              STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user -w ${settings.cloneUserId} 2>&1 || true)
-              echo "STOP_USER_OUTPUT=${'$'}STOP_USER_OUTPUT"
-              echo "STATE_AFTER_STOP=${'$'}(/system/bin/am get-started-user-state ${settings.cloneUserId} 2>&1 || true)"
-              CLONE_STOPPED_AFTER_TASK=1
+              if [ "${'$'}{CLONE_STOPPED_AFTER_TASK:-0}" = "1" ]; then
+                echo "STOP_CLONE_AFTER_TASK=already_stopped reason=switch_restore"
+                return 0
+              fi
+              if [ "${'$'}{CLONE_STARTED_BY_TASK:-0}" = "1" ]; then
+                echo "STOP_CLONE_AFTER_TASK=1 reason=switch_restore startedByTask=1"
+                echo "STATE_BEFORE_STOP=${'$'}(/system/bin/am get-started-user-state ${settings.cloneUserId} 2>&1 || true)"
+                STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user -w ${settings.cloneUserId} 2>&1 || true)
+                echo "STOP_USER_OUTPUT=${'$'}STOP_USER_OUTPUT"
+                echo "STATE_AFTER_STOP=${'$'}(/system/bin/am get-started-user-state ${settings.cloneUserId} 2>&1 || true)"
+                CLONE_STOPPED_AFTER_TASK=1
+              else
+                echo "STOP_CLONE_AFTER_TASK=0 reason=switch_restore startedByTask=${'$'}{CLONE_STARTED_BY_TASK:-0}"
+              fi
               """.trimIndent() else """
               echo "STOP_CLONE_AFTER_TASK=0 reason=switch_restore_disabled"
               """.trimIndent()}

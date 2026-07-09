@@ -1,6 +1,7 @@
 package com.uclone.restore.external
 
 import android.app.Service
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.os.IBinder
@@ -63,9 +64,11 @@ class ExternalActionService : Service() {
             try {
                 execute(intent, container)
             } finally {
+                val cleanupNotifier = ExternalActionNotifier(this@ExternalActionService)
                 externalTaskRunning.set(false)
                 container.syncEngine.finishOperation()
                 stopForeground(STOP_FOREGROUND_REMOVE)
+                cleanupNotifier.clearRunning()
                 stopSelf()
             }
         }
@@ -218,6 +221,7 @@ class ExternalActionService : Service() {
 
     private fun broadcastStatus(intent: Intent, status: String, message: String, task: TaskRecord? = null) {
         val statusIntent = Intent(ExternalActionContract.ACTION_STATUS)
+            .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
             .putExtra(ExternalActionContract.EXTRA_PROTOCOL_VERSION, ExternalActionContract.PROTOCOL_VERSION)
             .putExtra(ExternalActionContract.EXTRA_OPERATION, intent.getStringExtra(ExternalActionContract.EXTRA_OPERATION).orEmpty())
             .putExtra(ExternalActionContract.EXTRA_PACKAGE_NAME, intent.getStringExtra(ExternalActionContract.EXTRA_PACKAGE_NAME).orEmpty())
@@ -230,7 +234,10 @@ class ExternalActionService : Service() {
         }
         val source = intent.getStringExtra(ExternalActionContract.EXTRA_SOURCE).orEmpty()
         if (source == ExternalActionContract.SOURCE_MODULE || source == ExternalActionContract.SOURCE_LAUNCHER_MODULE) {
-            statusIntent.setPackage(ExternalActionContract.LAUNCHER_MODULE_PACKAGE)
+            statusIntent.component = ComponentName(
+                ExternalActionContract.LAUNCHER_MODULE_PACKAGE,
+                ExternalActionContract.LAUNCHER_MODULE_STATUS_RECEIVER,
+            )
         }
         sendBroadcast(statusIntent, ExternalActionContract.PERMISSION_CONTROL)
     }

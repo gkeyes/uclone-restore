@@ -23,8 +23,8 @@ android {
         applicationId = "com.uclone.restore"
         minSdk = 29
         targetSdk = 36
-        versionCode = 20
-        versionName = "0.2.0-alpha.5"
+        versionCode = 21
+        versionName = "0.2.0"
     }
 
     buildFeatures {
