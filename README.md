@@ -1,60 +1,211 @@
 # UClone Restore
 
-Android Root tool for restoring app login state from a Xiaomi/HyperOS clone user to the main user.
+Android root tool for moving app data between the Xiaomi/HyperOS main user and clone user.
 
-First version scope:
+Current release line: `0.2.0-alpha`
 
-- Runs only in main system `user0`.
-- Reads clone system `user10` data through root.
-- Captures a clone "golden snapshot" under `/data/adb/uclone/snapshots/<pkg>/active`.
-- Restores the active snapshot to main system `user0`.
-- Backs up current `user0` data before every restore under `/data/adb/uclone/rollback/<pkg>/<timestamp>`.
-- Repairs ownership with the target app UID and runs `restorecon`.
-- Does not depend on Neo Backup or root inside the clone user.
+- Main app: `0.2.0-alpha.5`
+- Launcher module: `0.1.0-alpha.3`
+- Tested target: rooted Xiaomi/HyperOS multi-user environment, usually `user0` + `user10`
 
-Deep research gates:
+## What It Does
 
-- Before expanding more UI or automation features, follow `docs/DEEP_RESEARCH_GATES.md`.
-- The next engineering milestone is proving user10 CE availability and restore consistency against Neo Backup on a real rooted HyperOS device.
+UClone Restore is built for one practical workflow: keep two Android users on the same device and move an app's usable state between them.
 
-Storage location:
+Supported directions in the current alpha:
 
-- Snapshots are stored on the Android device, not on the Mac.
-- Default root data directory: `/data/adb/uclone`.
-- Per-app active snapshot: `/data/adb/uclone/snapshots/<pkg>/active`.
-- Public storage such as `/sdcard/Documents` is not the default because snapshots contain private login-state data.
+- Pull clone data from `user10` and restore it to main user `user0`.
+- Push main user `user0` data to clone user `user10`.
+- Create active snapshots and restore from the latest available snapshot.
+- Create rollback backups before destructive restore or switch operations.
+- Restore clone rollback data when a clone-side push needs to be undone.
+- Optionally copy runtime permissions and AppOps where Android allows shell-level restoration.
 
-Default data range:
+The app is not a cloud sync tool. It works locally on the rooted device and stores data under `/data/adb/uclone`.
 
-- CE data: `/data/user/<user>/<pkg>`
-- DE data: `/data/user_de/<user>/<pkg>`
-- External `Android/data` is enabled by default because many apps keep large login/cache state there.
-- Media and OBB are opt-in.
-- `cache` and `code_cache` are excluded by default.
-- `/data/misc/keystore` is never copied.
+## Architecture
 
-Launcher shortcuts:
+Two APKs are published:
 
-- Long-press the launcher icon to run favorite App shortcuts.
-- Each shortcut follows the same toggle logic as the home favorite row: if the App is already switched, it restores; otherwise it switches to the clone state.
-- Android launchers limit dynamic shortcuts, so UClone publishes the first few favorite Apps.
+- `app-release.apk`: the main UClone Restore app.
+- `launcher-module-release.apk`: an LSPosed module that adds a UClone entry to supported launcher long-press menus.
 
-Build:
+The module is only an entry point. Real root operations, backup, restore, rollback, task logging, and notifications are handled by the main UClone Restore app.
+
+Recommended module scope:
+
+- Enable the module for `com.miui.home` only.
+- Do not add target apps to the LSPosed scope. Target apps are selected inside the module settings page.
+
+## Requirements
+
+- Android device with root, tested with KernelSU/KernelSU Next style root.
+- Xiaomi/HyperOS clone user available as `user10`.
+- UClone Restore installed in main user `user0`.
+- Main app and launcher module installed from the same fixed-signed release.
+- For launcher module control:
+  - Enable "allow module control" in UClone Restore settings.
+  - Enable the LSPosed module for `com.miui.home`.
+  - Reboot or restart the launcher after module activation.
+
+## User10 Unlock Behavior
+
+CE data under `/data/user/10/<pkg>` is only reliable after the clone user is `RUNNING_UNLOCKED`.
+
+UClone can attempt a silent unlock flow when configured:
+
+1. Start clone user when needed.
+2. Verify the configured PIN/password with `cmd lock_settings verify --old ... --user 10`.
+3. Wait until `am get-started-user-state 10` reports `RUNNING_UNLOCKED`.
+4. Run the requested data operation.
+5. Stop clone user after the task when that setting is enabled.
+
+If the clone user cannot be unlocked, CE snapshot or restore operations are blocked rather than silently using incomplete data.
+
+## Storage Layout
+
+All paths are on the Android device.
+
+Default root directory:
+
+```text
+/data/adb/uclone
+```
+
+Important subdirectories:
+
+```text
+/data/adb/uclone/snapshots/<pkg>/active
+/data/adb/uclone/snapshots/<pkg>/history/<timestamp>
+/data/adb/uclone/rollback/<pkg>/<timestamp>
+/data/adb/uclone/clone_rollback/<pkg>/<timestamp>
+/data/adb/uclone/logs
+/data/adb/uclone/tmp
+```
+
+Snapshots are not stored in `/sdcard/Documents` by default because they contain private app login-state data.
+
+## Data Scope
+
+Default included data:
+
+- CE app data: `/data/user/<user>/<pkg>`
+- DE app data: `/data/user_de/<user>/<pkg>`
+- External app data: `/data/media/<user>/Android/data/<pkg>`
+
+Optional data:
+
+- `/data/media/<user>/Android/media/<pkg>`
+- `/data/media/<user>/Android/obb/<pkg>`
+- Runtime permissions and AppOps
+
+Default exclusions:
+
+- `cache`
+- `code_cache`
+
+Always excluded:
+
+- `/data/misc/keystore`
+
+Apps that depend on Android Keystore-backed secrets may still require a new login even when file data restores correctly.
+
+## Main Workflows
+
+### Switch To Clone State
+
+Copies the latest clone-side app state to main user.
+
+High-level flow:
+
+1. Ensure clone user is unlocked when CE data is required.
+2. Capture clone-side data into a temporary operation source.
+3. Back up current main-user app data as a passive rollback.
+4. Restore clone data to main user.
+5. Fix UID/GID ownership and SELinux context.
+6. Record a switch marker so the next action can restore the previous main state.
+
+### Restore Main State
+
+Uses the switch marker rollback to restore the main user's previous state.
+
+### Push Main To Clone
+
+Copies main-user app data into clone user.
+
+High-level flow:
+
+1. Ensure clone user is unlocked when CE data is required.
+2. Back up current clone-user app data as clone rollback.
+3. Restore main-user data into clone user.
+4. Fix UID/GID ownership and SELinux context.
+
+### Manual Backups
+
+Manual active snapshots and passive rollback backups are shown separately in the app's data pages. Passive rollback backups are created automatically before restore/switch/push operations.
+
+## Launcher Module
+
+The launcher module adds a UClone action to supported launcher long-press menus.
+
+Design constraints:
+
+- Hook layer never performs root operations.
+- Hook layer queries `ModuleRelayProvider` for menu state.
+- Click actions go through `ModuleRelayService`.
+- `ModuleRelayService` calls UClone's `ExternalActionService`.
+- UClone's external service is protected by the signature permission `com.uclone.restore.permission.CONTROL`.
+
+This keeps Launcher, module, and UClone responsibilities separated.
+
+## Install
+
+Install both APKs from the same release:
+
+```bash
+adb install -r app-release.apk
+adb install -r launcher-module-release.apk
+```
+
+If moving from an old debug-signed build to the fixed-signed release, Android may require a one-time uninstall because debug and release signatures differ.
+
+## Build
+
+Local debug build:
 
 ```bash
 gradle --no-daemon :app:assembleDebug
 ```
 
-GitHub Actions compiles the fixed-signed release APK on every push to `main` and uploads `uclone-restore-release-apk`.
-Release signing is driven by repository secrets:
+Release builds are produced by GitHub Actions on every push to `main`.
+
+Release signing uses repository secrets:
 
 - `RELEASE_KEYSTORE_BASE64`
 - `RELEASE_STORE_PASSWORD`
 - `RELEASE_KEY_ALIAS`
 - `RELEASE_KEY_PASSWORD`
 
-Installability note: fixed-signed releases can cover-install later fixed-signed releases. Moving from an older debug-signed APK to the fixed-signed release requires a one-time uninstall because Android treats them as different signing identities.
+The CI uploads:
 
-Figma MVP draft:
+- `uclone-restore-release-apk`
+- `uclone-launcher-module-release-apk`
 
-- https://www.figma.com/design/bVBjSk3xsciEOkTSXbHHNV
+## Safety Notes
+
+- Every core command runs through `su -c`.
+- Root command stdout, stderr, and exit code are logged.
+- Restore operations back up the target user's current data before overwriting it.
+- Delete/reset operations should be treated as destructive.
+- Do not manually delete Android data directories unless you have a verified rollback path.
+
+## Known Limits
+
+- HyperOS and Android multi-user behavior varies by device and ROM.
+- Permission/AppOps restoration is best-effort; some special access states require manual system settings.
+- Android Keystore-backed app secrets cannot be cloned by file copy.
+- The launcher long-press hook currently targets supported MIUI/HyperOS launcher internals and may need adjustment after launcher updates.
+
+## Figma MVP Draft
+
+https://www.figma.com/design/bVBjSk3xsciEOkTSXbHHNV
