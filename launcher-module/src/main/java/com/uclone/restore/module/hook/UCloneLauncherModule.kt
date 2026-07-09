@@ -10,7 +10,6 @@ import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
-import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Bundle
@@ -103,6 +102,11 @@ class UCloneLauncherModule : XposedModule() {
         val context = view.context
         setFieldText(view, "mTitle", ModuleConstants.MENU_LABEL)
         setMarkerIcon(view)
+        view.post {
+            if (view.isAttachedToWindow && view.hasText(ModuleConstants.MENU_LABEL)) {
+                setMarkerIcon(view)
+            }
+        }
         view.setOnClickListener {
             val state = queryMenuState(context, target)
             val pendingIntent = state?.pendingIntent
@@ -128,6 +132,7 @@ class UCloneLauncherModule : XposedModule() {
         imageView.clearColorFilter()
         imageView.setImageDrawable(UCloneMenuLineDrawable())
         imageView.contentDescription = ModuleConstants.MENU_LABEL
+        imageView.invalidate()
     }
 
     private fun createMarkerMenuItem(menuItemClass: Class<*>, userHandle: UserHandle?, label: String): Any {
@@ -310,6 +315,15 @@ private fun View.findFirstImageView(): ImageView? {
     return null
 }
 
+private fun View.hasText(text: CharSequence): Boolean {
+    if (this is TextView && this.text == text) return true
+    if (this !is ViewGroup) return false
+    for (index in 0 until childCount) {
+        if (getChildAt(index).hasText(text)) return true
+    }
+    return false
+}
+
 private class UCloneMenuLineDrawable : Drawable() {
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -325,21 +339,14 @@ private class UCloneMenuLineDrawable : Drawable() {
         val top = b.top + (b.height() - size) / 2f
         val unit = size / 48f
 
-        stroke.strokeWidth = 2.1f * unit
-        canvas.drawRoundRect(
-            RectF(left + 7.5f * unit, top + 12f * unit, left + 21.5f * unit, top + 36f * unit),
-            5.2f * unit,
-            5.2f * unit,
-            stroke,
-        )
-        canvas.drawRoundRect(
-            RectF(left + 26.5f * unit, top + 12f * unit, left + 40.5f * unit, top + 36f * unit),
-            5.2f * unit,
-            5.2f * unit,
-            stroke,
-        )
-        stroke.strokeWidth = 1.9f * unit
-        canvas.drawLine(left + 23f * unit, top + 24f * unit, left + 25f * unit, top + 24f * unit, stroke)
+        stroke.strokeWidth = 3.0f * unit
+        canvas.drawLine(left + 12f * unit, top + 17f * unit, left + 36f * unit, top + 17f * unit, stroke)
+        canvas.drawLine(left + 36f * unit, top + 17f * unit, left + 30f * unit, top + 11f * unit, stroke)
+        canvas.drawLine(left + 36f * unit, top + 17f * unit, left + 30f * unit, top + 23f * unit, stroke)
+
+        canvas.drawLine(left + 36f * unit, top + 31f * unit, left + 12f * unit, top + 31f * unit, stroke)
+        canvas.drawLine(left + 12f * unit, top + 31f * unit, left + 18f * unit, top + 25f * unit, stroke)
+        canvas.drawLine(left + 12f * unit, top + 31f * unit, left + 18f * unit, top + 37f * unit, stroke)
     }
 
     override fun setAlpha(alpha: Int) {
