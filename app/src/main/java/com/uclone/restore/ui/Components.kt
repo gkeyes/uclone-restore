@@ -266,13 +266,13 @@ fun IosCompactButton(
     }
     val containerColor = when {
         primary -> IosBlue
-        danger -> IosRed.copy(alpha = 0.10f)
-        else -> IosBlue.copy(alpha = 0.10f)
+        danger -> IosGlassControl
+        else -> IosGlassControl
     }
     val borderColor = when {
         primary -> Color.White.copy(alpha = 0.28f)
-        danger -> IosRed.copy(alpha = 0.24f)
-        else -> IosBlue.copy(alpha = 0.24f)
+        danger -> IosRed.copy(alpha = 0.20f)
+        else -> IosControlBorder
     }
     Button(
         onClick = onClick,
@@ -313,8 +313,8 @@ fun IosGlassIconButton(
     selected: Boolean = false,
     enabled: Boolean = true,
 ) {
-    val containerColor = if (selected) IosBlue.copy(alpha = 0.12f) else IosGlassControl
-    val borderColor = if (selected) IosBlue.copy(alpha = 0.22f) else IosControlBorder
+    val containerColor = if (selected) tint.copy(alpha = 0.12f) else IosGlassControl
+    val borderColor = if (selected) tint.copy(alpha = 0.22f) else IosControlBorder
     Surface(
         onClick = onClick,
         modifier = modifier.size(40.dp),
@@ -323,7 +323,7 @@ fun IosGlassIconButton(
         color = containerColor,
         contentColor = tint,
         border = BorderStroke(1.dp, borderColor),
-        shadowElevation = 1.dp,
+        shadowElevation = 0.dp,
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(imageVector, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(20.dp))
