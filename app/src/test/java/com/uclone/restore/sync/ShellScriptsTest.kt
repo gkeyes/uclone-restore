@@ -77,4 +77,30 @@ class ShellScriptsTest {
 
         assertFalse(script.contains("<<EOF"))
     }
+
+    @Test
+    fun switchFromCloneLatest_requiresUnlockedCloneUserAndCeDataByDefault() {
+        val script = ShellScripts.switchFromCloneLatest(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            settings,
+            appPackage,
+        )
+
+        assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
+        assertContains(script, "ERR_SWITCH_CE_MISSING:${'$'}TRY_USER")
+        assertContains(script, "SWITCH_REQUIRE_CE=1")
+    }
+
+    @Test
+    fun switchFromCloneLatest_doesNotRequireCeWhenRuleExcludesCe() {
+        val script = ShellScripts.switchFromCloneLatest(
+            "com.example.app",
+            AppRule(packageName = "com.example.app", includeCe = false),
+            settings,
+            appPackage,
+        )
+
+        assertContains(script, "SWITCH_REQUIRE_CE=0")
+    }
 }

@@ -303,6 +303,7 @@ object ShellScripts {
         trap cleanup_switch_temp EXIT
         mkdir -p "${'$'}ROOT/tmp" || exit 10
         rm -rf "${'$'}SWITCH_TEMP" "${'$'}SWITCH_TEMP".try_*
+        SWITCH_REQUIRE_CE=${if (rule.includeCe) "1" else "0"}
         CANDIDATE_USERS=""
         add_candidate_user() {
           U="${'$'}1"
@@ -404,11 +405,20 @@ object ShellScripts {
           mkdir -p "${'$'}TRY_TMP" || exit 11
           STATE=${'$'}(am get-started-user-state "${'$'}TRY_USER" 2>/dev/null || true)
           echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
-          case "${'$'}STATE" in *RUNNING_UNLOCKED*) ;; *) echo "WARN_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" ;; esac
+          case "${'$'}STATE" in
+            *RUNNING_UNLOCKED*) ;;
+            *)
+              echo "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" >&2
+              rm -rf "${'$'}TRY_TMP"
+              return 1
+              ;;
+          esac
           if cmd package list packages --user "${'$'}TRY_USER" 2>/dev/null | grep -qx "package:${'$'}PKG"; then
             echo "PACKAGE_LISTED:${'$'}TRY_USER"
           else
-            echo "WARN_PACKAGE_NOT_LISTED:${'$'}TRY_USER"
+            echo "ERR_PACKAGE_NOT_LISTED:${'$'}TRY_USER" >&2
+            rm -rf "${'$'}TRY_TMP"
+            return 1
           fi
           am force-stop --user "${'$'}TRY_USER" "${'$'}PKG" >/dev/null 2>&1 || true
           COPIED_PARTS=0
@@ -419,6 +429,11 @@ object ShellScripts {
           ${if (rule.includeMedia) "copy_first_nonempty \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\"" else ":"}
           ${if (rule.includeObb) "copy_first_nonempty \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\"" else ":"}
           ${if (rule.includePermissions) "capture_permission_state \"${'$'}TRY_TMP/permissions\" \"${'$'}TRY_USER\"" else ":"}
+          if [ "${'$'}SWITCH_REQUIRE_CE" = "1" ] && [ ! -d "${'$'}TRY_TMP/ce" ]; then
+            echo "ERR_SWITCH_CE_MISSING:${'$'}TRY_USER" >&2
+            rm -rf "${'$'}TRY_TMP"
+            return 1
+          fi
           if [ "${'$'}COPIED_PARTS" -gt 0 ]; then
             rm -rf "${'$'}SWITCH_TEMP"
             mv "${'$'}TRY_TMP" "${'$'}SWITCH_TEMP" || exit 14
