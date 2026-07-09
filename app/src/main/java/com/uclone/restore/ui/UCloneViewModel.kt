@@ -12,6 +12,7 @@ import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.service.SyncForegroundService
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -190,6 +191,14 @@ class UCloneViewModel(
             return
         }
         viewModelScope.launch {
+            if (_state.value.currentTask.task?.status == TaskStatus.RUNNING) {
+                _state.update { it.copy(message = "已有任务正在执行") }
+                return@launch
+            }
+            if (!waitUntilIdleForLauncherShortcut()) {
+                _state.update { it.copy(message = "初始化未完成，请稍后重试快捷入口") }
+                return@launch
+            }
             val rollbackId = syncEngine.switchMarkerId(packageName, _state.value.settings)
             _state.update {
                 val switchRollbackIds = if (rollbackId == null) {
@@ -397,6 +406,14 @@ class UCloneViewModel(
         )
     }
 
+    private suspend fun waitUntilIdleForLauncherShortcut(): Boolean {
+        repeat(LAUNCHER_SHORTCUT_IDLE_RETRY_COUNT) {
+            if (!_state.value.busy) return true
+            delay(LAUNCHER_SHORTCUT_IDLE_RETRY_DELAY_MS)
+        }
+        return !_state.value.busy
+    }
+
     private suspend fun runBusy(label: String, block: suspend () -> Unit) {
         _state.update { it.copy(busy = true, message = label) }
         try {
@@ -421,3 +438,6 @@ class UCloneViewModelFactory(
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
 }
+
+private const val LAUNCHER_SHORTCUT_IDLE_RETRY_COUNT = 80
+private const val LAUNCHER_SHORTCUT_IDLE_RETRY_DELAY_MS = 250L
