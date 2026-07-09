@@ -25,7 +25,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -69,9 +68,12 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
             if (!searchExpanded) {
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
                     AppFilterButton(selectedFilters) { selectedFilters = it }
-                    IconButton(onClick = { searchExpanded = true }) {
-                        Icon(Icons.Default.Search, contentDescription = "搜索")
-                    }
+                    IosGlassIconButton(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "搜索",
+                        onClick = { searchExpanded = true },
+                        tint = IosSecondaryText,
+                    )
                 }
             }
         }
@@ -146,13 +148,13 @@ private fun AppFilterButton(selectedFilters: Set<AppListFilter>, onChange: (Set<
     var expanded by remember { mutableStateOf(false) }
     val active = AppListFilter.ALL !in selectedFilters
     Box {
-        IconButton(onClick = { expanded = true }) {
-            Icon(
-                imageVector = Icons.Default.FilterList,
-                contentDescription = "筛选",
-                tint = if (active) IosBlue else IosSecondaryText,
-            )
-        }
+        IosGlassIconButton(
+            imageVector = Icons.Default.FilterList,
+            contentDescription = "筛选",
+            onClick = { expanded = true },
+            tint = if (active) IosBlue else IosSecondaryText,
+            selected = active,
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             AppListFilter.entries.forEach { filter ->
                 DropdownMenuItem(
@@ -205,13 +207,13 @@ private fun AppRow(app: AppEntry, favorite: Boolean, onFavorite: () -> Unit, onC
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(onClick = onFavorite) {
-                Icon(
-                    imageVector = if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
-                    contentDescription = if (favorite) "取消收藏" else "收藏",
-                    tint = if (favorite) IosOrange else IosTertiaryText,
-                )
-            }
+            IosGlassIconButton(
+                imageVector = if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
+                contentDescription = if (favorite) "取消收藏" else "收藏",
+                onClick = onFavorite,
+                tint = if (favorite) IosOrange else IosTertiaryText,
+                selected = favorite,
+            )
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = IosTertiaryText)
         }
     }

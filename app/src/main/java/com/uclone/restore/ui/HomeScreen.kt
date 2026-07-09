@@ -13,8 +13,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -22,7 +24,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,6 +69,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
                         Text("检测")
                     }
                     IosSecondaryButton(onClick = viewModel::startCloneUser, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
                         Text("启动")
                     }
                     IosSecondaryButton(onClick = viewModel::stopCloneUser, modifier = Modifier.weight(1f)) {
@@ -153,13 +155,7 @@ private fun CurrentTaskCard(state: UiState) {
                 )
             }
             activeStep?.let { step ->
-                Text(
-                    step.label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                IosStatusPill(step.label, step.status.homePillColor())
             }
         }
         if (state.busy) {
@@ -205,6 +201,7 @@ private fun FavoriteAppRow(
                 text = if (switched) "还原" else "切换",
                 onClick = if (switched) onRestore else onSwitch,
                 primary = !switched,
+                icon = if (switched) Icons.Default.Refresh else Icons.Default.Sync,
             )
         }
     }
@@ -229,7 +226,14 @@ private fun HomeConfirmDialog(action: HomeConfirm, onDismiss: () -> Unit, onConf
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(body) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("继续") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = { IosDialogButton("继续", onConfirm, primary = true) },
+        dismissButton = { IosDialogButton("取消", onDismiss) },
     )
+}
+
+private fun StepStatus.homePillColor() = when (this) {
+    StepStatus.SUCCESS -> IosGreen
+    StepStatus.FAILED -> IosRed
+    StepStatus.RUNNING -> IosOrange
+    StepStatus.PENDING -> IosSecondaryText
 }

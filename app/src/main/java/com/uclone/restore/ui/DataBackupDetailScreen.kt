@@ -16,10 +16,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -140,37 +138,37 @@ fun DataBackupDetailScreen(
                 )
             },
             confirmButton = {
-                TextButton(
+                IosDialogButton(
+                    text = if (action == DataBackupAction.DELETE) "删除" else "继续",
                     onClick = {
                         confirm = null
-                        val targetPackageName = packageName ?: return@TextButton
-                        when (action) {
-                            DataBackupAction.RESTORE -> {
-                                if (isPassive && rollbackId != null) {
-                                    viewModel.restoreBackup(targetPackageName, rollbackId)
-                                } else {
-                                    viewModel.restoreSnapshot(targetPackageName)
+                        val targetPackageName = packageName
+                        if (targetPackageName != null) {
+                            when (action) {
+                                DataBackupAction.RESTORE -> {
+                                    if (isPassive && rollbackId != null) {
+                                        viewModel.restoreBackup(targetPackageName, rollbackId)
+                                    } else {
+                                        viewModel.restoreSnapshot(targetPackageName)
+                                    }
                                 }
-                            }
-                            DataBackupAction.DELETE -> {
-                                if (isPassive && rollbackId != null) {
-                                    viewModel.deleteRestoreBackup(targetPackageName, rollbackId)
-                                } else {
-                                    viewModel.deleteSnapshot(targetPackageName)
+                                DataBackupAction.DELETE -> {
+                                    if (isPassive && rollbackId != null) {
+                                        viewModel.deleteRestoreBackup(targetPackageName, rollbackId)
+                                    } else {
+                                        viewModel.deleteSnapshot(targetPackageName)
+                                    }
+                                    onBack()
                                 }
-                                onBack()
                             }
                         }
                     },
-                ) {
-                    Text(
-                        if (action == DataBackupAction.DELETE) "删除" else "继续",
-                        color = if (action == DataBackupAction.DELETE) IosRed else IosBlue,
-                    )
-                }
+                    primary = action != DataBackupAction.DELETE,
+                    danger = action == DataBackupAction.DELETE,
+                )
             },
             dismissButton = {
-                TextButton(onClick = { confirm = null }) { Text("取消") }
+                IosDialogButton("取消", onClick = { confirm = null })
             },
         )
     }
@@ -185,9 +183,12 @@ private fun DataDetailHeader(title: String, subtitle: String, onBack: () -> Unit
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-        }
+        IosGlassIconButton(
+            imageVector = Icons.Default.ArrowBack,
+            contentDescription = "返回",
+            onClick = onBack,
+            tint = IosText,
+        )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

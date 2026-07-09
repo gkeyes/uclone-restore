@@ -6,6 +6,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,9 +37,18 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
             InfoRow("快照目录", if (env?.snapshotDirReady?.ok == true) "已准备" else "未准备")
         }
         SectionCard("操作") {
-            IosPrimaryButton(onClick = viewModel::refreshEnvironment, modifier = Modifier.fillMaxWidth()) { Text("重新检测") }
-            IosSecondaryButton(onClick = viewModel::startCloneUser, modifier = Modifier.fillMaxWidth()) { Text("启动分身 user${state.settings.cloneUserId}") }
-            IosSecondaryButton(onClick = viewModel::switchToCloneUser, modifier = Modifier.fillMaxWidth()) { Text("切换到分身解锁") }
+            IosPrimaryButton(onClick = viewModel::refreshEnvironment, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Refresh, contentDescription = null)
+                Text("重新检测")
+            }
+            IosSecondaryButton(onClick = viewModel::startCloneUser, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Text("启动分身 user${state.settings.cloneUserId}")
+            }
+            IosSecondaryButton(onClick = viewModel::switchToCloneUser, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Sync, contentDescription = null)
+                Text("切换到分身解锁")
+            }
         }
         if (state.message != null) {
             Text(state.message, color = MaterialTheme.colorScheme.secondary)

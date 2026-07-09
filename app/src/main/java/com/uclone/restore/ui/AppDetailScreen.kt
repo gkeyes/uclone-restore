@@ -20,13 +20,11 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,14 +63,14 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 Text(app.label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(app.packageName)
             }
-            IconButton(onClick = { viewModel.toggleFavorite(app.packageName) }) {
-                val favorite = app.packageName in state.settings.favoritePackages
-                Icon(
-                    imageVector = if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
-                    contentDescription = if (favorite) "取消收藏" else "收藏",
-                    tint = if (favorite) IosOrange else IosTertiaryText,
-                )
-            }
+            val favorite = app.packageName in state.settings.favoritePackages
+            IosGlassIconButton(
+                imageVector = if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
+                contentDescription = if (favorite) "取消收藏" else "收藏",
+                onClick = { viewModel.toggleFavorite(app.packageName) },
+                tint = if (favorite) IosOrange else IosTertiaryText,
+                selected = favorite,
+            )
         }
         SectionCard("安装状态") {
             InfoRow("主系统 user${state.settings.mainUserId}", if (app.user0Installed) "已安装 UID ${app.user0Uid}" else "未安装")
@@ -197,9 +195,12 @@ private fun DetailHeader(title: String, subtitle: String, onBack: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-        }
+        IosGlassIconButton(
+            imageVector = Icons.Default.ArrowBack,
+            contentDescription = "返回",
+            onClick = onBack,
+            tint = IosText,
+        )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -242,7 +243,7 @@ private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: (
         ConfirmAction.DELETE -> "删除 active 快照"
     }
     val body = when (action) {
-        ConfirmAction.SWITCH -> "会先把当前 user0 保存为被动备份，再建立分身主动备份并恢复到 user0。完成后按钮会变为还原主系统态。"
+        ConfirmAction.SWITCH -> "会先把当前 user0 保存为被动备份，再读取分身最新状态恢复到 user0。完成后按钮会变为还原主系统态。"
         ConfirmAction.RESTORE_SWITCH -> "会使用切换前保存的 user0 被动备份还原主系统，并清除切换标记。"
         ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 主动备份。旧 active 主动备份会移动到 history。"
         ConfirmAction.RESTORE -> "将使用已保存的 active 主动备份恢复主系统数据。这不会重新读取分身最新数据。"
@@ -258,7 +259,14 @@ private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: (
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(text) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("继续") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            IosDialogButton(
+                text = if (action == ConfirmAction.DELETE) "删除" else "继续",
+                onClick = onConfirm,
+                primary = action != ConfirmAction.DELETE,
+                danger = action == ConfirmAction.DELETE,
+            )
+        },
+        dismissButton = { IosDialogButton("取消", onDismiss) },
     )
 }

@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -109,15 +108,17 @@ fun DataScreen(
                 )
             },
             confirmButton = {
-                TextButton(
+                IosDialogButton(
+                    text = "恢复",
                     onClick = {
                         confirmRestore = null
                         viewModel.restoreBackup(backup.packageName, backup.rollbackId)
                     },
-                ) { Text("恢复") }
+                    primary = true,
+                )
             },
             dismissButton = {
-                TextButton(onClick = { confirmRestore = null }) { Text("取消") }
+                IosDialogButton("取消", onClick = { confirmRestore = null })
             },
         )
     }
