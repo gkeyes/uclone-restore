@@ -2,11 +2,15 @@ package com.uclone.restore.external
 
 import android.app.Service
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import com.uclone.restore.UCloneApplication
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskStatus
@@ -94,15 +98,19 @@ class ExternalActionService : Service() {
             return
         }
         val settings = container.settingsStore.load()
-        val rejected = rejectReason(request.packageName, settings)
+        val rejected = rejectReason(request, settings)
         if (rejected != null) {
             broadcastStatus(request, ExternalActionContract.STATUS_REJECTED, rejected)
             notifier.notifyResult(request.packageName, request.operation, ExternalActionContract.STATUS_REJECTED, rejected)
             return
         }
         broadcastStatus(request, ExternalActionContract.STATUS_ACCEPTED, "任务已接收")
+        notifier.notifyAccepted(request.packageName, request.operation, "任务已接收")
         notifier.updateRunning(request.packageName, request.operation, "开始执行")
-        val report: suspend (TaskProgress) -> Unit = {}
+        Log.i(TAG, "accepted operation=${request.operation} package=${request.packageName} request=${request.requestId}")
+        val report: suspend (TaskProgress) -> Unit = { progress ->
+            notifier.updateRunning(request.packageName, request.operation, progress.externalMessage())
+        }
         val task = runCatching {
             when (request.operation) {
                 ExternalActionContract.OPERATION_BACKUP_DEFAULT ->
@@ -129,15 +137,28 @@ class ExternalActionService : Service() {
                 } else {
                     ExternalActionContract.STATUS_FAILED
                 }
+                Log.i(TAG, "finished status=$status operation=${request.operation} package=${request.packageName} message=${record.message}")
                 broadcastStatus(request, status, record.message, record)
                 notifier.notifyResult(request.packageName, request.operation, status, record.message)
             },
             onFailure = { error ->
                 val message = error.message ?: "模块操作失败"
+                Log.e(TAG, "failed operation=${request.operation} package=${request.packageName}", error)
                 broadcastStatus(request, ExternalActionContract.STATUS_FAILED, message)
                 notifier.notifyResult(request.packageName, request.operation, ExternalActionContract.STATUS_FAILED, message)
             },
         )
+    }
+
+    private fun TaskProgress.externalMessage(): String {
+        if (task?.status == TaskStatus.SUCCESS) return task.message
+        if (task?.status == TaskStatus.FAILED) return task.message
+        val runningStep = steps.firstOrNull { it.status == StepStatus.RUNNING }?.label
+        if (runningStep != null) return runningStep
+        return liveLog.lineSequence()
+            .map(String::trim)
+            .firstOrNull(String::isNotBlank)
+            ?: "执行中"
     }
 
     private suspend fun switchOrRestore(
@@ -180,8 +201,13 @@ class ExternalActionService : Service() {
         return (application as UCloneApplication).container.syncEngine.restoreSwitchMainState(packageName, rollbackId, settings, report)
     }
 
-    private fun rejectReason(packageName: String, settings: UCloneSettings): String? {
-        if (!settings.allowModuleControl) return "模块控制未开启"
+    private fun rejectReason(request: ExternalActionRequest, settings: UCloneSettings): String? {
+        val packageName = request.packageName
+        val fromLauncherShortcut = request.source == ExternalActionContract.SOURCE_LAUNCHER_SHORTCUT
+        if (!fromLauncherShortcut && !settings.allowModuleControl) return "模块控制未开启"
+        if (fromLauncherShortcut && packageName !in settings.favoritePackages) {
+            return "快捷入口已失效，请打开 UClone 刷新收藏快捷方式"
+        }
         if (packageName == this.packageName) return "不允许控制 UClone 自身"
         val info = runCatching {
             packageManager.getApplicationInfo(packageName, 0)
@@ -243,6 +269,18 @@ class ExternalActionService : Service() {
     }
 
     companion object {
+        private const val TAG = "UCloneExternalAction"
         private const val NOTIFICATION_ID = 41011
+
+        fun start(context: Context, sourceIntent: Intent?) {
+            val serviceIntent = Intent(sourceIntent ?: Intent())
+                .setClass(context, ExternalActionService::class.java)
+                .setAction(ExternalActionContract.ACTION_EXECUTE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+        }
     }
 }

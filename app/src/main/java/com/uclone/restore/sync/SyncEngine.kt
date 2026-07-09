@@ -13,6 +13,9 @@ import com.uclone.restore.root.RootEnvironmentChecker
 import com.uclone.restore.root.RootShellExecutor
 import com.uclone.restore.root.ShellResult
 import com.uclone.restore.root.shellQuote
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 data class SnapshotMetadata(
@@ -435,11 +438,13 @@ class SyncEngine(
         }
         val task = logStore.running(type, packageName, logPath)
         report(TaskProgress(task, steps, ""))
-        logStore.append(logPath, "TASK=$type\nPACKAGE=$packageName\nSTART=$timestamp\n")
+        logStore.append(logPath, "TASK=$type\nPACKAGE=$packageName\nSTART=$timestamp\nSTART_LOCAL=${formatLocalTime(timestamp)}\n")
         val root = shell.exec("id", timeoutSeconds = 15)
         if (!root.stdout.contains("uid=0")) {
             steps = failRemaining(steps, 0)
             val failed = logStore.finish(task, TaskStatus.FAILED, "Root 权限不可用")
+            val endedAt = System.currentTimeMillis()
+            logStore.append(logPath, "END=$endedAt\nEND_LOCAL=${formatLocalTime(endedAt)}\nDURATION_MS=${endedAt - timestamp}\n")
             report(TaskProgress(failed, steps, root.stderr.ifBlank { root.stdout }))
             return failed
         }
@@ -447,7 +452,8 @@ class SyncEngine(
         report(TaskProgress(task, steps, "Root OK\n"))
         logStore.append(logPath, "ROOT=${root.stdout}${root.stderr}\n")
         val result = shell.exec(script, timeoutSeconds = 900)
-        val liveLog = "STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}\nEXIT=${result.exitCode}\n"
+        val endedAt = System.currentTimeMillis()
+        val liveLog = "STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}\nEXIT=${result.exitCode}\nEND=$endedAt\nEND_LOCAL=${formatLocalTime(endedAt)}\nDURATION_MS=${endedAt - timestamp}\n"
         logStore.append(logPath, liveLog)
         val status = if (result.isSuccess) TaskStatus.SUCCESS else TaskStatus.FAILED
         steps = if (result.isSuccess) {
@@ -479,6 +485,9 @@ class SyncEngine(
             else -> result.stderr.ifBlank { "命令失败：${result.exitCode}" }
         }
     }
+
+    private fun formatLocalTime(millis: Long): String =
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS Z", Locale.US).format(Date(millis))
 
     private fun mark(
         steps: List<TaskStep>,

@@ -53,6 +53,7 @@ class UCloneLauncherModule : XposedModule() {
             runCatching {
                 val context = currentApplication() ?: return@runCatching
                 val target = TargetInfo.from(chain.args.firstOrNull()) ?: return@runCatching
+                @Suppress("UNCHECKED_CAST")
                 val list = result as? MutableList<Any> ?: return@runCatching
                 if (list.any { isMarkerMenuItem(it) }) return@runCatching
                 val state = queryMenuState(context, target) ?: return@runCatching
@@ -108,20 +109,21 @@ class UCloneLauncherModule : XposedModule() {
             }
         }
         view.setOnClickListener {
-            val state = queryMenuState(context, target)
-            val pendingIntent = state?.pendingIntent
-            if (pendingIntent == null) {
-                Toast.makeText(context, state?.message ?: "UClone 模块不可用", Toast.LENGTH_SHORT).show()
-                recordHookEvent(context, "click rejected package=${target.packageName} reason=${state?.message}", false)
-                return@setOnClickListener
-            }
             runCatching {
-                pendingIntent.send()
-                Toast.makeText(context, "UClone 已接收任务", Toast.LENGTH_SHORT).show()
-                recordHookEvent(context, "click sent package=${target.packageName} request=${state.requestId}", false)
+                val state = queryMenuState(context, target)
+                val pendingIntent = state?.pendingIntent
+                if (pendingIntent == null) {
+                    Toast.makeText(context, state?.message ?: "UClone 模块不可用", Toast.LENGTH_SHORT).show()
+                    recordHookEvent(context, "click rejected package=${target.packageName} reason=${state?.message}", false)
+                } else {
+                    pendingIntent.send()
+                    Toast.makeText(context, "UClone 已接收任务", Toast.LENGTH_SHORT).show()
+                    recordHookEvent(context, "click sent package=${target.packageName} request=${state.requestId}", false)
+                }
             }.onFailure { error ->
                 Toast.makeText(context, "UClone 启动失败：${error.message}", Toast.LENGTH_SHORT).show()
                 recordHookEvent(context, "click error=${error.message}", true)
+                log(Log.ERROR, TAG, "menu click failed", error)
             }
         }
     }

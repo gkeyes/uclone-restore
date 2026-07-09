@@ -34,6 +34,16 @@ class ExternalActionNotifier(private val context: Context) {
         manager.notify(RUNNING_NOTIFICATION_ID, running(packageName, operation, message))
     }
 
+    fun notifyAccepted(packageName: String?, operation: String?, message: String) {
+        ensureChannels()
+        val notification = builder(RESULT_CHANNEL_ID, operation)
+            .setContentText("${displayName(packageName)}：$message")
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        manager.notify(RESULT_NOTIFICATION_ID, notification)
+    }
+
     fun notifyResult(packageName: String?, operation: String?, status: String, message: String) {
         ensureChannels()
         val success = status == ExternalActionContract.STATUS_SUCCESS

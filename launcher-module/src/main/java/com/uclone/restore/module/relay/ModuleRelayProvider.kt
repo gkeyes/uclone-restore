@@ -1,11 +1,9 @@
 package com.uclone.restore.module.relay
 
 import android.app.PendingIntent
-import android.content.ComponentName
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
@@ -51,7 +49,7 @@ class ModuleRelayProvider : ContentProvider() {
 
         val requestId = extras.getString(ModuleRelayContract.EXTRA_REQUEST_ID)?.takeIf { it.isNotBlank() }
             ?: UUID.randomUUID().toString()
-        val serviceIntent = Intent(context, ModuleRelayService::class.java)
+        val relayIntent = Intent(context, ModuleRelayActivity::class.java)
             .putExtra(ModuleRelayContract.EXTRA_OPERATION, ModuleRelayContract.OPERATION_SWITCH_OR_RESTORE)
             .putExtra(ModuleRelayContract.EXTRA_PACKAGE_NAME, packageName)
             .putExtra(ModuleRelayContract.EXTRA_COMPONENT_NAME, extras.getString(ModuleRelayContract.EXTRA_COMPONENT_NAME).orEmpty())
@@ -59,7 +57,7 @@ class ModuleRelayProvider : ContentProvider() {
             .putExtra(ModuleRelayContract.EXTRA_REQUEST_ID, requestId)
 
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        val pendingIntent = PendingIntent.getService(context, requestId.hashCode().absoluteValue, serviceIntent, flags)
+        val pendingIntent = PendingIntent.getActivity(context, requestId.hashCode().absoluteValue, relayIntent, flags)
 
         return accepted(showMenu = true, message = "ready").apply {
             putString(ModuleRelayContract.EXTRA_MENU_LABEL, ModuleConstants.MENU_LABEL)

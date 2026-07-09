@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class SyncEngineTest {
     @Test
@@ -34,6 +35,8 @@ class SyncEngineTest {
         assertEquals(TaskType.CAPTURE_SNAPSHOT_FROM_CLONE, result.type)
         assertEquals(TaskStatus.FAILED, result.status)
         assertFalse(shell.commands.any { "SOURCE_KIND='active'" in it })
+        assertTrue(shell.commands.any { "START_LOCAL=" in it })
+        assertTrue(shell.commands.any { "END_LOCAL=" in it && "DURATION_MS=" in it })
     }
 
     private class FakeRootShell : RootShellExecutor {

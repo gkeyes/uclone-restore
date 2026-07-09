@@ -7,7 +7,6 @@ import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
 import android.os.SystemClock
 import androidx.core.graphics.drawable.toBitmap
-import com.uclone.restore.MainActivity
 import com.uclone.restore.R
 
 data class FavoriteShortcutEntry(
@@ -21,15 +20,24 @@ data class LauncherShortcutRequest(
     val nonce: Long = SystemClock.uptimeMillis(),
 ) {
     companion object {
-        fun fromIntent(intent: Intent?): LauncherShortcutRequest? {
-            if (intent?.action != LauncherShortcutController.ACTION_TOGGLE_FAVORITE) return null
-            val packageName = intent.getStringExtra(LauncherShortcutController.EXTRA_PACKAGE_NAME)
+        fun isShortcutIntent(intent: Intent?): Boolean =
+            intent?.action == LauncherShortcutController.ACTION_TOGGLE_FAVORITE
+
+        fun fromIntent(intent: Intent?, expectedToken: String): LauncherShortcutRequest? {
+            if (!isShortcutIntent(intent)) return null
+            val sourceIntent = intent ?: return null
+            val token = sourceIntent.getStringExtra(LauncherShortcutController.EXTRA_TOKEN)
+            if (!isTrustedLauncherShortcutToken(token, expectedToken)) return null
+            val packageName = sourceIntent.getStringExtra(LauncherShortcutController.EXTRA_PACKAGE_NAME)
                 ?.takeIf(String::isNotBlank)
                 ?: return null
             return LauncherShortcutRequest(packageName)
         }
     }
 }
+
+internal fun isTrustedLauncherShortcutToken(providedToken: String?, expectedToken: String): Boolean =
+    !providedToken.isNullOrBlank() && expectedToken.isNotBlank() && providedToken == expectedToken
 
 class LauncherShortcutController(private val context: Context) {
     private val shortcutManager: ShortcutManager?
@@ -55,10 +63,11 @@ class LauncherShortcutController(private val context: Context) {
             .setLongLabel("$actionLabel $label")
             .setIcon(shortcutIcon())
             .setIntent(
-                Intent(context, MainActivity::class.java).apply {
+                Intent(context, LauncherShortcutActionActivity::class.java).apply {
                     action = ACTION_TOGGLE_FAVORITE
                     putExtra(EXTRA_PACKAGE_NAME, packageName)
-                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    putExtra(EXTRA_TOKEN, shortcutToken())
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 },
             )
             .setRank(rank)
@@ -69,6 +78,15 @@ class LauncherShortcutController(private val context: Context) {
         if (value.length <= SHORT_LABEL_MAX) value else value.take(SHORT_LABEL_MAX - 1) + "…"
 
     private fun shortcutId(packageName: String): String = "favorite_toggle_$packageName"
+
+    fun shortcutToken(): String =
+        context.getSharedPreferences("uclone_settings", Context.MODE_PRIVATE)
+            .let { prefs ->
+                prefs.getString(TOKEN_PREF_KEY, "")?.takeIf(String::isNotBlank)
+                    ?: java.util.UUID.randomUUID().toString().also { generated ->
+                        prefs.edit().putString(TOKEN_PREF_KEY, generated).apply()
+                    }
+            }
 
     private fun FavoriteShortcutEntry.shortcutIcon(): Icon = runCatching {
         Icon.createWithBitmap(
@@ -83,6 +101,8 @@ class LauncherShortcutController(private val context: Context) {
     companion object {
         const val ACTION_TOGGLE_FAVORITE = "com.uclone.restore.action.TOGGLE_FAVORITE"
         const val EXTRA_PACKAGE_NAME = "com.uclone.restore.extra.PACKAGE_NAME"
+        const val EXTRA_TOKEN = "com.uclone.restore.extra.LAUNCHER_TOKEN"
+        private const val TOKEN_PREF_KEY = "launcherShortcutToken"
         private const val MAX_FAVORITE_SHORTCUTS = 4
         private const val SHORT_LABEL_MAX = 12
         private const val SHORTCUT_ICON_SIZE_PX = 192

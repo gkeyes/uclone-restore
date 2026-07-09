@@ -47,25 +47,29 @@ Launcher Hook
   -> provider validates caller/config
   -> provider returns whether to show the menu, the label, and a PendingIntent
   -> hook invokes PendingIntent.send()
-  -> ModuleRelayService runs in the module APK process
-  -> ModuleRelayService calls UClone ExternalActionService
+  -> ModuleRelayActivity runs in the module APK process
+  -> ModuleRelayActivity calls UClone ExternalActionActivity
+  -> ExternalActionActivity starts UClone ExternalActionService
 ```
 
-The first version must not return a PendingIntent that targets UClone directly. The PendingIntent should target the module relay service:
+The first version must not return a PendingIntent that targets UClone directly. The PendingIntent should target a non-exported module relay activity:
 
 ```text
 Launcher Hook
   -> ModuleRelayProvider.call(...)
   -> provider returns a PendingIntent created by the module process
   -> hook invokes pendingIntent.send()
-  -> ModuleRelayService receives the request
-  -> ModuleRelayService starts UClone ExternalActionService
+  -> ModuleRelayActivity receives the request
+  -> ModuleRelayActivity starts UClone ExternalActionActivity
+  -> ExternalActionActivity starts ExternalActionService and finishes
 ```
 
-If Android foreground-service launch restrictions block this path on a target ROM, add a UClone no-display trampoline activity behind the module service:
+`ModuleRelayService` is kept only as a legacy/fallback receiver for older PendingIntents. New hook requests should use `ModuleRelayActivity`.
+
+If Android foreground-service launch restrictions block direct service startup on a target ROM, the UClone no-display activity is the trampoline:
 
 ```text
-PendingIntent -> ModuleRelayService -> UCloneExternalActionActivity(NoDisplay) -> ExternalActionService -> finish()
+PendingIntent -> ModuleRelayActivity -> UCloneExternalActionActivity(NoDisplay) -> ExternalActionService -> finish()
 ```
 
 The trampoline activity must do no business logic; it should only start the foreground service and finish.
@@ -79,7 +83,7 @@ The module relay provider must be exported because it is called by the launcher 
 ```xml
 <provider
     android:name=".relay.ModuleRelayProvider"
-    android:authorities="com.uclone.module.relay"
+    android:authorities="com.uclone.restore.module.relay"
     android:exported="true" />
 ```
 
@@ -91,7 +95,15 @@ PackageManager.getPackagesForUid(callingUid)
 allowed launcher package list, for example com.miui.home
 ```
 
-The module relay service should not be exported:
+The module relay activity and legacy relay service should not be exported:
+
+```xml
+<activity
+    android:name=".relay.ModuleRelayActivity"
+    android:exported="false"
+    android:noHistory="true"
+    android:theme="@android:style/Theme.NoDisplay" />
+```
 
 ```xml
 <service
@@ -99,17 +111,18 @@ The module relay service should not be exported:
     android:exported="false" />
 ```
 
-The launcher hook can only trigger this service through a `PendingIntent` created by the module provider. The service then calls UClone from the module APK UID.
+The launcher hook can only trigger the relay through a `PendingIntent` created by the module provider. The relay then calls UClone from the module APK UID.
 
-## UClone Component
+## UClone Components
 
-UClone exposes this service:
+UClone exposes a no-display trampoline activity and the underlying foreground service:
 
 ```text
+com.uclone.restore/.external.ExternalActionActivity
 com.uclone.restore/.external.ExternalActionService
 ```
 
-The service must be `exported=true` and protected by:
+Both components must be `exported=true` and protected by:
 
 ```text
 com.uclone.restore.permission.CONTROL
@@ -303,18 +316,15 @@ val intent = Intent("com.uclone.restore.action.EXECUTE")
     .putExtra("com.uclone.restore.extra.REQUEST_ID", UUID.randomUUID().toString())
     .putExtra("com.uclone.restore.extra.SOURCE", "module")
 
-if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-    context.startForegroundService(intent)
-} else {
-    context.startService(intent)
-}
+// ModuleRelayActivity should start ExternalActionActivity.
+// ExternalActionActivity starts ExternalActionService and immediately finishes.
 ```
 
 Launcher hook code should call the module relay instead:
 
 ```kotlin
 val result = context.contentResolver.call(
-    Uri.parse("content://com.uclone.module.relay"),
+    Uri.parse("content://com.uclone.restore.module.relay"),
     "queryMenuState",
     null,
     Bundle().apply {
@@ -329,4 +339,4 @@ val result = context.contentResolver.call(
 result?.getParcelable<PendingIntent>("pendingIntent")?.send()
 ```
 
-The returned PendingIntent should target `ModuleRelayService`, not UClone directly.
+The returned PendingIntent should target `ModuleRelayActivity`, not UClone directly. `ModuleRelayService` is a legacy/fallback path only.

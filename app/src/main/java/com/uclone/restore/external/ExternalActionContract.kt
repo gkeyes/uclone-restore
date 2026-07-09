@@ -38,4 +38,5 @@ object ExternalActionContract {
 
     const val SOURCE_MODULE = "module"
     const val SOURCE_LAUNCHER_MODULE = "launcher_module"
+    const val SOURCE_LAUNCHER_SHORTCUT = "launcher_shortcut"
 }

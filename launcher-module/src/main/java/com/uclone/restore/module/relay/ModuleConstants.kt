@@ -3,6 +3,7 @@ package com.uclone.restore.module.relay
 object ModuleConstants {
     const val MODULE_PACKAGE = "com.uclone.restore.module"
     const val UCLONE_PACKAGE = "com.uclone.restore"
+    const val UCLONE_ACTIVITY = "com.uclone.restore.external.ExternalActionActivity"
     const val UCLONE_SERVICE = "com.uclone.restore.external.ExternalActionService"
     const val CONTROL_PERMISSION = "com.uclone.restore.permission.CONTROL"
 
