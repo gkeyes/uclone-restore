@@ -33,6 +33,12 @@ Default data range:
 - `cache` and `code_cache` are excluded by default.
 - `/data/misc/keystore` is never copied.
 
+Launcher shortcuts:
+
+- Long-press the launcher icon to run favorite App shortcuts.
+- Each shortcut follows the same toggle logic as the home favorite row: if the App is already switched, it restores; otherwise it switches to the clone state.
+- Android launchers limit dynamic shortcuts, so UClone publishes the first few favorite Apps.
+
 Build:
 
 ```bash

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.uclone.restore.AppContainer
+import com.uclone.restore.launcher.FavoriteShortcutEntry
 import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskStatus
@@ -23,6 +24,7 @@ class UCloneViewModel(
     private val settingsStore = container.settingsStore
     private val packageInspector = container.packageInspector
     private val syncEngine = container.syncEngine
+    private val launcherShortcutController = container.launcherShortcutController
     private val _state = MutableStateFlow(UiState(settings = settingsStore.load()))
     val state: StateFlow<UiState> = _state
 
@@ -67,6 +69,7 @@ class UCloneViewModel(
                         switchRollbackIds = switchMarkers,
                     )
                 }
+                syncLauncherShortcuts()
             }
         }
     }
@@ -100,6 +103,7 @@ class UCloneViewModel(
                     switchRollbackIds = switchRollbackIds,
                 )
             }
+            syncLauncherShortcuts()
         }
     }
 
@@ -110,6 +114,7 @@ class UCloneViewModel(
     fun saveSettings(settings: UCloneSettings) {
         settingsStore.save(settings)
         _state.update { it.copy(settings = settings, message = "设置已保存") }
+        syncLauncherShortcuts()
         refreshAll()
     }
 
@@ -175,6 +180,39 @@ class UCloneViewModel(
     fun restoreSwitchMainStateSelected() {
         val packageName = _state.value.selectedPackage ?: return
         restoreSwitchMainState(packageName)
+    }
+
+    fun handleLauncherFavoriteShortcut(packageName: String) {
+        val settings = _state.value.settings
+        if (packageName !in settings.favoritePackages) {
+            _state.update { it.copy(message = "快捷入口已失效，请重新收藏 App") }
+            syncLauncherShortcuts()
+            return
+        }
+        viewModelScope.launch {
+            val rollbackId = syncEngine.switchMarkerId(packageName, _state.value.settings)
+            _state.update {
+                val switchRollbackIds = if (rollbackId == null) {
+                    it.switchRollbackIds - packageName
+                } else {
+                    it.switchRollbackIds + (packageName to rollbackId)
+                }
+                it.copy(
+                    selectedPackage = packageName,
+                    switchRollbackIds = switchRollbackIds,
+                )
+            }
+            syncLauncherShortcuts()
+            if (rollbackId == null) {
+                runTask("正在从桌面快捷入口切换") { report ->
+                    syncEngine.switchToCloneState(packageName, ruleFor(packageName), _state.value.settings, report)
+                }
+            } else {
+                runTask("正在从桌面快捷入口还原") { report ->
+                    syncEngine.restoreSwitchMainState(packageName, rollbackId, _state.value.settings, report)
+                }
+            }
+        }
     }
 
     fun rollbackSelected(rollbackId: String) {
@@ -292,8 +330,12 @@ class UCloneViewModel(
         serviceMessage: String,
         block: suspend (suspend (TaskProgress) -> Unit) -> Unit,
     ) {
+        if (_state.value.busy) {
+            _state.update { it.copy(message = "已有任务正在执行") }
+            return
+        }
+        _state.update { it.copy(busy = true, message = serviceMessage) }
         viewModelScope.launch {
-            _state.update { it.copy(busy = true, message = serviceMessage) }
             SyncForegroundService.start(getApplication(), serviceMessage)
             try {
                 block { progress ->
@@ -311,17 +353,48 @@ class UCloneViewModel(
                 _state.update { it.copy(message = error.message ?: "任务失败") }
             } finally {
                 SyncForegroundService.stop(getApplication())
-                val restoreBackups = syncEngine.listRestoreBackups(_state.value.settings)
+                val settings = _state.value.settings
+                val restoreBackups = syncEngine.listRestoreBackups(settings)
+                val switchMarkers = syncEngine.switchMarkerIds(settings)
                 _state.update {
                     it.copy(
                         busy = false,
                         history = syncEngine.history(),
                         restoreBackups = restoreBackups,
+                        switchRollbackIds = switchMarkers,
                     )
                 }
+                syncLauncherShortcuts()
                 _state.value.selectedPackage?.let(::selectPackage)
             }
         }
+    }
+
+    private fun ruleFor(packageName: String): AppRule {
+        val settings = _state.value.settings
+        return AppRule(
+            packageName = packageName,
+            includeCe = settings.includeCe,
+            includeDe = settings.includeDe,
+            includeExternal = settings.includeExternal,
+            includeMedia = settings.includeMedia,
+            includeObb = settings.includeObb,
+            includePermissions = settings.includePermissions,
+            excludeCache = settings.excludeCache,
+        )
+    }
+
+    private fun syncLauncherShortcuts() {
+        val state = _state.value
+        launcherShortcutController.updateFavoriteShortcuts(
+            state.favoriteApps.map { app ->
+                FavoriteShortcutEntry(
+                    packageName = app.packageName,
+                    label = app.label,
+                    switched = app.packageName in state.switchRollbackIds,
+                )
+            },
+        )
     }
 
     private suspend fun runBusy(label: String, block: suspend () -> Unit) {
