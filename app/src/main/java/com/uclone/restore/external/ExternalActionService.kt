@@ -43,6 +43,7 @@ class ExternalActionService : Service() {
         }
         externalTaskRunning.set(true)
         try {
+            notifier.clearResult()
             startForeground(
                 NOTIFICATION_ID,
                 notifier.running(

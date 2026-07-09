@@ -455,7 +455,7 @@ class SyncEngine(
         } else {
             failRemaining(steps, steps.indexOfFirst { it.status == StepStatus.RUNNING }.coerceAtLeast(1))
         }
-        val message = if (result.isSuccess) "完成" else taskFailureMessage(result)
+        val message = if (result.isSuccess) TaskResultMessages.successMessage(liveLog) else taskFailureMessage(result)
         val finished = logStore.finish(task, status, message)
         report(TaskProgress(finished, steps, liveLog))
         return finished

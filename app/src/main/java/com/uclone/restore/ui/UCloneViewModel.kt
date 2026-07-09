@@ -189,9 +189,11 @@ class UCloneViewModel(
 
     fun restoreSwitchMainState(packageName: String) {
         _state.update { it.copy(selectedPackage = packageName) }
-        val rollbackId = _state.value.switchRollbackIds[packageName] ?: return
         runTask("正在还原主系统态") { report ->
-            syncEngine.restoreSwitchMainState(packageName, rollbackId, _state.value.settings, report)
+            val settings = _state.value.settings
+            val rollbackId = syncEngine.switchMarkerId(packageName, settings)
+                ?: error("没有可用的切换回滚点")
+            syncEngine.restoreSwitchMainState(packageName, rollbackId, settings, report)
         }
     }
 
