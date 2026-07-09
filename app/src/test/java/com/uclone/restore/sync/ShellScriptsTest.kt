@@ -1,5 +1,6 @@
 package com.uclone.restore.sync
 
+import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.UCloneSettings
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -46,5 +47,34 @@ class ShellScriptsTest {
         assertContains(script, "SWITCH_ID_AFTER_PRUNE=")
         assertContains(script, "[ \"${'$'}SWITCH_ID_AFTER_PRUNE\" != \"${'$'}ROLLBACK_ID\" ]")
         assertContains(script, "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER_FOR_PRUNE")
+    }
+
+    @Test
+    fun switchFromCloneLatest_usesTemporaryCloneSourceWithoutActivatingSnapshot() {
+        val script = ShellScripts.switchFromCloneLatest(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            settings,
+            appPackage,
+        )
+
+        assertContains(script, "SOURCE_KIND='switch_temp'")
+        assertContains(script, "ACTIVE=\"${'$'}ROOT/tmp/switch_${'$'}{PKG}_${'$'}TS\"")
+        assertContains(script, "SWITCH_SOURCE_READY=${'$'}SWITCH_TEMP")
+        assertContains(script, "SWITCH_MARKER=${'$'}SWITCH_DIR/active ROLLBACK_ID=${'$'}ROLLBACK_ID")
+        assertFalse(script.contains("SNAPSHOT_ACTIVE="))
+        assertFalse(script.contains("mv \"${'$'}TMP\" \"${'$'}BASE/active\""))
+    }
+
+    @Test
+    fun switchFromCloneLatest_doesNotUseHereDocuments() {
+        val script = ShellScripts.switchFromCloneLatest(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            settings,
+            appPackage,
+        )
+
+        assertFalse(script.contains("<<EOF"))
     }
 }

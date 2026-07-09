@@ -69,13 +69,12 @@ class SyncEngine(
         settings: UCloneSettings,
         report: suspend (TaskProgress) -> Unit,
     ): TaskRecord {
-        captureSnapshot(packageName, rule, settings, report)
         return runScriptTask(
             type = TaskType.SWITCH_TO_CLONE_STATE,
             packageName = packageName,
             settings = settings,
-            labels = listOf("检查 root", "读取分身快照", "生成被动备份", "恢复分身态", "记录还原按钮", "完成"),
-            script = ShellScripts.restoreForSwitch(packageName, settings, appPackage),
+            labels = listOf("检查 root", "读取分身当前数据", "生成被动备份", "恢复分身态", "记录还原按钮", "完成"),
+            script = ShellScripts.switchFromCloneLatest(packageName, rule, settings, appPackage),
             report = report,
         )
     }

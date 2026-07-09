@@ -6,6 +6,11 @@ import com.uclone.restore.root.shellQuote
 
 object ShellScripts {
     private val rollbackIdPattern = Regex("[A-Za-z0-9_.-]+")
+    private enum class RestoreSourceKind {
+        ACTIVE,
+        ROLLBACK,
+        SWITCH_TEMP
+    }
 
     fun capture(packageName: String, rule: AppRule, settings: UCloneSettings, appPackage: String): String = """
         set -u
@@ -154,9 +159,7 @@ object ShellScripts {
         done
         [ -n "${'$'}DETECTED_USER" ] || { echo "ERR_NOTHING_COPIED: no non-empty selected source paths for candidates:${'$'}CANDIDATE_USERS package:${'$'}PKG" >&2; exit 44; }
         SIZE_KB=${'$'}(du -sk "${'$'}TMP" 2>/dev/null | awk '{print ${'$'}1}')
-        cat > "${'$'}TMP/manifest.json" <<EOF
-        {"packageName":"${packageName}","configuredSourceUser":${settings.cloneUserId},"sourceUser":"${'$'}DETECTED_USER","sourceUserState":"${'$'}DETECTED_STATE","targetUser":${settings.mainUserId},"createdAt":"${'$'}TS","includeCe":${rule.includeCe},"includeDe":${rule.includeDe},"includeExternal":${rule.includeExternal},"includeMedia":${rule.includeMedia},"includeObb":${rule.includeObb},"includePermissions":${rule.includePermissions},"includeAppWebView":${rule.includeAppWebView},"excludeCache":${rule.excludeCache},"snapshotSizeKb":"${'$'}SIZE_KB","copiedParts":"${'$'}COPIED_PARTS","copiedItems":"${'$'}COPIED_ITEMS"}
-        EOF
+        printf '%s\n' "{\"packageName\":\"${packageName}\",\"configuredSourceUser\":${settings.cloneUserId},\"sourceUser\":\"${'$'}DETECTED_USER\",\"sourceUserState\":\"${'$'}DETECTED_STATE\",\"targetUser\":${settings.mainUserId},\"createdAt\":\"${'$'}TS\",\"includeCe\":${rule.includeCe},\"includeDe\":${rule.includeDe},\"includeExternal\":${rule.includeExternal},\"includeMedia\":${rule.includeMedia},\"includeObb\":${rule.includeObb},\"includePermissions\":${rule.includePermissions},\"includeAppWebView\":${rule.includeAppWebView},\"excludeCache\":${rule.excludeCache},\"snapshotSizeKb\":\"${'$'}SIZE_KB\",\"copiedParts\":\"${'$'}COPIED_PARTS\",\"copiedItems\":\"${'$'}COPIED_ITEMS\"}" > "${'$'}TMP/manifest.json" || exit 18
         if [ -d "${'$'}BASE/active" ]; then mv "${'$'}BASE/active" "${'$'}BASE/history/${'$'}TS" || exit 15; fi
         mv "${'$'}TMP" "${'$'}BASE/active" || exit 16
         chmod -R 700 "${'$'}BASE" >/dev/null 2>&1 || true
@@ -172,12 +175,19 @@ object ShellScripts {
         rollbackReason = "恢复到主系统前生成",
     )
 
-    fun restoreForSwitch(packageName: String, settings: UCloneSettings, appPackage: String): String = restoreBody(
+    fun switchFromCloneLatest(
+        packageName: String,
+        rule: AppRule,
+        settings: UCloneSettings,
+        appPackage: String,
+    ): String = restoreBody(
         packageName = packageName,
         settings = settings,
         appPackage = appPackage,
         rollbackName = """${'$'}TS""",
         rollbackReason = "切换到分身态前生成",
+        sourceKind = RestoreSourceKind.SWITCH_TEMP,
+        prepareSourceScript = switchTempSourceScript(rule, settings),
         writeSwitchMarker = true,
     )
 
@@ -278,6 +288,159 @@ object ShellScripts {
     """.trimIndent()
     }
 
+    private fun switchTempSourceScript(rule: AppRule, settings: UCloneSettings): String = """
+        SWITCH_TEMP="${'$'}ACTIVE"
+        case "${'$'}SWITCH_TEMP" in
+          "${'$'}ROOT"/tmp/switch_"${'$'}PKG"_"${'$'}TS") ;;
+          *) echo "ERR_BAD_SWITCH_TEMP:${'$'}SWITCH_TEMP" >&2; exit 72 ;;
+        esac
+        cleanup_switch_temp() {
+          [ -n "${'$'}{SWITCH_TEMP:-}" ] || return 0
+          case "${'$'}SWITCH_TEMP" in
+            "${'$'}ROOT"/tmp/switch_"${'$'}PKG"_"${'$'}TS") rm -rf "${'$'}SWITCH_TEMP" "${'$'}SWITCH_TEMP".try_* 2>/dev/null || true ;;
+          esac
+        }
+        trap cleanup_switch_temp EXIT
+        mkdir -p "${'$'}ROOT/tmp" || exit 10
+        rm -rf "${'$'}SWITCH_TEMP" "${'$'}SWITCH_TEMP".try_*
+        CANDIDATE_USERS=""
+        add_candidate_user() {
+          U="${'$'}1"
+          [ -n "${'$'}U" ] || return 0
+          [ "${'$'}U" != "${settings.mainUserId}" ] || return 0
+          case " ${'$'}CANDIDATE_USERS " in
+            *" ${'$'}U "*) ;;
+            *) CANDIDATE_USERS="${'$'}CANDIDATE_USERS ${'$'}U" ;;
+          esac
+        }
+        add_candidate_user "${settings.cloneUserId}"
+        for U in ${'$'}(pm list users 2>/dev/null | sed -n 's/.*UserInfo{\([0-9][0-9]*\):.*/\1/p'); do
+          add_candidate_user "${'$'}U"
+        done
+        add_candidate_user 999
+        echo "CANDIDATE_USERS=${'$'}CANDIDATE_USERS"
+        [ -n "${'$'}CANDIDATE_USERS" ] || { echo "ERR_NO_CLONE_USER_CANDIDATES" >&2; exit 42; }
+        count_items() {
+          find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '
+        }
+        copy_dir_stream() {
+          SRC="${'$'}1"
+          DST="${'$'}2"
+          SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+          [ "${'$'}SRC_ITEMS" -gt 0 ] || { echo "SKIP_EMPTY:${'$'}SRC"; return 0; }
+          rm -rf "${'$'}DST.tmp"
+          mkdir -p "${'$'}DST.tmp" || exit 12
+          (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST.tmp" && tar -xpf -) || exit 13
+          rm -rf "${'$'}DST"
+          mv "${'$'}DST.tmp" "${'$'}DST" || exit 14
+          ${if (rule.excludeCache) "rm -rf \"${'$'}DST/cache\" \"${'$'}DST/code_cache\" 2>/dev/null || true" else ":"}
+          DST_ITEMS=${'$'}(count_items "${'$'}DST")
+          [ "${'$'}DST_ITEMS" -gt 0 ] || { echo "ERR_COPY_EMPTY:${'$'}SRC" >&2; exit 17; }
+          PART_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
+          COPIED_PARTS=${'$'}((COPIED_PARTS + 1))
+          COPIED_ITEMS=${'$'}((COPIED_ITEMS + DST_ITEMS))
+          echo "COPIED:${'$'}SRC ITEMS=${'$'}DST_ITEMS SIZE_KB=${'$'}PART_SIZE_KB"
+        }
+        copy_first_nonempty() {
+          DST="${'$'}1"
+          shift
+          for SRC in "${'$'}@"; do
+            [ -n "${'$'}SRC" ] || continue
+            if [ -d "${'$'}SRC" ]; then
+              SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+              echo "PROBE_PATH:${'$'}SRC ITEMS=${'$'}SRC_ITEMS"
+              if [ "${'$'}SRC_ITEMS" -gt 0 ]; then
+                copy_dir_stream "${'$'}SRC" "${'$'}DST"
+                return 0
+              fi
+              echo "SKIP_EMPTY:${'$'}SRC"
+            else
+              echo "SKIP_MISSING:${'$'}SRC"
+            fi
+          done
+          return 0
+        }
+        capture_permission_state() {
+          PERM_DST="${'$'}1"
+          SRC_USER="${'$'}2"
+          mkdir -p "${'$'}PERM_DST" || exit 18
+          dumpsys package "${'$'}PKG" 2>/dev/null | awk -v user="User ${'$'}SRC_USER:" '
+            ${'$'}0 ~ "^    User [0-9]+:" {
+              in_user=(${'$'}0 ~ user)
+              in_runtime=0
+            }
+            in_user && ${'$'}0 ~ "^      runtime permissions:" {
+              in_runtime=1
+              next
+            }
+            in_runtime && ${'$'}0 ~ "^        android\\.permission\\." {
+              name=${'$'}1
+              sub(":", "", name)
+              granted=(${'$'}0 ~ "granted=true")
+              if (granted) print name
+              next
+            }
+            in_runtime && ${'$'}0 !~ "^        " {
+              in_runtime=0
+            }
+          ' | sort -u > "${'$'}PERM_DST/runtime_grants.txt"
+          cmd appops get --user "${'$'}SRC_USER" "${'$'}PKG" 2>/dev/null | awk '
+            /^[A-Z0-9_()]+: (allow|ignore|deny|default|foreground|ask)/ {
+              op=${'$'}1
+              sub(":", "", op)
+              mode=${'$'}2
+              sub(";", "", mode)
+              print op " " mode
+            }
+          ' | sort -u > "${'$'}PERM_DST/appops.txt"
+          PERM_COUNT=${'$'}(wc -l < "${'$'}PERM_DST/runtime_grants.txt" | tr -d ' ')
+          APPOPS_COUNT=${'$'}(wc -l < "${'$'}PERM_DST/appops.txt" | tr -d ' ')
+          echo "PERMISSIONS_CAPTURED:user=${'$'}SRC_USER grants=${'$'}PERM_COUNT appops=${'$'}APPOPS_COUNT"
+        }
+        try_user() {
+          TRY_USER="${'$'}1"
+          TRY_TMP="${'$'}SWITCH_TEMP.try_${'$'}TRY_USER"
+          rm -rf "${'$'}TRY_TMP"
+          mkdir -p "${'$'}TRY_TMP" || exit 11
+          STATE=${'$'}(am get-started-user-state "${'$'}TRY_USER" 2>/dev/null || true)
+          echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
+          case "${'$'}STATE" in *RUNNING_UNLOCKED*) ;; *) echo "WARN_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" ;; esac
+          if cmd package list packages --user "${'$'}TRY_USER" 2>/dev/null | grep -qx "package:${'$'}PKG"; then
+            echo "PACKAGE_LISTED:${'$'}TRY_USER"
+          else
+            echo "WARN_PACKAGE_NOT_LISTED:${'$'}TRY_USER"
+          fi
+          am force-stop --user "${'$'}TRY_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+          COPIED_PARTS=0
+          COPIED_ITEMS=0
+          ${if (rule.includeCe) "copy_first_nonempty \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\"" else ":"}
+          ${if (rule.includeDe) "copy_first_nonempty \"${'$'}TRY_TMP/de\" \"/data/user_de/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}TRY_USER/${'$'}PKG\"" else ":"}
+          ${if (rule.includeExternal) "copy_first_nonempty \"${'$'}TRY_TMP/external\" \"/data/media/${'$'}TRY_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/data/${'$'}PKG\"" else ":"}
+          ${if (rule.includeMedia) "copy_first_nonempty \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\"" else ":"}
+          ${if (rule.includeObb) "copy_first_nonempty \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\"" else ":"}
+          ${if (rule.includePermissions) "capture_permission_state \"${'$'}TRY_TMP/permissions\" \"${'$'}TRY_USER\"" else ":"}
+          if [ "${'$'}COPIED_PARTS" -gt 0 ]; then
+            rm -rf "${'$'}SWITCH_TEMP"
+            mv "${'$'}TRY_TMP" "${'$'}SWITCH_TEMP" || exit 14
+            DETECTED_USER="${'$'}TRY_USER"
+            DETECTED_STATE="${'$'}STATE"
+            return 0
+          fi
+          rm -rf "${'$'}TRY_TMP"
+          return 1
+        }
+        DETECTED_USER=""
+        DETECTED_STATE=""
+        for U in ${'$'}CANDIDATE_USERS; do
+          if try_user "${'$'}U"; then
+            break
+          fi
+        done
+        [ -n "${'$'}DETECTED_USER" ] || { echo "ERR_NOTHING_COPIED: no non-empty selected source paths for candidates:${'$'}CANDIDATE_USERS package:${'$'}PKG" >&2; exit 44; }
+        echo "SWITCH_SOURCE_READY=${'$'}SWITCH_TEMP"
+        echo "SWITCH_SOURCE_USER=${'$'}DETECTED_USER"
+    """.trimIndent()
+
     private fun restoreBody(
         packageName: String,
         settings: UCloneSettings,
@@ -286,10 +449,21 @@ object ShellScripts {
         rollbackReason: String,
         sourcePrefix: String = "",
         sourceRollbackId: String? = null,
+        sourceKind: RestoreSourceKind = if (sourceRollbackId == null) RestoreSourceKind.ACTIVE else RestoreSourceKind.ROLLBACK,
+        prepareSourceScript: String = ":",
         writeSwitchMarker: Boolean = false,
         clearSwitchMarker: Boolean = false,
     ): String {
         val sourceRoot = sourcePrefix.ifBlank { "${settings.rootDir}/snapshots/$packageName/active" }
+        val activeAssignment = when (sourceKind) {
+            RestoreSourceKind.SWITCH_TEMP -> "ACTIVE=\"${'$'}ROOT/tmp/switch_${'$'}{PKG}_${'$'}TS\""
+            else -> "ACTIVE=${shellQuote(sourceRoot)}"
+        }
+        val sourceKindToken = when (sourceKind) {
+            RestoreSourceKind.ACTIVE -> "active"
+            RestoreSourceKind.ROLLBACK -> "rollback"
+            RestoreSourceKind.SWITCH_TEMP -> "switch_temp"
+        }
         sourceRollbackId?.let(::requireSafeRollbackId)
         return """
             set -u
@@ -298,7 +472,8 @@ object ShellScripts {
             APP_PKG=${shellQuote(appPackage)}
             DST_USER=${settings.mainUserId}
             TS=${'$'}(date +%Y%m%d-%H%M%S)
-            ACTIVE=${shellQuote(sourceRoot)}
+            $activeAssignment
+            SOURCE_KIND=${shellQuote(sourceKindToken)}
             SOURCE_ROLLBACK_ID=${shellQuote(sourceRollbackId.orEmpty())}
             ROLLBACK_ID="$rollbackName"
             ROLLBACK="${'$'}ROOT/rollback/${'$'}PKG/$rollbackName"
@@ -315,9 +490,12 @@ object ShellScripts {
             if [ -n "${'$'}SOURCE_ROLLBACK_ID" ]; then
               validate_rollback_id "${'$'}SOURCE_ROLLBACK_ID"
               EXPECTED_ACTIVE="${'$'}ROOT/rollback/${'$'}PKG/${'$'}SOURCE_ROLLBACK_ID"
+            elif [ "${'$'}SOURCE_KIND" = "switch_temp" ]; then
+              EXPECTED_ACTIVE="${'$'}ROOT/tmp/switch_${'$'}{PKG}_${'$'}TS"
             else
               EXPECTED_ACTIVE="${'$'}ROOT/snapshots/${'$'}PKG/active"
             fi
+            $prepareSourceScript
             [ "${'$'}ACTIVE" = "${'$'}EXPECTED_ACTIVE" ] || { echo "ERR_BAD_RESTORE_SOURCE:${'$'}ACTIVE" >&2; exit 72; }
             [ -d "${'$'}ACTIVE" ] || { echo "ERR_SNAPSHOT_MISSING:${'$'}ACTIVE" >&2; exit 51; }
             [ "${'$'}ACTIVE" != "${'$'}ROLLBACK" ] || { echo "ERR_ROLLBACK_SOURCE_CONFLICT:${'$'}ACTIVE" >&2; exit 61; }
@@ -568,9 +746,7 @@ object ShellScripts {
             backup_dir "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/de"
             ${if (settings.includePermissions) "backup_permission_state \"${'$'}ROLLBACK/permissions\"" else ":"}
             ROLLBACK_SIZE_KB=${'$'}(du -sk "${'$'}ROLLBACK" 2>/dev/null | awk '{print ${'$'}1}')
-            cat > "${'$'}ROLLBACK/manifest.json" <<EOF
-            {"packageName":"${'$'}PKG","rollbackId":"${'$'}ROLLBACK_ID","createdAt":"${'$'}TS","reason":"$rollbackReason","sizeKb":"${'$'}ROLLBACK_SIZE_KB"}
-            EOF
+            printf '%s\n' "{\"packageName\":\"${'$'}PKG\",\"rollbackId\":\"${'$'}ROLLBACK_ID\",\"createdAt\":\"${'$'}TS\",\"reason\":\"$rollbackReason\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
             restore_part "${'$'}ACTIVE/ce" "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}UID_VALUE"
             restore_part "${'$'}ACTIVE/de" "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}UID_VALUE"
             restore_part "${'$'}ACTIVE/external" "/data/media/${settings.mainUserId}/Android/data/${'$'}PKG" ""
