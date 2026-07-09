@@ -52,7 +52,6 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
             IosPrimaryButton(
                 onClick = viewModel::unlockCloneWithCredential,
                 modifier = Modifier.fillMaxWidth(),
-                enabled = state.settings.cloneUnlockCredential.isNotBlank(),
             ) {
                 Icon(Icons.Default.LockOpen, contentDescription = null)
                 Text("带密码尝试解锁")
