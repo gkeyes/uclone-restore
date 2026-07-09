@@ -19,6 +19,7 @@ data class UiState(
     val history: List<TaskRecord> = emptyList(),
     val rollbackIds: List<String> = emptyList(),
     val restoreBackups: List<RestoreBackupEntry> = emptyList(),
+    val cloneRollbackBackups: List<RestoreBackupEntry> = emptyList(),
     val switchRollbackIds: Map<String, String> = emptyMap(),
     val message: String? = null,
 ) {

@@ -41,6 +41,22 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun resetWorkspace_onlyDeletesKnownUCloneChildren() {
+        val script = ShellScripts.resetWorkspace(settings)
+
+        assertContains(script, "ERR_RESET_ROOT_NOT_UCLONE")
+        assertContains(script, "RESET_TARGETS=\"snapshots rollback clone_rollback switches logs tmp audit config\"")
+        assertContains(script, "\"${'$'}ROOT\"/snapshots|\"${'$'}ROOT\"/rollback|\"${'$'}ROOT\"/clone_rollback")
+        assertContains(script, "ERR_UNSAFE_RESET_TARGET")
+        assertContains(script, "rm -rf \"${'$'}TARGET\"")
+        assertContains(script, "RESET_WORKSPACE_DONE")
+        assertFalse(script.contains("rm -rf \"${'$'}ROOT\""))
+        assertFalse(script.contains("/data/user/"))
+        assertFalse(script.contains("/data/user_de/"))
+        assertFalse(script.contains("/data/media/"))
+    }
+
+    @Test
     fun restorePruneClearsStaleSwitchMarker() {
         val script = ShellScripts.restore("com.example.app", settings, appPackage)
 
@@ -53,12 +69,12 @@ class ShellScriptsTest {
     fun restoreBacksUpExternalMediaAndObbBeforeRestoring() {
         val script = ShellScripts.restore("com.example.app", settings, appPackage)
 
-        assertContains(script, "backup_dir \"/data/media/0/Android/data/${'$'}PKG\" \"${'$'}ROLLBACK/external\"")
-        assertContains(script, "backup_dir \"/data/media/0/Android/media/${'$'}PKG\" \"${'$'}ROLLBACK/media\"")
-        assertContains(script, "backup_dir \"/data/media/0/Android/obb/${'$'}PKG\" \"${'$'}ROLLBACK/obb\"")
-        assertContains(script, "restore_part \"${'$'}ACTIVE/external\" \"/data/media/0/Android/data/${'$'}PKG\" \"\"")
-        assertContains(script, "restore_part \"${'$'}ACTIVE/media\" \"/data/media/0/Android/media/${'$'}PKG\" \"\"")
-        assertContains(script, "restore_part \"${'$'}ACTIVE/obb\" \"/data/media/0/Android/obb/${'$'}PKG\" \"\"")
+        assertContains(script, "backup_dir \"/data/media/${'$'}DST_USER/Android/data/${'$'}PKG\" \"${'$'}ROLLBACK/external\"")
+        assertContains(script, "backup_dir \"/data/media/${'$'}DST_USER/Android/media/${'$'}PKG\" \"${'$'}ROLLBACK/media\"")
+        assertContains(script, "backup_dir \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\" \"${'$'}ROLLBACK/obb\"")
+        assertContains(script, "restore_part \"${'$'}ACTIVE/external\" \"/data/media/${'$'}DST_USER/Android/data/${'$'}PKG\" \"\"")
+        assertContains(script, "restore_part \"${'$'}ACTIVE/media\" \"/data/media/${'$'}DST_USER/Android/media/${'$'}PKG\" \"\"")
+        assertContains(script, "restore_part \"${'$'}ACTIVE/obb\" \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\" \"\"")
     }
 
     @Test
@@ -91,20 +107,102 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun pushMainToClone_usesSeparateLatestCloneRollbackAndDoesNotSetSwitchMarker() {
+        val script = ShellScripts.pushMainToClone(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            settings.copy(cloneUnlockCredential = "123456", autoUnlockClone = true),
+            appPackage,
+        )
+
+        assertContains(script, "SRC_USER=0")
+        assertContains(script, "DST_USER=10")
+        assertContains(script, "ROLLBACK_PARENT=\"${'$'}ROOT/clone_rollback/${'$'}PKG\"")
+        assertContains(script, "ROLLBACK=\"${'$'}ROLLBACK_PARENT/latest\"")
+        assertContains(script, "backupKind\":\"clone_rollback\"")
+        assertContains(script, "retention\":\"latest_only\"")
+        assertContains(script, "copy_first_nonempty \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}SRC_USER/${'$'}PKG\"")
+        assertContains(script, "restore_part \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}DST_USER/${'$'}PKG\" \"app\"")
+        assertContains(script, "PUSH_MAIN_TO_CLONE_DONE")
+        assertFalse(script.contains("SWITCH_MARKER="))
+        assertFalse(script.contains("\"${'$'}ROOT/rollback/${'$'}PKG\""))
+    }
+
+    @Test
+    fun pushMainToCloneRevokesTargetPermissionsNotPresentInSource() {
+        val script = ShellScripts.pushMainToClone(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            settings.copy(cloneUnlockCredential = "123456", autoUnlockClone = true),
+            appPackage,
+        )
+
+        assertContains(script, "CURRENT_GRANTS=\"${'$'}ROOT/tmp/current_push_grants_${'$'}{PKG}_${'$'}{TS}.txt\"")
+        assertContains(script, "cmd package revoke --user \"${'$'}DST_USER\"")
+        assertContains(script, "WARN_REVOKE_FAILED:${'$'}CURRENT_PERM")
+    }
+
+    @Test
+    fun restoreCloneRollbackTargetsCloneUserAndDoesNotPruneLatest() {
+        val script = ShellScripts.restoreCloneRollback(
+            "com.example.app",
+            settings.copy(cloneUnlockCredential = "123456", autoUnlockClone = true),
+            appPackage,
+        )
+
+        assertContains(script, "DST_USER=10")
+        assertContains(script, "SOURCE_KIND='clone_rollback'")
+        assertContains(script, "ACTIVE='/data/adb/uclone/clone_rollback/com.example.app/latest'")
+        assertContains(script, "EXPECTED_ACTIVE=\"${'$'}ROOT/clone_rollback/${'$'}PKG/latest\"")
+        assertContains(script, "ROLLBACK=\"${'$'}ROOT/clone_rollback/${'$'}PKG/restore_${'$'}TS\"")
+        assertContains(script, "restore_part \"${'$'}ACTIVE/ce\" \"/data/user/${'$'}DST_USER/${'$'}PKG\"")
+        assertFalse(script.contains("prune_old_rollbacks\n"))
+    }
+
+    @Test
+    fun pushMainToClone_requiresAutoUnlockWhenCeIncluded() {
+        val script = ShellScripts.pushMainToClone(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            settings.copy(cloneUnlockCredential = "123456", autoUnlockClone = false),
+            appPackage,
+        )
+
+        assertContains(script, "ENSURE_CLONE_CE_BEGIN")
+        assertContains(script, "ENSURE_CLONE_AUTO_UNLOCK=0")
+        assertContains(script, "ERR_CLONE_AUTO_UNLOCK_DISABLED:${'$'}STATE_BEFORE_UNLOCK")
+    }
+
+    @Test
     fun switchFromCloneLatest_requiresUnlockedCloneUserAndCeDataByDefault() {
         val script = ShellScripts.switchFromCloneLatest(
             "com.example.app",
             AppRule(packageName = "com.example.app"),
-            settings.copy(cloneUnlockCredential = "123456"),
+            settings.copy(cloneUnlockCredential = "123456", autoUnlockClone = true),
             appPackage,
         )
 
-        assertContains(script, "ENSURE_CLONE_UNLOCK_BEGIN")
+        assertContains(script, "ENSURE_CLONE_CE_BEGIN")
+        assertContains(script, "ENSURE_CLONE_AUTO_UNLOCK=1")
         assertContains(script, "/system/bin/am start-user -w")
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
         assertContains(script, "ERR_SWITCH_CE_MISSING:${'$'}TRY_USER")
         assertContains(script, "SWITCH_REQUIRE_CE=1")
+    }
+
+    @Test
+    fun switchFromCloneLatest_doesNotAutoUnlockWhenSettingDisabled() {
+        val script = ShellScripts.switchFromCloneLatest(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            settings.copy(cloneUnlockCredential = "123456", autoUnlockClone = false),
+            appPackage,
+        )
+
+        assertContains(script, "ENSURE_CLONE_CE_BEGIN")
+        assertContains(script, "ENSURE_CLONE_AUTO_UNLOCK=0")
+        assertContains(script, "ERR_CLONE_AUTO_UNLOCK_DISABLED:${'$'}STATE_BEFORE_UNLOCK")
     }
 
     @Test
@@ -117,7 +215,7 @@ class ShellScriptsTest {
         )
 
         assertContains(script, "SWITCH_REQUIRE_CE=0")
-        assertContains(script, "ENSURE_CLONE_UNLOCK_SKIPPED=not_required")
+        assertContains(script, "ENSURE_CE_SKIPPED=not_required")
     }
 
     @Test
@@ -125,12 +223,13 @@ class ShellScriptsTest {
         val script = ShellScripts.capture(
             "com.example.app",
             AppRule(packageName = "com.example.app"),
-            settings.copy(cloneUnlockCredential = "123456"),
+            settings.copy(cloneUnlockCredential = "123456", autoUnlockClone = true),
             appPackage,
         )
 
         assertContains(script, "CAPTURE_REQUIRE_CE=1")
-        assertContains(script, "ENSURE_CLONE_UNLOCK_BEGIN")
+        assertContains(script, "ENSURE_CLONE_CE_BEGIN")
+        assertContains(script, "ENSURE_CLONE_AUTO_UNLOCK=1")
         assertContains(script, "/system/bin/am start-user -w")
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
@@ -147,7 +246,7 @@ class ShellScriptsTest {
         )
 
         assertContains(script, "CAPTURE_REQUIRE_CE=0")
-        assertContains(script, "ENSURE_CLONE_UNLOCK_SKIPPED=not_required")
+        assertContains(script, "ENSURE_CE_SKIPPED=not_required")
     }
 
     @Test
@@ -167,7 +266,8 @@ class ShellScriptsTest {
     fun unlockCloneWithCredential_startsVerifiesAndWaitsWithoutUiAutomation() {
         val script = ShellScripts.unlockCloneWithCredential(settings.copy(cloneUnlockCredential = "123456"))
 
-        assertContains(script, "ENSURE_CLONE_UNLOCK_BEGIN")
+        assertContains(script, "ENSURE_CLONE_CE_BEGIN")
+        assertContains(script, "ENSURE_CLONE_AUTO_UNLOCK=1")
         assertContains(script, "START_USER_BEGIN")
         assertContains(script, "/system/bin/am start-user -w")
         assertContains(script, "/system/bin/cmd lock_settings verify --old")

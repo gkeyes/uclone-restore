@@ -80,7 +80,11 @@ fun PassiveBackupRow(
     onOpenDetail: () -> Unit,
     onRestore: () -> Unit,
 ) {
-    val backupPath = "$rootDir/rollback/${backup.packageName}/${backup.rollbackId}"
+    val backupPath = if (backup.isCloneRollback) {
+        "$rootDir/clone_rollback/${backup.packageName}/${backup.rollbackId}"
+    } else {
+        "$rootDir/rollback/${backup.packageName}/${backup.rollbackId}"
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()

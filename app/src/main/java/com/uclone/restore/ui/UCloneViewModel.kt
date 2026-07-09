@@ -57,6 +57,7 @@ class UCloneViewModel(
                 val snapshots = syncEngine.snapshotMetadata(settings)
                 val switchMarkers = syncEngine.switchMarkerIds(settings)
                 val restoreBackups = syncEngine.listRestoreBackups(settings)
+                val cloneRollbackBackups = syncEngine.listCloneRollbackBackups(settings)
                 val apps = packageInspector.listApps(settings).map { app ->
                     val snapshot = snapshots[app.packageName]
                     app.copy(
@@ -68,6 +69,7 @@ class UCloneViewModel(
                     it.copy(
                         apps = apps,
                         restoreBackups = restoreBackups,
+                        cloneRollbackBackups = cloneRollbackBackups,
                         switchRollbackIds = switchMarkers,
                     )
                 }
@@ -169,6 +171,20 @@ class UCloneViewModel(
     fun switchToCloneStateSelected() {
         val packageName = _state.value.selectedPackage ?: return
         switchToCloneState(packageName)
+    }
+
+    fun pushMainToClone(packageName: String) {
+        _state.update { it.copy(selectedPackage = packageName) }
+        runTask("正在推送到分身") { report ->
+            syncEngine.pushMainToClone(packageName, ruleFor(packageName), _state.value.settings, report)
+        }
+    }
+
+    fun restoreCloneRollback(packageName: String) {
+        _state.update { it.copy(selectedPackage = packageName) }
+        runTask("正在恢复分身回滚") { report ->
+            syncEngine.restoreCloneRollback(packageName, _state.value.settings, report)
+        }
     }
 
     fun restoreSwitchMainState(packageName: String) {
@@ -313,6 +329,54 @@ class UCloneViewModel(
         }
     }
 
+    fun resetWorkspace() {
+        if (_state.value.busy) {
+            _state.update { it.copy(message = "已有任务正在执行") }
+            return
+        }
+        if (!syncEngine.tryBeginOperation()) {
+            _state.update { it.copy(message = "已有任务正在执行") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = "正在重置 UClone 数据") }
+            try {
+                val settings = _state.value.settings
+                val result = syncEngine.resetWorkspace(settings)
+                if (result.isSuccess) {
+                    val cleanedApps = _state.value.apps.map {
+                        it.copy(lastSnapshotAt = null, snapshotSizeKb = null)
+                    }
+                    _state.update {
+                        it.copy(
+                            apps = cleanedApps,
+                            currentTask = TaskProgress(null),
+                            history = emptyList(),
+                            rollbackIds = emptyList(),
+                            restoreBackups = emptyList(),
+                            cloneRollbackBackups = emptyList(),
+                            switchRollbackIds = emptyMap(),
+                            message = result.stdout.trim().ifBlank { "UClone 数据已重置" },
+                        )
+                    }
+                    syncLauncherShortcuts()
+                } else {
+                    _state.update {
+                        it.copy(
+                            message = result.stderr.trim()
+                                .ifBlank { result.stdout.trim().ifBlank { "重置失败：${result.exitCode}" } },
+                        )
+                    }
+                }
+            } catch (error: Exception) {
+                _state.update { it.copy(message = error.message ?: "重置失败") }
+            } finally {
+                syncEngine.finishOperation()
+                _state.update { it.copy(busy = false) }
+            }
+        }
+    }
+
     fun startCloneUser() {
         viewModelScope.launch {
             runBusy("启动分身") {
@@ -352,10 +416,14 @@ class UCloneViewModel(
             _state.update { it.copy(message = "已有任务正在执行") }
             return
         }
+        if (!syncEngine.tryBeginOperation()) {
+            _state.update { it.copy(message = "已有任务正在执行") }
+            return
+        }
         _state.update { it.copy(busy = true, message = serviceMessage) }
         viewModelScope.launch {
-            SyncForegroundService.start(getApplication(), serviceMessage)
             try {
+                SyncForegroundService.start(getApplication(), serviceMessage)
                 block { progress ->
                     _state.update {
                         it.copy(
@@ -370,32 +438,45 @@ class UCloneViewModel(
             } catch (error: Exception) {
                 _state.update { it.copy(message = error.message ?: "任务失败") }
             } finally {
-                SyncForegroundService.stop(getApplication())
-                val settings = _state.value.settings
-                val restoreBackups = syncEngine.listRestoreBackups(settings)
-                val switchMarkers = syncEngine.switchMarkerIds(settings)
-                val environment = syncEngine.checkEnvironment(settings)
-                val finalTask = _state.value.currentTask.task
-                val finalMessage = if (
-                    finalTask?.status == TaskStatus.SUCCESS &&
-                    environment.user10CeState is User10CeState.NotStarted
-                ) {
-                    "任务完成，分身已关闭"
-                } else {
-                    _state.value.message
+                try {
+                    SyncForegroundService.stop(getApplication())
+                    val settings = _state.value.settings
+                    val restoreBackups = syncEngine.listRestoreBackups(settings)
+                    val cloneRollbackBackups = syncEngine.listCloneRollbackBackups(settings)
+                    val switchMarkers = syncEngine.switchMarkerIds(settings)
+                    val environment = syncEngine.checkEnvironment(settings)
+                    val finalTask = _state.value.currentTask.task
+                    val finalMessage = if (
+                        finalTask?.status == TaskStatus.SUCCESS &&
+                        environment.user10CeState is User10CeState.NotStarted
+                    ) {
+                        "任务完成，分身已关闭"
+                    } else {
+                        _state.value.message
+                    }
+                    _state.update {
+                        it.copy(
+                            busy = false,
+                            environment = environment,
+                            history = syncEngine.history(),
+                            restoreBackups = restoreBackups,
+                            cloneRollbackBackups = cloneRollbackBackups,
+                            switchRollbackIds = switchMarkers,
+                            message = finalMessage,
+                        )
+                    }
+                    syncLauncherShortcuts()
+                    _state.value.selectedPackage?.let(::selectPackage)
+                } catch (error: Exception) {
+                    _state.update {
+                        it.copy(
+                            busy = false,
+                            message = error.message ?: "任务结束后刷新状态失败",
+                        )
+                    }
+                } finally {
+                    syncEngine.finishOperation()
                 }
-                _state.update {
-                    it.copy(
-                        busy = false,
-                        environment = environment,
-                        history = syncEngine.history(),
-                        restoreBackups = restoreBackups,
-                        switchRollbackIds = switchMarkers,
-                        message = finalMessage,
-                    )
-                }
-                syncLauncherShortcuts()
-                _state.value.selectedPackage?.let(::selectPackage)
             }
         }
     }

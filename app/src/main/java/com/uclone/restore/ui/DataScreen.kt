@@ -30,12 +30,14 @@ fun DataScreen(
     openPassiveBackup: (RestoreBackupEntry) -> Unit,
 ) {
     var confirmRestore by remember { mutableStateOf<RestoreBackupEntry?>(null) }
+    var confirmCloneRestore by remember { mutableStateOf<RestoreBackupEntry?>(null) }
     val appByPackage = state.apps.associateBy { it.packageName }
     val rootDir = state.settings.rootDir
     val activeBackups = state.apps
         .filter { it.lastSnapshotAt != null }
         .sortedByDescending { it.lastSnapshotAt ?: 0L }
     val passiveBackups = state.restoreBackups
+    val cloneRollbackBackups = state.cloneRollbackBackups
 
     LazyColumn(
         modifier = modifier
@@ -51,6 +53,7 @@ fun DataScreen(
             SectionCard("存储区分") {
                 SingleLinePathText("主动快照: $rootDir/snapshots/<包名>/active")
                 SingleLinePathText("被动备份: $rootDir/rollback/<包名>/<备份ID>")
+                SingleLinePathText("分身回滚: $rootDir/clone_rollback/<包名>/latest")
                 Text(
                     "切换和还原产生的被动备份每个 App 只显示最新一份。",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -96,6 +99,28 @@ fun DataScreen(
                 )
             }
         }
+        item {
+            DataSectionHeader("分身回滚", "推送到分身前自动保存的分身侧最新备份。")
+        }
+        if (cloneRollbackBackups.isEmpty()) {
+            item {
+                SectionCard("暂无分身回滚") {
+                    Text("执行“推送到分身”前会保存分身当前数据，方便撤回本次推送。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        } else {
+            items(cloneRollbackBackups, key = { "clone-${it.packageName}-${it.rollbackId}" }) { backup ->
+                PassiveBackupRow(
+                    backup = backup,
+                    rootDir = rootDir,
+                    app = appByPackage[backup.packageName],
+                    onOpenDetail = {
+                        openPassiveBackup(backup)
+                    },
+                    onRestore = { confirmCloneRestore = backup },
+                )
+            }
+        }
     }
 
     confirmRestore?.let { backup ->
@@ -121,6 +146,33 @@ fun DataScreen(
             },
             dismissButton = {
                 IosDialogButton("取消", onClick = { confirmRestore = null })
+            },
+        )
+    }
+
+    confirmCloneRestore?.let { backup ->
+        AlertDialog(
+            onDismissRequest = { confirmCloneRestore = null },
+            title = { Text("恢复分身回滚") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("将使用以下分身回滚覆盖分身 user${state.settings.cloneUserId} 数据。")
+                    SingleLinePathText("$rootDir/clone_rollback/${backup.packageName}/${backup.rollbackId}")
+                    Text("来源: ${backup.reason}")
+                }
+            },
+            confirmButton = {
+                IosDialogButton(
+                    text = "恢复",
+                    onClick = {
+                        confirmCloneRestore = null
+                        viewModel.restoreCloneRollback(backup.packageName)
+                    },
+                    primary = true,
+                )
+            },
+            dismissButton = {
+                IosDialogButton("取消", onClick = { confirmCloneRestore = null })
             },
         )
     }

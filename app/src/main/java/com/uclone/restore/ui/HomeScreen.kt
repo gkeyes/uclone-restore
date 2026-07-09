@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,7 +50,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            ScreenHeader("首页", "收藏 App 的一键切换与还原。")
+            ScreenHeader("首页", "收藏 App 的切换、还原与单向推送。")
         }
         item {
             SectionCard("系统状态") {
@@ -108,6 +109,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
                         viewModel.selectPackage(app.packageName)
                         openDetail()
                     },
+                    onPush = { confirm = HomeConfirm.Push(app.packageName, app.label) },
                     onSwitch = { confirm = HomeConfirm.Switch(app.packageName, app.label) },
                     onRestore = { confirm = HomeConfirm.Restore(app.packageName, app.label) },
                 )
@@ -121,6 +123,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             onConfirm = {
                 confirm = null
                 when (action) {
+                    is HomeConfirm.Push -> viewModel.pushMainToClone(action.packageName)
                     is HomeConfirm.Switch -> viewModel.switchToCloneState(action.packageName)
                     is HomeConfirm.Restore -> viewModel.restoreSwitchMainState(action.packageName)
                 }
@@ -165,6 +168,7 @@ private fun FavoriteAppRow(
     app: AppEntry,
     switched: Boolean,
     onOpen: () -> Unit,
+    onPush: () -> Unit,
     onSwitch: () -> Unit,
     onRestore: () -> Unit,
 ) {
@@ -193,17 +197,25 @@ private fun FavoriteAppRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IosCompactButton(
-                text = if (switched) "还原" else "切换",
-                onClick = if (switched) onRestore else onSwitch,
-                primary = !switched,
-                icon = if (switched) Icons.Default.Refresh else Icons.Default.Sync,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                IosCompactButton(
+                    text = "推送",
+                    onClick = onPush,
+                    icon = Icons.Default.Upload,
+                )
+                IosCompactButton(
+                    text = if (switched) "还原" else "切换",
+                    onClick = if (switched) onRestore else onSwitch,
+                    primary = !switched,
+                    icon = if (switched) Icons.Default.Refresh else Icons.Default.Sync,
+                )
+            }
         }
     }
 }
 
 private sealed class HomeConfirm {
+    data class Push(val packageName: String, val label: String) : HomeConfirm()
     data class Switch(val packageName: String, val label: String) : HomeConfirm()
     data class Restore(val packageName: String, val label: String) : HomeConfirm()
 }
@@ -211,10 +223,12 @@ private sealed class HomeConfirm {
 @Composable
 private fun HomeConfirmDialog(action: HomeConfirm, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     val title = when (action) {
+        is HomeConfirm.Push -> "推送到分身"
         is HomeConfirm.Switch -> "切换到分身态"
         is HomeConfirm.Restore -> "还原主系统态"
     }
     val body = when (action) {
+        is HomeConfirm.Push -> "会把主系统当前 ${action.label} 数据覆盖到分身。执行前会把分身当前数据保存为独立的最新分身回滚，不影响首页切换/还原状态。"
         is HomeConfirm.Switch -> "会先保存当前主系统数据为被动备份，再使用分身最新状态恢复 ${action.label}。"
         is HomeConfirm.Restore -> "会用切换前保存的被动备份恢复 ${action.label}，并清除首页还原标记。"
     }

@@ -11,7 +11,9 @@ import com.uclone.restore.model.TaskType
 import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.root.RootEnvironmentChecker
 import com.uclone.restore.root.RootShellExecutor
+import com.uclone.restore.root.ShellResult
 import com.uclone.restore.root.shellQuote
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class SnapshotMetadata(
     val updatedAt: Long,
@@ -24,6 +26,16 @@ class SyncEngine(
     private val logStore: TaskLogStore,
     private val appPackage: String,
 ) {
+    private val operationBusy = AtomicBoolean(false)
+
+    fun tryBeginOperation(): Boolean = operationBusy.compareAndSet(false, true)
+
+    fun finishOperation() {
+        operationBusy.set(false)
+    }
+
+    fun isOperationRunning(): Boolean = operationBusy.get()
+
     suspend fun checkEnvironment(settings: UCloneSettings) = environmentChecker.check(settings)
 
     suspend fun captureSnapshot(
@@ -78,6 +90,35 @@ class SyncEngine(
             report = report,
         )
     }
+
+    suspend fun pushMainToClone(
+        packageName: String,
+        rule: AppRule,
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord {
+        return runScriptTask(
+            type = TaskType.PUSH_MAIN_TO_CLONE,
+            packageName = packageName,
+            settings = settings,
+            labels = listOf("检查 root", "准备分身目标", "读取主系统数据", "备份分身数据", "推送到分身", "完成"),
+            script = ShellScripts.pushMainToClone(packageName, rule, settings, appPackage),
+            report = report,
+        )
+    }
+
+    suspend fun restoreCloneRollback(
+        packageName: String,
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord = runScriptTask(
+        type = TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查 root", "读取分身回滚", "备份分身当前数据", "恢复到分身", "恢复权限/AppOps", "完成"),
+        script = ShellScripts.restoreCloneRollback(packageName, settings, appPackage),
+        report = report,
+    )
 
     suspend fun restoreSwitchMainState(
         packageName: String,
@@ -300,6 +341,40 @@ class SyncEngine(
             .toList()
     }
 
+    suspend fun listCloneRollbackBackups(settings: UCloneSettings): List<RestoreBackupEntry> {
+        val root = "${settings.rootDir}/clone_rollback"
+        val script = """
+            CLONE_ROLLBACK_ROOT=${shellQuote(root)}
+            [ -d "${'$'}CLONE_ROLLBACK_ROOT" ] || exit 0
+            for d in "${'$'}CLONE_ROLLBACK_ROOT"/*/latest; do
+              [ -d "${'$'}d" ] || continue
+              pkg=${'$'}(basename "${'$'}(dirname "${'$'}d")")
+              ts=${'$'}(stat -c %Y "${'$'}d" 2>/dev/null || echo 0)
+              size=${'$'}(du -sk "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
+              reason=""
+              if [ -f "${'$'}d/manifest.json" ]; then
+                reason=${'$'}(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
+              fi
+              [ -n "${'$'}reason" ] || reason="推送到分身前生成"
+              printf '%s\t%s\t%s\t%s\t%s\n' "${'$'}pkg" "latest" "${'$'}ts" "${'$'}size" "${'$'}reason"
+            done
+        """.trimIndent()
+        val result = shell.exec(script, 30)
+        return result.stdout.lineSequence().mapNotNull { line ->
+            val parts = line.split("\t", limit = 5)
+            val packageName = parts.getOrNull(0)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            RestoreBackupEntry(
+                packageName = packageName,
+                rollbackId = parts.getOrNull(1)?.takeIf(String::isNotBlank) ?: "latest",
+                createdAt = parts.getOrNull(2)?.toLongOrNull()?.times(1000) ?: 0L,
+                sizeKb = parts.getOrNull(3)?.toLongOrNull(),
+                reason = parts.getOrNull(4)?.takeIf(String::isNotBlank) ?: "推送到分身前生成",
+                isActiveSwitchBackup = false,
+                isCloneRollback = true,
+            )
+        }.sortedByDescending { it.createdAt }
+    }
+
     fun history(): List<TaskRecord> = logStore.all()
 
     suspend fun clearLogs(settings: UCloneSettings) =
@@ -316,6 +391,16 @@ class SyncEngine(
                 echo "CLEARED_LOGS=${'$'}COUNT"
             """.trimIndent(),
             timeoutSeconds = 60,
+        ).also { result ->
+            if (result.isSuccess) {
+                logStore.clear()
+            }
+        }
+
+    suspend fun resetWorkspace(settings: UCloneSettings): ShellResult =
+        shell.exec(
+            ShellScripts.resetWorkspace(settings),
+            timeoutSeconds = 120,
         ).also { result ->
             if (result.isSuccess) {
                 logStore.clear()
@@ -366,10 +451,28 @@ class SyncEngine(
         } else {
             failRemaining(steps, steps.indexOfFirst { it.status == StepStatus.RUNNING }.coerceAtLeast(1))
         }
-        val message = if (result.isSuccess) "完成" else result.stderr.ifBlank { "命令失败：${result.exitCode}" }
+        val message = if (result.isSuccess) "完成" else taskFailureMessage(result)
         val finished = logStore.finish(task, status, message)
         report(TaskProgress(finished, steps, liveLog))
         return finished
+    }
+
+    private fun taskFailureMessage(result: ShellResult): String {
+        val output = result.stderr + "\n" + result.stdout
+        return when {
+            "ERR_CLONE_AUTO_UNLOCK_DISABLED" in output -> "分身未解锁，请开启分身自动解锁或先手动解锁"
+            "ERR_CLONE_PIN_MISSING" in output -> "请先在设置中填写分身锁屏 PIN/密码"
+            "ERR_CLONE_PIN_VERIFY_FAILED:BAD_CREDENTIAL" in output -> "分身 PIN 验证失败"
+            "ERR_CLONE_PIN_VERIFY_FAILED:THROTTLED" in output -> "PIN 验证被系统限流，请稍后再试"
+            "ERR_CLONE_PIN_VERIFY_FAILED:UNIFIED_CHALLENGE_UNSUPPORTED" in output -> "分身使用统一锁屏凭据，当前系统不支持后台验证"
+            "ERR_CLONE_PIN_VERIFY_FAILED:UNSUPPORTED" in output -> "当前系统不支持命令行验证分身 PIN"
+            "ERR_CLONE_UNLOCK_TIMEOUT" in output -> "分身解锁超时，请确认 PIN 和系统状态"
+            "ERR_PACKAGE_NOT_LISTED_TARGET" in output -> "分身系统未安装此 App，无法推送"
+            "ERR_PACKAGE_NOT_LISTED_SOURCE" in output -> "主系统未安装此 App，无法推送"
+            "ERR_PUSH_CE_MISSING" in output -> "主系统 CE 数据缺失，未执行推送"
+            "ERR_NOTHING_PUSHED" in output || "ERR_NOTHING_COPIED" in output -> "没有找到可推送的数据"
+            else -> result.stderr.ifBlank { "命令失败：${result.exitCode}" }
+        }
     }
 
     private fun mark(

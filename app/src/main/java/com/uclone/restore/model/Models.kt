@@ -113,6 +113,7 @@ data class RestoreBackupEntry(
     val sizeKb: Long?,
     val reason: String,
     val isActiveSwitchBackup: Boolean,
+    val isCloneRollback: Boolean = false,
 )
 
 data class UCloneSettings(
@@ -127,6 +128,8 @@ data class UCloneSettings(
     val includePermissions: Boolean = true,
     val excludeCache: Boolean = true,
     val stopCloneAfterTask: Boolean = true,
+    val autoUnlockClone: Boolean = false,
+    val allowModuleControl: Boolean = false,
     val favoritePackages: Set<String> = emptySet(),
     val cloneUnlockCredential: String = "",
 )
@@ -143,6 +146,8 @@ enum class TaskType {
     ROLLBACK_MAIN_DATA,
     RESTORE_FROM_CLONE_LATEST,
     SWITCH_TO_CLONE_STATE,
+    PUSH_MAIN_TO_CLONE,
+    RESTORE_CLONE_ROLLBACK_TO_CLONE,
     RESTORE_SWITCH_MAIN_STATE,
     DELETE_SNAPSHOT,
     DELETE_RESTORE_BACKUP,
