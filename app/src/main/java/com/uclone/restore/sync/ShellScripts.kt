@@ -271,27 +271,12 @@ object ShellScripts {
         current_user() {
           am get-current-user 2>&1 || true
         }
-        one_line() {
-          sed 's/[[:space:]][[:space:]]*/ /g' | cut -c 1-220
-        }
-        print_ui_summary() {
+        print_keyguard_summary() {
           LABEL="${'$'}1"
-          FOCUS=${'$'}(dumpsys window 2>/dev/null | grep -m 1 'mCurrentFocus' | one_line || true)
-          FOCUSED_APP=${'$'}(dumpsys window 2>/dev/null | grep -m 1 'mFocusedApp' | one_line || true)
-          INPUT_TARGET=${'$'}(dumpsys window 2>/dev/null | grep -m 1 'mInputMethodTarget' | one_line || true)
-          KEYGUARD=${'$'}(dumpsys window 2>/dev/null | grep -m 1 -E 'mShowingLockscreen|isStatusBarKeyguard|mDreamingLockscreen|mKeyguard' | one_line || true)
-          TOP_ACTIVITY=${'$'}(dumpsys activity activities 2>/dev/null | grep -m 1 -E 'topResumedActivity|mResumedActivity|ResumedActivity' | one_line || true)
-          TOP_RECORD=${'$'}(dumpsys activity top 2>/dev/null | grep -m 1 '^  ACTIVITY' | one_line || true)
-          POWER=${'$'}(dumpsys power 2>/dev/null | grep -m 1 -E 'mWakefulness=|mInteractive=|Display Power' | one_line || true)
-          echo "${'$'}LABEL"_CURRENT_USER="${'$'}(current_user)"
-          echo "${'$'}LABEL"_CLONE_STATE="${'$'}(state_of_clone)"
+          FOCUS=${'$'}(dumpsys window 2>/dev/null | grep -m 1 'mCurrentFocus' | sed 's/[[:space:]][[:space:]]*/ /g' || true)
+          KEYGUARD=${'$'}(dumpsys window 2>/dev/null | grep -m 1 -E 'mShowingLockscreen|isStatusBarKeyguard|mDreamingLockscreen' | sed 's/[[:space:]][[:space:]]*/ /g' || true)
           echo "${'$'}LABEL"_FOCUS="${'$'}FOCUS"
-          echo "${'$'}LABEL"_FOCUSED_APP="${'$'}FOCUSED_APP"
-          echo "${'$'}LABEL"_INPUT_TARGET="${'$'}INPUT_TARGET"
           echo "${'$'}LABEL"_KEYGUARD="${'$'}KEYGUARD"
-          echo "${'$'}LABEL"_TOP_ACTIVITY="${'$'}TOP_ACTIVITY"
-          echo "${'$'}LABEL"_TOP_RECORD="${'$'}TOP_RECORD"
-          echo "${'$'}LABEL"_POWER="${'$'}POWER"
         }
         wait_for_current_user() {
           WANT_USER="${'$'}1"
@@ -321,20 +306,11 @@ object ShellScripts {
         prepare_keyguard_input() {
           echo "WAKE_AND_DISMISS_BEGIN"
           input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || input keyevent 224 >/dev/null 2>&1 || true
-          input keyevent 224 >/dev/null 2>&1 || true
           input keyevent 82 >/dev/null 2>&1 || true
-          cmd window dismiss-keyguard >/dev/null 2>&1 || wm dismiss-keyguard >/dev/null 2>&1 || true
+          wm dismiss-keyguard >/dev/null 2>&1 || true
           input swipe "${'$'}X" "${'$'}Y_START" "${'$'}X" "${'$'}Y_END" 350 >/dev/null 2>&1 || true
           input tap "${'$'}X" "${'$'}Y_FIELD" >/dev/null 2>&1 || true
           sleep 1
-        }
-        bring_clone_home() {
-          echo "BRING_CLONE_HOME_BEGIN"
-          input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || input keyevent 224 >/dev/null 2>&1 || true
-          HOME_OUTPUT=${'$'}(am start --user "${'$'}CLONE_USER" -W -a android.intent.action.MAIN -c android.intent.category.HOME 2>&1 || true)
-          echo "BRING_CLONE_HOME_OUTPUT=${'$'}(printf '%s' "${'$'}HOME_OUTPUT" | one_line)"
-          input keyevent 3 >/dev/null 2>&1 || true
-          sleep 2
         }
         send_digit_keyevents() {
           case "${'$'}CREDENTIAL" in
@@ -354,34 +330,29 @@ object ShellScripts {
           echo "DIGIT_KEYEVENTS_SENT=${credential.length}"
           return 0
         }
-        send_pin_pad_taps_grid() {
-          GRID_NAME="${'$'}1"
-          ROW_123="${'$'}2"
-          ROW_456="${'$'}3"
-          ROW_789="${'$'}4"
-          ROW_0="${'$'}5"
+        send_pin_pad_taps() {
           case "${'$'}CREDENTIAL" in
             ''|*[!0-9]*)
-              echo "PIN_PAD_TAPS_SKIPPED=${'$'}GRID_NAME:non_numeric"
+              echo "PIN_PAD_TAPS_SKIPPED=non_numeric"
               return 1
               ;;
           esac
-          echo "PIN_PAD_TAPS_BEGIN=${'$'}GRID_NAME"
-          echo "PIN_PAD_GRID=${'$'}GRID_NAME:cols_25_50_75_rows_${'$'}{ROW_123}_${'$'}{ROW_456}_${'$'}{ROW_789}_${'$'}{ROW_0}"
+          echo "PIN_PAD_TAPS_BEGIN"
+          echo "PIN_PAD_GRID=cols_25_50_75_rows_56_66_76_86"
           i=1
           while [ "${'$'}i" -le ${credential.length} ]; do
             DIGIT=${'$'}(printf '%s' "${'$'}CREDENTIAL" | cut -c "${'$'}i")
             case "${'$'}DIGIT" in
-              1) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * ROW_123 / 100)) ;;
-              2) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * ROW_123 / 100)) ;;
-              3) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * ROW_123 / 100)) ;;
-              4) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * ROW_456 / 100)) ;;
-              5) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * ROW_456 / 100)) ;;
-              6) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * ROW_456 / 100)) ;;
-              7) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * ROW_789 / 100)) ;;
-              8) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * ROW_789 / 100)) ;;
-              9) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * ROW_789 / 100)) ;;
-              0) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * ROW_0 / 100)) ;;
+              1) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * 56 / 100)) ;;
+              2) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 56 / 100)) ;;
+              3) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * 56 / 100)) ;;
+              4) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * 66 / 100)) ;;
+              5) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 66 / 100)) ;;
+              6) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * 66 / 100)) ;;
+              7) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * 76 / 100)) ;;
+              8) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 76 / 100)) ;;
+              9) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * 76 / 100)) ;;
+              0) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 86 / 100)) ;;
               *) echo "WARN_PIN_PAD_BAD_DIGIT:index=${'$'}i"; return 1 ;;
             esac
             input tap "${'$'}TAP_X" "${'$'}TAP_Y" >/dev/null 2>&1 || echo "WARN_PIN_PAD_TAP_FAILED:index=${'$'}i"
@@ -389,7 +360,7 @@ object ShellScripts {
             i=${'$'}((i + 1))
           done
           input keyevent 66 >/dev/null 2>&1 || true
-          echo "PIN_PAD_TAPS_SENT=${'$'}GRID_NAME:${credential.length}"
+          echo "PIN_PAD_TAPS_SENT=${credential.length}"
           return 0
         }
         STATE_BEFORE=${'$'}(state_of_clone)
@@ -431,8 +402,6 @@ object ShellScripts {
         SWITCH_OUTPUT=${'$'}(am switch-user "${'$'}CLONE_USER" 2>&1 || true)
         echo "SWITCH_USER_OUTPUT=${'$'}SWITCH_OUTPUT"
         wait_for_current_user "${'$'}CLONE_USER" || echo "WARN_CURRENT_USER_NOT_CLONE:${'$'}(current_user)"
-        echo "CURRENT_USER_AFTER_SWITCH=${'$'}(current_user)"
-        bring_clone_home
         SIZE=${'$'}(wm size 2>/dev/null | sed -n 's/.*: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\1 \2/p' | head -1)
         if [ -n "${'$'}SIZE" ]; then
           WIDTH=${'$'}(printf '%s' "${'$'}SIZE" | awk '{print ${'$'}1}')
@@ -446,12 +415,11 @@ object ShellScripts {
         Y_END=${'$'}((HEIGHT / 3))
         Y_FIELD=${'$'}((HEIGHT * 3 / 5))
         echo "INPUT_SCREEN=${'$'}WIDTH x ${'$'}HEIGHT"
-        print_ui_summary "BEFORE_INPUT"
+        print_keyguard_summary "BEFORE_INPUT"
         prepare_keyguard_input
-        print_ui_summary "AFTER_PREPARE"
+        print_keyguard_summary "AFTER_PREPARE"
         if send_digit_keyevents; then
           sleep 3
-          print_ui_summary "AFTER_DIGIT_KEYEVENTS"
           check_unlocked_or_continue "STATE_AFTER_DIGIT_KEYEVENTS" && {
             echo "RETURN_MAIN_AFTER_DIGITS_BEGIN"
             RETURN_DIGIT_OUTPUT=${'$'}(am switch-user "${'$'}MAIN_USER" 2>&1 || true)
@@ -460,21 +428,9 @@ object ShellScripts {
           }
         fi
         prepare_keyguard_input
-        if send_pin_pad_taps_grid "upper" 48 58 68 78; then
+        if send_pin_pad_taps; then
           sleep 3
-          print_ui_summary "AFTER_PIN_PAD_TAPS_UPPER"
-          check_unlocked_or_continue "STATE_AFTER_PIN_PAD_TAPS_UPPER" && {
-            echo "RETURN_MAIN_AFTER_PIN_PAD_BEGIN"
-            RETURN_PIN_PAD_OUTPUT=${'$'}(am switch-user "${'$'}MAIN_USER" 2>&1 || true)
-            echo "RETURN_MAIN_AFTER_PIN_PAD_OUTPUT=${'$'}RETURN_PIN_PAD_OUTPUT"
-            exit 0
-          }
-        fi
-        prepare_keyguard_input
-        if send_pin_pad_taps_grid "lower" 56 66 76 86; then
-          sleep 3
-          print_ui_summary "AFTER_PIN_PAD_TAPS_LOWER"
-          check_unlocked_or_continue "STATE_AFTER_PIN_PAD_TAPS_LOWER" && {
+          check_unlocked_or_continue "STATE_AFTER_PIN_PAD_TAPS" && {
             echo "RETURN_MAIN_AFTER_PIN_PAD_BEGIN"
             RETURN_PIN_PAD_OUTPUT=${'$'}(am switch-user "${'$'}MAIN_USER" 2>&1 || true)
             echo "RETURN_MAIN_AFTER_PIN_PAD_OUTPUT=${'$'}RETURN_PIN_PAD_OUTPUT"
@@ -486,7 +442,6 @@ object ShellScripts {
         echo "INPUT_TEXT_SENT_LENGTH=${credential.length}"
         input keyevent 66 >/dev/null 2>&1 || input keyevent 160 >/dev/null 2>&1 || true
         sleep 3
-        print_ui_summary "AFTER_INPUT_TEXT"
         STATE_AFTER_INPUT=${'$'}(state_of_clone)
         echo "STATE_AFTER_INPUT=${'$'}STATE_AFTER_INPUT"
         CURRENT_AFTER_INPUT=${'$'}(current_user)
