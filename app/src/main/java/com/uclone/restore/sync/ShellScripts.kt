@@ -22,6 +22,7 @@ object ShellScripts {
             CLONE_UNLOCK_CREDENTIAL=${shellQuote(credential)}
             STOP_CLONE_AFTER_TASK=${if (settings.stopCloneAfterTask) "1" else "0"}
             CLONE_STARTED_BY_TASK=0
+            CLONE_STOPPED_AFTER_TASK=0
             clone_state() {
               /system/bin/am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
             }
@@ -42,6 +43,10 @@ object ShellScripts {
               return 1
             }
             cleanup_clone_user() {
+              if [ "${'$'}CLONE_STOPPED_AFTER_TASK" = "1" ]; then
+                echo "STOP_CLONE_AFTER_TASK=already_stopped"
+                return 0
+              fi
               if [ "${'$'}STOP_CLONE_AFTER_TASK" = "1" ] && [ "${'$'}CLONE_STARTED_BY_TASK" = "1" ]; then
                 echo "STOP_CLONE_AFTER_TASK=1"
                 STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user -w "${'$'}CLONE_USER" 2>&1 || true)
@@ -1021,6 +1026,18 @@ object ShellScripts {
                 fi
               fi
             }
+            stop_clone_user_after_switch_restore() {
+              ${if (settings.stopCloneAfterTask && (writeSwitchMarker || clearSwitchMarker)) """
+              echo "STOP_CLONE_AFTER_TASK=1 reason=switch_restore"
+              echo "STATE_BEFORE_STOP=${'$'}(/system/bin/am get-started-user-state ${settings.cloneUserId} 2>&1 || true)"
+              STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user -w ${settings.cloneUserId} 2>&1 || true)
+              echo "STOP_USER_OUTPUT=${'$'}STOP_USER_OUTPUT"
+              echo "STATE_AFTER_STOP=${'$'}(/system/bin/am get-started-user-state ${settings.cloneUserId} 2>&1 || true)"
+              CLONE_STOPPED_AFTER_TASK=1
+              """.trimIndent() else """
+              echo "STOP_CLONE_AFTER_TASK=0 reason=switch_restore_disabled"
+              """.trimIndent()}
+            }
             backup_dir "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/ce"
             backup_dir "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/de"
             backup_dir "/data/media/${settings.mainUserId}/Android/data/${'$'}PKG" "${'$'}ROLLBACK/external"
@@ -1053,6 +1070,7 @@ object ShellScripts {
             prune_old_rollbacks
             sync
             force_stop_package_users
+            ${if (writeSwitchMarker || clearSwitchMarker) "stop_clone_user_after_switch_restore" else ":"}
             echo "ROLLBACK=${'$'}ROLLBACK"
             echo "RESTORE_SUMMARY: restoredParts=${'$'}RESTORED_PARTS restoredItems=${'$'}RESTORED_ITEMS backupParts=${'$'}BACKUP_PARTS"
         """.trimIndent()
