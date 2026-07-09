@@ -158,6 +158,10 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 Icon(Icons.Default.Sync, contentDescription = null)
                 Text("备份并恢复到主系统")
             }
+            IosSecondaryButton(onClick = { confirm = ConfirmAction.AUDIT }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.CloudDownload, contentDescription = null)
+                Text("生成恢复审计包")
+            }
             IosSecondaryButton(
                 onClick = { confirm = ConfirmAction.DELETE },
                 modifier = Modifier.fillMaxWidth(),
@@ -181,6 +185,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                     ConfirmAction.CAPTURE -> viewModel.captureSelected()
                     ConfirmAction.RESTORE -> viewModel.restoreSelected()
                     ConfirmAction.LATEST -> viewModel.restoreLatestSelected()
+                    ConfirmAction.AUDIT -> viewModel.auditRestoreConsistencySelected()
                     ConfirmAction.DELETE -> viewModel.deleteSnapshotSelected()
                 }
             },
@@ -230,7 +235,7 @@ private fun SettingCheck(label: String, checked: Boolean, onChange: (Boolean) ->
     }
 }
 
-private enum class ConfirmAction { SWITCH, RESTORE_SWITCH, CAPTURE, RESTORE, LATEST, DELETE }
+private enum class ConfirmAction { SWITCH, RESTORE_SWITCH, CAPTURE, RESTORE, LATEST, AUDIT, DELETE }
 
 @Composable
 private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
@@ -240,6 +245,7 @@ private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: (
         ConfirmAction.CAPTURE -> "建立主动备份"
         ConfirmAction.RESTORE -> "恢复到主系统"
         ConfirmAction.LATEST -> "备份并恢复到主系统"
+        ConfirmAction.AUDIT -> "生成恢复审计包"
         ConfirmAction.DELETE -> "删除 active 快照"
     }
     val body = when (action) {
@@ -248,9 +254,10 @@ private fun ConfirmDialog(action: ConfirmAction, highRisk: Boolean, onDismiss: (
         ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 主动备份。旧 active 主动备份会移动到 history。"
         ConfirmAction.RESTORE -> "将使用已保存的 active 主动备份恢复主系统数据。这不会重新读取分身最新数据。"
         ConfirmAction.LATEST -> "将先更新分身主动备份，再恢复到主系统。该动作会覆盖主系统当前 App 数据。"
+        ConfirmAction.AUDIT -> "会只读采集文件树、UID、SELinux、权限和 AppOps 证据，写入审计目录；不会恢复、不会删除，也不会执行 restorecon。"
         ConfirmAction.DELETE -> "将删除当前 App 的 active 快照。history 和被动备份不会被删除。删除后无法直接恢复该 active 快照。"
     }
-    val text = if (highRisk && action != ConfirmAction.DELETE) {
+    val text = if (highRisk && action != ConfirmAction.DELETE && action != ConfirmAction.AUDIT) {
         "$body\n\n该 App 可能使用 Keystore 或服务端风控，请确认风险。"
     } else {
         body

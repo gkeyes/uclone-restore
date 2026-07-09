@@ -24,6 +24,7 @@ object ShellScripts {
         [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
         mkdir -p "${'$'}ROOT/snapshots" "${'$'}ROOT/rollback" "${'$'}ROOT/logs" "${'$'}ROOT/tmp" "${'$'}ROOT/config" "${'$'}BASE/history" || exit 10
         rm -rf "${'$'}TMP" "${'$'}TMP".try_*
+        CAPTURE_REQUIRE_CE=${if (rule.includeCe) "1" else "0"}
         CANDIDATE_USERS=""
         add_candidate_user() {
           U="${'$'}1"
@@ -125,7 +126,17 @@ object ShellScripts {
           mkdir -p "${'$'}TRY_TMP" || exit 11
           STATE=${'$'}(am get-started-user-state "${'$'}TRY_USER" 2>/dev/null || true)
           echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
-          case "${'$'}STATE" in *RUNNING_UNLOCKED*) ;; *) echo "WARN_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" ;; esac
+          case "${'$'}STATE" in
+            *RUNNING_UNLOCKED*) ;;
+            *)
+              if [ "${'$'}CAPTURE_REQUIRE_CE" = "1" ]; then
+                echo "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" >&2
+                rm -rf "${'$'}TRY_TMP"
+                return 1
+              fi
+              echo "WARN_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE"
+              ;;
+          esac
           if cmd package list packages --user "${'$'}TRY_USER" 2>/dev/null | grep -qx "package:${'$'}PKG"; then
             echo "PACKAGE_LISTED:${'$'}TRY_USER"
           else
@@ -140,6 +151,11 @@ object ShellScripts {
           ${if (rule.includeMedia) "copy_first_nonempty \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\"" else ":"}
           ${if (rule.includeObb) "copy_first_nonempty \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\"" else ":"}
           ${if (rule.includePermissions) "capture_permission_state \"${'$'}TRY_TMP/permissions\" \"${'$'}TRY_USER\"" else ":"}
+          if [ "${'$'}CAPTURE_REQUIRE_CE" = "1" ] && [ ! -d "${'$'}TRY_TMP/ce" ]; then
+            echo "ERR_CAPTURE_CE_MISSING:${'$'}TRY_USER" >&2
+            rm -rf "${'$'}TRY_TMP"
+            return 1
+          fi
           if [ "${'$'}COPIED_PARTS" -gt 0 ]; then
             rm -rf "${'$'}TMP"
             mv "${'$'}TRY_TMP" "${'$'}TMP" || exit 14
@@ -190,6 +206,158 @@ object ShellScripts {
         prepareSourceScript = switchTempSourceScript(rule, settings),
         writeSwitchMarker = true,
     )
+
+    fun probeCloneCe(settings: UCloneSettings): String = """
+        set -u
+        CLONE_USER=${settings.cloneUserId}
+        echo "PROBE_CLONE_USER=${'$'}CLONE_USER"
+        echo "ROOT_ID=${'$'}(id 2>&1)"
+        state_of_clone() {
+          am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
+        }
+        probe_base_path() {
+          LABEL="${'$'}1"
+          PATH_VALUE="${'$'}2"
+          if [ -d "${'$'}PATH_VALUE" ]; then
+            ITEMS=${'$'}(find "${'$'}PATH_VALUE" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+            echo "${'$'}LABEL=READABLE items=${'$'}ITEMS path=${'$'}PATH_VALUE"
+          else
+            echo "${'$'}LABEL=MISSING path=${'$'}PATH_VALUE"
+          fi
+        }
+        STATE_BEFORE=${'$'}(state_of_clone)
+        echo "STATE_BEFORE=${'$'}STATE_BEFORE"
+        echo "START_USER_BEGIN"
+        START_OUTPUT=${'$'}(am start-user -w "${'$'}CLONE_USER" 2>&1 || true)
+        echo "START_USER_OUTPUT=${'$'}START_OUTPUT"
+        STATE_AFTER_START=${'$'}(state_of_clone)
+        echo "STATE_AFTER_START=${'$'}STATE_AFTER_START"
+        echo "UNLOCK_USER_BEGIN"
+        UNLOCK_OUTPUT=${'$'}(am unlock-user "${'$'}CLONE_USER" 2>&1 || true)
+        echo "UNLOCK_USER_OUTPUT=${'$'}UNLOCK_OUTPUT"
+        STATE_AFTER_UNLOCK=${'$'}(state_of_clone)
+        echo "STATE_AFTER_UNLOCK=${'$'}STATE_AFTER_UNLOCK"
+        probe_base_path "CE_BASE" "/data/user/${'$'}CLONE_USER"
+        probe_base_path "DE_BASE" "/data/user_de/${'$'}CLONE_USER"
+        case "${'$'}STATE_AFTER_UNLOCK" in
+          *RUNNING_UNLOCKED*)
+            echo "USER10_CE_STATE=RUNNING_UNLOCKED"
+            echo "USER10_CE_READY=1"
+            ;;
+          *RUNNING_LOCKED*|RUNNING)
+            echo "USER10_CE_STATE=STARTED_LOCKED"
+            echo "ERR_USER10_CE_LOCKED:${'$'}STATE_AFTER_UNLOCK" >&2
+            exit 80
+            ;;
+          *"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*)
+            echo "USER10_CE_STATE=NOT_STARTED"
+            echo "ERR_USER10_NOT_STARTED:${'$'}STATE_AFTER_UNLOCK" >&2
+            exit 81
+            ;;
+          *)
+            echo "USER10_CE_STATE=UNKNOWN"
+            echo "ERR_USER10_STATE_UNKNOWN:${'$'}STATE_AFTER_UNLOCK" >&2
+            exit 82
+            ;;
+        esac
+    """.trimIndent()
+
+    fun auditRestoreConsistency(packageName: String, settings: UCloneSettings, appPackage: String): String = """
+        set -u
+        ROOT=${shellQuote(settings.rootDir)}
+        PKG=${shellQuote(packageName)}
+        APP_PKG=${shellQuote(appPackage)}
+        TARGET_USER=${settings.mainUserId}
+        CLONE_USER=${settings.cloneUserId}
+        TS=${'$'}(date +%Y%m%d-%H%M%S)
+        OUT="${'$'}ROOT/audit/${'$'}PKG/${'$'}TS"
+        mkdir -p "${'$'}OUT" || exit 10
+        echo "AUDIT_DIR=${'$'}OUT"
+        echo "AUDIT_PACKAGE=${'$'}PKG"
+        echo "AUDIT_TARGET_USER=${'$'}TARGET_USER"
+        echo "AUDIT_CLONE_USER=${'$'}CLONE_USER"
+        run_capture() {
+          NAME="${'$'}1"
+          shift
+          {
+            echo "COMMAND:${'$'}*"
+            "${'$'}@" 2>&1
+            echo "EXIT:${'$'}?"
+          } > "${'$'}OUT/${'$'}NAME"
+        }
+        capture_tree() {
+          NAME="${'$'}1"
+          PATH_VALUE="${'$'}2"
+          {
+            echo "PATH:${'$'}PATH_VALUE"
+            if [ -d "${'$'}PATH_VALUE" ]; then
+              find "${'$'}PATH_VALUE" -maxdepth 4 2>/dev/null | while IFS= read -r ITEM; do
+                ls -ldnZ "${'$'}ITEM" 2>/dev/null || ls -ldn "${'$'}ITEM" 2>/dev/null || true
+              done
+            else
+              echo "MISSING:${'$'}PATH_VALUE"
+            fi
+          } > "${'$'}OUT/${'$'}NAME"
+        }
+        capture_lz() {
+          NAME="${'$'}1"
+          PATH_VALUE="${'$'}2"
+          {
+            echo "PATH:${'$'}PATH_VALUE"
+            if [ -d "${'$'}PATH_VALUE" ]; then
+              ls -lanZ "${'$'}PATH_VALUE" 2>/dev/null || ls -lan "${'$'}PATH_VALUE" 2>/dev/null || true
+            else
+              echo "MISSING:${'$'}PATH_VALUE"
+            fi
+          } > "${'$'}OUT/${'$'}NAME"
+        }
+        printf '%s\n' "{\"packageName\":\"${'$'}PKG\",\"appPackage\":\"${'$'}APP_PKG\",\"targetUser\":\"${'$'}TARGET_USER\",\"cloneUser\":\"${'$'}CLONE_USER\",\"createdAt\":\"${'$'}TS\"}" > "${'$'}OUT/manifest.json"
+        id > "${'$'}OUT/root_id.txt" 2>&1 || true
+        run_capture "uid.txt" sh -c "cmd package list packages -U --user ${'$'}TARGET_USER | grep -F \"package:${'$'}PKG\" || true"
+        run_capture "user_state.txt" sh -c "am get-started-user-state ${'$'}TARGET_USER; am get-started-user-state ${'$'}CLONE_USER"
+        run_capture "package_dump.txt" sh -c "dumpsys package \"${'$'}PKG\" || true"
+        run_capture "cmd_package_dump.txt" sh -c "cmd package dump \"${'$'}PKG\" || true"
+        run_capture "appops_pkg.txt" sh -c "cmd appops get --user ${'$'}TARGET_USER \"${'$'}PKG\" || true"
+        run_capture "appops_uid.txt" sh -c "cmd appops get --uid \"${'$'}PKG\" || true"
+        capture_tree "file_tree_ce.txt" "/data/user/${'$'}TARGET_USER/${'$'}PKG"
+        capture_tree "file_tree_de.txt" "/data/user_de/${'$'}TARGET_USER/${'$'}PKG"
+        capture_tree "file_tree_external.txt" "/data/media/${'$'}TARGET_USER/Android/data/${'$'}PKG"
+        capture_tree "file_tree_media.txt" "/data/media/${'$'}TARGET_USER/Android/media/${'$'}PKG"
+        capture_tree "file_tree_obb.txt" "/data/media/${'$'}TARGET_USER/Android/obb/${'$'}PKG"
+        capture_lz "ls_lZ_ce.txt" "/data/user/${'$'}TARGET_USER/${'$'}PKG"
+        capture_lz "ls_lZ_de.txt" "/data/user_de/${'$'}TARGET_USER/${'$'}PKG"
+        if [ -f "${'$'}ROOT/snapshots/${'$'}PKG/active/manifest.json" ]; then
+          cp "${'$'}ROOT/snapshots/${'$'}PKG/active/manifest.json" "${'$'}OUT/active_manifest.json" 2>/dev/null || true
+        else
+          echo "MISSING:${'$'}ROOT/snapshots/${'$'}PKG/active/manifest.json" > "${'$'}OUT/active_manifest.json"
+        fi
+        PACKAGE_PRESENT=0
+        cmd package list packages --user "${'$'}TARGET_USER" 2>/dev/null | grep -qx "package:${'$'}PKG" && PACKAGE_PRESENT=1 || true
+        CE_PRESENT=0
+        [ -d "/data/user/${'$'}TARGET_USER/${'$'}PKG" ] && CE_PRESENT=1 || true
+        DE_PRESENT=0
+        [ -d "/data/user_de/${'$'}TARGET_USER/${'$'}PKG" ] && DE_PRESENT=1 || true
+        CLONE_STATE=${'$'}(am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true)
+        STATUS="PASS_COLLECTION"
+        [ "${'$'}PACKAGE_PRESENT" = "1" ] || STATUS="FAIL_PACKAGE_MISSING"
+        {
+          echo "# UClone Restore Audit"
+          echo
+          echo "- status: ${'$'}STATUS"
+          echo "- package: ${'$'}PKG"
+          echo "- targetUser: ${'$'}TARGET_USER"
+          echo "- cloneUser: ${'$'}CLONE_USER"
+          echo "- cloneState: ${'$'}CLONE_STATE"
+          echo "- cePresent: ${'$'}CE_PRESENT"
+          echo "- dePresent: ${'$'}DE_PRESENT"
+          echo "- auditDir: ${'$'}OUT"
+          echo
+          echo "restorecon: not run in this read-only audit"
+          echo "delete: not run in this audit"
+        } > "${'$'}OUT/summary.md"
+        echo "AUDIT_STATUS=${'$'}STATUS"
+        echo "AUDIT_SUMMARY=${'$'}OUT/summary.md"
+    """.trimIndent()
 
     fun rollback(
         packageName: String,

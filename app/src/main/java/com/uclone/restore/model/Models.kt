@@ -33,6 +33,9 @@ data class EnvironmentStatus(
     val user0Present: Boolean,
     val user10Present: Boolean,
     val user10State: String,
+    val user10CeState: User10CeState = User10CeState.fromRaw(user10State, user10Present),
+    val user10CeBaseReadable: CheckResult = CheckResult(false, "未检测"),
+    val user10DeBaseReadable: CheckResult = CheckResult(false, "未检测"),
     val dataAdbWritable: CheckResult,
     val snapshotDirReady: CheckResult,
 )
@@ -41,6 +44,45 @@ data class CheckResult(
     val ok: Boolean,
     val detail: String,
 )
+
+sealed class User10CeState {
+    data object Unavailable : User10CeState()
+    data object StartedLocked : User10CeState()
+    data object RunningUnlocked : User10CeState()
+    data object NotStarted : User10CeState()
+    data class Unknown(val raw: String) : User10CeState()
+
+    val allowsCeCapture: Boolean
+        get() = this is RunningUnlocked
+
+    val label: String
+        get() = when (this) {
+            Unavailable -> "用户不可用"
+            StartedLocked -> "已启动但未解锁 CE"
+            RunningUnlocked -> "RUNNING_UNLOCKED"
+            NotStarted -> "未启动"
+            is Unknown -> raw.ifBlank { "未知" }
+        }
+
+    companion object {
+        fun fromRaw(raw: String, userPresent: Boolean = true): User10CeState {
+            if (!userPresent) return Unavailable
+            val normalized = raw.trim()
+            if (normalized.isBlank()) return Unknown(raw)
+            val upper = normalized.uppercase()
+            return when {
+                "RUNNING_UNLOCKED" in upper -> RunningUnlocked
+                "RUNNING_LOCKED" in upper -> StartedLocked
+                upper == "RUNNING" -> StartedLocked
+                "USER IS NOT STARTED" in upper -> NotStarted
+                "NOT STARTED" in upper -> NotStarted
+                "SHUTDOWN" in upper -> NotStarted
+                "STOPPING" in upper -> NotStarted
+                else -> Unknown(normalized)
+            }
+        }
+    }
+}
 
 data class TaskRecord(
     val id: Long,
@@ -102,6 +144,8 @@ enum class TaskType {
     RESTORE_SWITCH_MAIN_STATE,
     DELETE_SNAPSHOT,
     DELETE_RESTORE_BACKUP,
+    PROBE_CLONE_CE,
+    AUDIT_RESTORE_CONSISTENCY,
 }
 
 enum class TaskStatus {

@@ -209,6 +209,22 @@ class UCloneViewModel(
         }
     }
 
+    fun probeCloneCe() {
+        runTask("正在探测分身 CE") { report ->
+            syncEngine.probeCloneCe(_state.value.settings, report)
+            val environment = syncEngine.checkEnvironment(_state.value.settings)
+            _state.update { it.copy(environment = environment) }
+        }
+    }
+
+    fun auditRestoreConsistencySelected() {
+        val packageName = _state.value.selectedPackage ?: return
+        _state.update { it.copy(selectedPackage = packageName) }
+        runTask("正在生成恢复审计包") { report ->
+            syncEngine.auditRestoreConsistency(packageName, _state.value.settings, report)
+        }
+    }
+
     fun clearLogs() {
         viewModelScope.launch {
             runBusy("清理日志") {

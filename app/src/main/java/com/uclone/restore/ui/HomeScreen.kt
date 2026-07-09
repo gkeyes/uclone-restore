@@ -60,6 +60,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
                 }
                 InfoRow("当前用户", env?.currentUser ?: "未检测")
                 InfoRow("分身状态", env?.user10State ?: "未检测")
+                InfoRow("CE gate", env?.user10CeState?.label ?: "未检测")
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

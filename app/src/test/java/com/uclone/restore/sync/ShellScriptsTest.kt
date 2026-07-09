@@ -103,4 +103,60 @@ class ShellScriptsTest {
 
         assertContains(script, "SWITCH_REQUIRE_CE=0")
     }
+
+    @Test
+    fun capture_requiresUnlockedCloneUserAndCeDataByDefault() {
+        val script = ShellScripts.capture(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            settings,
+            appPackage,
+        )
+
+        assertContains(script, "CAPTURE_REQUIRE_CE=1")
+        assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
+        assertContains(script, "ERR_CAPTURE_CE_MISSING:${'$'}TRY_USER")
+    }
+
+    @Test
+    fun capture_doesNotRequireCeWhenRuleExcludesCe() {
+        val script = ShellScripts.capture(
+            "com.example.app",
+            AppRule(packageName = "com.example.app", includeCe = false),
+            settings,
+            appPackage,
+        )
+
+        assertContains(script, "CAPTURE_REQUIRE_CE=0")
+    }
+
+    @Test
+    fun probeCloneCe_startsAndUnlocksWithoutSwitchingUiOrDeleting() {
+        val script = ShellScripts.probeCloneCe(settings)
+
+        assertContains(script, "am start-user -w")
+        assertContains(script, "am unlock-user")
+        assertContains(script, "am get-started-user-state")
+        assertContains(script, "USER10_CE_READY=1")
+        assertFalse(script.contains("switch-user"))
+        assertFalse(script.contains("rm "))
+        assertFalse(script.contains("rm -"))
+    }
+
+    @Test
+    fun auditRestoreConsistency_collectsReadOnlyEvidence() {
+        val script = ShellScripts.auditRestoreConsistency("com.example.app", settings, appPackage)
+
+        assertContains(script, "AUDIT_DIR=${'$'}OUT")
+        assertContains(script, "file_tree_ce.txt")
+        assertContains(script, "file_tree_de.txt")
+        assertContains(script, "appops_pkg.txt")
+        assertContains(script, "appops_uid.txt")
+        assertContains(script, "summary.md")
+        assertContains(script, "restorecon: not run in this read-only audit")
+        assertFalse(script.contains("rm "))
+        assertFalse(script.contains("rm -"))
+        assertFalse(script.contains("restorecon -"))
+        assertFalse(script.contains("am switch-user"))
+    }
 }

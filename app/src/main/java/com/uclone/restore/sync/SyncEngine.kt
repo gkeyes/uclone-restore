@@ -134,6 +134,31 @@ class SyncEngine(
         report = report,
     )
 
+    suspend fun probeCloneCe(
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord = runScriptTask(
+        type = TaskType.PROBE_CLONE_CE,
+        packageName = "user${settings.cloneUserId}",
+        settings = settings,
+        labels = listOf("检查 root", "读取状态", "启动 user${settings.cloneUserId}", "尝试 unlock-user", "探测 CE/DE", "输出结论"),
+        script = ShellScripts.probeCloneCe(settings),
+        report = report,
+    )
+
+    suspend fun auditRestoreConsistency(
+        packageName: String,
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord = runScriptTask(
+        type = TaskType.AUDIT_RESTORE_CONSISTENCY,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查 root", "创建审计目录", "采集文件树", "采集 UID/SELinux", "采集权限/AppOps", "写入 summary"),
+        script = ShellScripts.auditRestoreConsistency(packageName, settings, appPackage),
+        report = report,
+    )
+
     suspend fun latestSnapshotTime(packageName: String, settings: UCloneSettings): Long? {
         return latestSnapshotMetadata(packageName, settings)?.updatedAt
     }
