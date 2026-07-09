@@ -126,7 +126,7 @@ class UCloneLauncherModule : XposedModule() {
         val imageView = view.findFirstImageView() ?: return
         imageView.imageTintList = null
         imageView.clearColorFilter()
-        imageView.setImageDrawable(UCloneMenuDrawable())
+        imageView.setImageDrawable(UCloneMenuLineDrawable())
         imageView.contentDescription = ModuleConstants.MENU_LABEL
     }
 
@@ -310,14 +310,16 @@ private fun View.findFirstImageView(): ImageView? {
     return null
 }
 
-private class UCloneMenuDrawable : Drawable() {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+private class UCloneMenuLineDrawable : Drawable() {
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.rgb(42, 45, 52)
+    }
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 2.6f
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = Color.rgb(0, 122, 255)
+        color = Color.rgb(42, 45, 52)
     }
 
     override fun draw(canvas: Canvas) {
@@ -327,31 +329,32 @@ private class UCloneMenuDrawable : Drawable() {
         val top = b.top + (b.height() - size) / 2f
         val unit = size / 48f
 
-        paint.style = Paint.Style.FILL
-        paint.color = Color.argb(34, 0, 122, 255)
-        canvas.drawRoundRect(RectF(left + 5f * unit, top + 6f * unit, left + 43f * unit, top + 42f * unit), 12f * unit, 12f * unit, paint)
-
-        paint.color = Color.rgb(0, 122, 255)
-        canvas.drawRoundRect(RectF(left + 10f * unit, top + 13f * unit, left + 22f * unit, top + 35f * unit), 6f * unit, 6f * unit, paint)
-
-        paint.color = Color.rgb(236, 247, 255)
-        canvas.drawRoundRect(RectF(left + 26f * unit, top + 13f * unit, left + 38f * unit, top + 35f * unit), 6f * unit, 6f * unit, paint)
-
-        stroke.strokeWidth = 2.6f * unit
-        canvas.drawLine(left + 22f * unit, top + 24f * unit, left + 26f * unit, top + 24f * unit, stroke)
-
-        paint.color = Color.rgb(67, 226, 211)
-        canvas.drawCircle(left + 22f * unit, top + 24f * unit, 2.4f * unit, paint)
-        canvas.drawCircle(left + 26f * unit, top + 24f * unit, 2.4f * unit, paint)
+        stroke.strokeWidth = 2.8f * unit
+        canvas.drawRoundRect(
+            RectF(left + 9f * unit, top + 12f * unit, left + 21f * unit, top + 36f * unit),
+            5.5f * unit,
+            5.5f * unit,
+            stroke,
+        )
+        canvas.drawRoundRect(
+            RectF(left + 27f * unit, top + 12f * unit, left + 39f * unit, top + 36f * unit),
+            5.5f * unit,
+            5.5f * unit,
+            stroke,
+        )
+        stroke.strokeWidth = 2.4f * unit
+        canvas.drawLine(left + 22.5f * unit, top + 24f * unit, left + 25.5f * unit, top + 24f * unit, stroke)
+        canvas.drawCircle(left + 22.5f * unit, top + 24f * unit, 1.7f * unit, fill)
+        canvas.drawCircle(left + 25.5f * unit, top + 24f * unit, 1.7f * unit, fill)
     }
 
     override fun setAlpha(alpha: Int) {
-        paint.alpha = alpha
+        fill.alpha = alpha
         stroke.alpha = alpha
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
-        paint.colorFilter = colorFilter
+        fill.colorFilter = colorFilter
         stroke.colorFilter = colorFilter
     }
 

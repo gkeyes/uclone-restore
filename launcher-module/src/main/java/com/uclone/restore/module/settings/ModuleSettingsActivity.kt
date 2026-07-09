@@ -14,6 +14,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Bundle
 import android.text.TextUtils
 import android.view.Gravity
@@ -141,7 +142,6 @@ class ModuleSettingsActivity : Activity() {
                     typeface = Typeface.DEFAULT_BOLD
                     includeFontPadding = false
                     gravity = Gravity.CENTER
-                    foreground = selectableItemBackground()
                     setOnClickListener { showPage(page) }
                 }
                 tabButtons[page] = item
@@ -262,19 +262,8 @@ class ModuleSettingsActivity : Activity() {
                 0,
                 1f,
             ))
-            addView(space(6))
-
-            selectedCountText = text("", 13f, TEXT_SECONDARY, true).apply {
-                gravity = Gravity.CENTER
-                includeFontPadding = false
-            }
-            addView(selectedCountText, matchWrap())
-            addView(space(6))
-            addView(primaryButton("保存目标 App", {
-                saveValues()
-                Toast.makeText(this@ModuleSettingsActivity, "目标 App 已保存", Toast.LENGTH_SHORT).show()
-                refreshDiagnostics()
-            }), matchWrap())
+            addView(space(8))
+            addView(appBottomActionBar(), matchWrap())
             populateAppList()
         }
 
@@ -291,7 +280,6 @@ class ModuleSettingsActivity : Activity() {
                     typeface = Typeface.DEFAULT_BOLD
                     includeFontPadding = false
                     gravity = Gravity.CENTER
-                    foreground = selectableItemBackground()
                     setOnClickListener {
                         currentAppFilter = filter
                         updateAppFilterStyles()
@@ -421,7 +409,6 @@ class ModuleSettingsActivity : Activity() {
                     typeface = Typeface.DEFAULT_BOLD
                     includeFontPadding = false
                     gravity = Gravity.CENTER
-                    foreground = selectableItemBackground()
                     setOnClickListener {
                         currentLogFilter = filter
                         updateLogFilterStyles()
@@ -531,7 +518,11 @@ class ModuleSettingsActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(10), 0, dp(10))
             alpha = if (app.isSystem) 0.48f else 1f
-            foreground = selectableItemBackground()
+            background = clippedRipple(
+                content = roundedSolid(Color.TRANSPARENT, dp(14)),
+                radius = dp(14),
+                rippleColor = colorWithAlpha(BLUE, 18),
+            )
             setOnClickListener {
                 if (!app.isSystem) toggle.performClick()
             }
@@ -619,6 +610,28 @@ class ModuleSettingsActivity : Activity() {
         updateSelectedCount()
     }
 
+    private fun appBottomActionBar(): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(12))
+            background = glassDrawable(dp(18), alpha = 224)
+
+            selectedCountText = text("", 13f, TEXT_SECONDARY, true).apply {
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+            }
+            addView(selectedCountText, matchWrap())
+            addView(space(8))
+            addView(primaryButton("保存目标 App", {
+                saveValues()
+                Toast.makeText(this@ModuleSettingsActivity, "目标 App 已保存", Toast.LENGTH_SHORT).show()
+                refreshDiagnostics()
+            }, matchWrap().apply {
+                leftMargin = dp(6)
+                rightMargin = dp(6)
+            }))
+        }
+
     private fun updateHeaderSubtitle() {
         if (::headerSubtitle.isInitialized) {
             val status = if (ModuleSettingsStore.isHookEnabled(this)) "已启用" else "已关闭"
@@ -636,7 +649,7 @@ class ModuleSettingsActivity : Activity() {
         tabButtons.forEach { (page, button) ->
             val selected = page == currentPage
             button.setTextColor(if (selected) BLUE else TEXT_SECONDARY)
-            button.background = if (selected) roundedSolid(colorWithAlpha(BLUE, 28), dp(14)) else null
+            button.background = segmentedButtonBackground(selected, dp(14))
         }
     }
 
@@ -644,7 +657,7 @@ class ModuleSettingsActivity : Activity() {
         appFilterButtons.forEach { (filter, button) ->
             val selected = filter == currentAppFilter
             button.setTextColor(if (selected) BLUE else TEXT_SECONDARY)
-            button.background = if (selected) roundedSolid(colorWithAlpha(BLUE, 24), dp(16)) else null
+            button.background = segmentedButtonBackground(selected, dp(16))
         }
     }
 
@@ -652,7 +665,7 @@ class ModuleSettingsActivity : Activity() {
         logFilterButtons.forEach { (filter, button) ->
             val selected = filter == currentLogFilter
             button.setTextColor(if (selected) BLUE else TEXT_SECONDARY)
-            button.background = if (selected) roundedSolid(colorWithAlpha(BLUE, 24), dp(16)) else null
+            button.background = segmentedButtonBackground(selected, dp(16))
         }
     }
 
@@ -755,7 +768,7 @@ class ModuleSettingsActivity : Activity() {
         glassCard().apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            foreground = selectableItemBackground()
+            background = clippedRipple(glassDrawable(), dp(16), colorWithAlpha(BLUE, 18))
             setOnClickListener { onClick() }
             val label = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -833,9 +846,8 @@ class ModuleSettingsActivity : Activity() {
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             background = primaryButtonDrawable()
-            foreground = selectableItemBackground()
             setOnClickListener { onClick() }
-            layoutParams = params.apply { height = dp(44) }
+            layoutParams = params.apply { height = dp(46) }
         }
 
     private fun secondaryButton(label: String, onClick: () -> Unit): TextView =
@@ -854,12 +866,15 @@ class ModuleSettingsActivity : Activity() {
             includeFontPadding = false
             gravity = Gravity.CENTER
             setTextColor(if (danger) RED else BLUE)
-            background = glassDrawable(
+            background = clippedRipple(
+                content = glassDrawable(
+                    radius = dp(22),
+                    alpha = 216,
+                    strokeColor = if (danger) colorWithAlpha(RED, 52) else CONTROL_BORDER,
+                ),
                 radius = dp(22),
-                alpha = 216,
-                strokeColor = if (danger) colorWithAlpha(RED, 52) else CONTROL_BORDER,
+                rippleColor = colorWithAlpha(if (danger) RED else BLUE, 28),
             )
-            foreground = selectableItemBackground()
             setOnClickListener { onClick() }
             layoutParams = params.apply { height = dp(44) }
         }
@@ -873,8 +888,7 @@ class ModuleSettingsActivity : Activity() {
             includeFontPadding = false
             gravity = Gravity.CENTER
             setTextColor(BLUE)
-            background = glassDrawable(dp(22), alpha = 216)
-            foreground = selectableItemBackground()
+            background = clippedRipple(glassDrawable(dp(22), alpha = 216), dp(22), colorWithAlpha(BLUE, 24))
             setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
         }
@@ -909,8 +923,22 @@ class ModuleSettingsActivity : Activity() {
     private fun primaryButtonDrawable(): Drawable {
         val fill = roundedSolid(BLUE, dp(22))
         val stroke = roundedStroke(colorWithAlpha(Color.WHITE, 72), dp(22), 1)
-        return LayerDrawable(arrayOf(fill, stroke))
+        return clippedRipple(LayerDrawable(arrayOf(fill, stroke)), dp(22), colorWithAlpha(Color.WHITE, 54))
     }
+
+    private fun segmentedButtonBackground(selected: Boolean, radius: Int): Drawable =
+        clippedRipple(
+            content = roundedSolid(if (selected) colorWithAlpha(BLUE, 24) else Color.TRANSPARENT, radius),
+            radius = radius,
+            rippleColor = colorWithAlpha(BLUE, 24),
+        )
+
+    private fun clippedRipple(content: Drawable, radius: Int, rippleColor: Int): Drawable =
+        RippleDrawable(
+            ColorStateList.valueOf(rippleColor),
+            content,
+            roundedSolid(Color.WHITE, radius),
+        )
 
     private fun roundedSolid(color: Int, radius: Int): GradientDrawable =
         GradientDrawable().apply {
@@ -926,12 +954,6 @@ class ModuleSettingsActivity : Activity() {
             setColor(Color.TRANSPARENT)
             setStroke(width, color)
         }
-
-    private fun selectableItemBackground(): Drawable? {
-        val attrs = intArrayOf(android.R.attr.selectableItemBackgroundBorderless)
-        val array = obtainStyledAttributes(attrs)
-        return array.getDrawable(0).also { array.recycle() }
-    }
 
     private fun Switch.applySwitchStyle() {
         val states = arrayOf(
