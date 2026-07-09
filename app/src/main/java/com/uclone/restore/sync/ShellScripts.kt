@@ -376,6 +376,145 @@ object ShellScripts {
         echo "UNLOCK_CLONE_WITH_CREDENTIAL_DONE"
     """.trimIndent()
 
+    fun debugCloneSystem(settings: UCloneSettings, appPackage: String): String = """
+        set -u
+        MAIN_USER=${settings.mainUserId}
+        CLONE_USER=${settings.cloneUserId}
+        APP_PKG=${shellQuote(appPackage)}
+        ROOT_DIR=${shellQuote(settings.rootDir)}
+        echo "DEBUG_CLONE_SYSTEM_BEGIN"
+        echo "DEBUG_SCOPE=read_only_no_start_stop_no_delete"
+        echo "APP_PACKAGE=${'$'}APP_PKG"
+        echo "MAIN_USER=${'$'}MAIN_USER"
+        echo "CLONE_USER=${'$'}CLONE_USER"
+        echo "ROOT_DIR=${'$'}ROOT_DIR"
+        echo "ROOT_ID=${'$'}(id 2>&1)"
+        echo "SELINUX=${'$'}(getenforce 2>&1 || echo unavailable)"
+        echo "PATH_VALUE=${'$'}PATH"
+        echo "SU_PATH=${'$'}(command -v su 2>/dev/null || echo MISSING)"
+        echo "MAGISK_PATH=${'$'}(command -v magisk 2>/dev/null || echo MISSING)"
+        echo "KSU_PATH=${'$'}(command -v ksud 2>/dev/null || command -v ksu 2>/dev/null || echo MISSING)"
+
+        user_state() {
+          /system/bin/am get-started-user-state "${'$'}1" 2>&1 || true
+        }
+        probe_path() {
+          LABEL="${'$'}1"
+          PATH_VALUE="${'$'}2"
+          echo "PATH_${'$'}{LABEL}=${'$'}PATH_VALUE"
+          if [ -e "${'$'}PATH_VALUE" ]; then
+            echo "PATH_${'$'}{LABEL}_EXISTS=1"
+            ls -ldnZ "${'$'}PATH_VALUE" 2>&1 | sed "s/^/PATH_${'$'}{LABEL}_LS_Z: /" || ls -ldn "${'$'}PATH_VALUE" 2>&1 | sed "s/^/PATH_${'$'}{LABEL}_LS: /" || true
+            if [ -d "${'$'}PATH_VALUE" ]; then
+              ITEMS=${'$'}(find "${'$'}PATH_VALUE" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+              SIZE_KB=${'$'}(du -sk "${'$'}PATH_VALUE" 2>/dev/null | awk '{print ${'$'}1}')
+              echo "PATH_${'$'}{LABEL}_ITEMS=${'$'}ITEMS"
+              echo "PATH_${'$'}{LABEL}_SIZE_KB=${'$'}SIZE_KB"
+              find "${'$'}PATH_VALUE" -mindepth 1 -maxdepth 2 2>/dev/null | sed -n '1,12p' | sed "s/^/PATH_${'$'}{LABEL}_SAMPLE: /"
+            fi
+          else
+            echo "PATH_${'$'}{LABEL}_EXISTS=0"
+          fi
+        }
+        probe_package_user() {
+          USER_ID="${'$'}1"
+          echo "PACKAGE_USER_${'$'}{USER_ID}_BEGIN"
+          echo "PACKAGE_USER_${'$'}{USER_ID}_STATE=${'$'}(user_state "${'$'}USER_ID")"
+          PACKAGE_LINE=${'$'}(/system/bin/cmd package list packages -U --user "${'$'}USER_ID" 2>/dev/null | grep -F "package:${'$'}APP_PKG " || true)
+          [ -n "${'$'}PACKAGE_LINE" ] || PACKAGE_LINE=${'$'}(/system/bin/cmd package list packages -U --user "${'$'}USER_ID" 2>/dev/null | grep -Fx "package:${'$'}APP_PKG" || true)
+          if [ -n "${'$'}PACKAGE_LINE" ]; then
+            echo "PACKAGE_USER_${'$'}{USER_ID}_SELF=${'$'}PACKAGE_LINE"
+          else
+            echo "PACKAGE_USER_${'$'}{USER_ID}_SELF=MISSING"
+          fi
+          TOTAL=${'$'}(/system/bin/cmd package list packages --user "${'$'}USER_ID" 2>/dev/null | wc -l | tr -d ' ')
+          THIRD_PARTY=${'$'}(/system/bin/cmd package list packages -3 --user "${'$'}USER_ID" 2>/dev/null | wc -l | tr -d ' ')
+          SYSTEM=${'$'}(/system/bin/cmd package list packages -s --user "${'$'}USER_ID" 2>/dev/null | wc -l | tr -d ' ')
+          echo "PACKAGE_USER_${'$'}{USER_ID}_TOTAL=${'$'}TOTAL"
+          echo "PACKAGE_USER_${'$'}{USER_ID}_THIRD_PARTY=${'$'}THIRD_PARTY"
+          echo "PACKAGE_USER_${'$'}{USER_ID}_SYSTEM=${'$'}SYSTEM"
+          /system/bin/cmd appops get --user "${'$'}USER_ID" "${'$'}APP_PKG" 2>&1 | sed -n '1,30p' | sed "s/^/APPOPS_USER_${'$'}{USER_ID}: /"
+          echo "PACKAGE_USER_${'$'}{USER_ID}_END"
+        }
+
+        CURRENT_USER=${'$'}(/system/bin/am get-current-user 2>&1 || true)
+        echo "CURRENT_USER=${'$'}CURRENT_USER"
+        echo "USER_LIST_BEGIN"
+        /system/bin/pm list users 2>&1 | sed 's/^/USER_LIST: /' || true
+        echo "USER_LIST_END"
+        echo "MAIN_STATE=${'$'}(user_state "${'$'}MAIN_USER")"
+        echo "CLONE_STATE=${'$'}(user_state "${'$'}CLONE_USER")"
+
+        probe_package_user "${'$'}MAIN_USER"
+        probe_package_user "${'$'}CLONE_USER"
+
+        echo "SELF_PROCESS_BEGIN"
+        ps -A -o USER,PID,PPID,NAME,ARGS 2>/dev/null | grep -F "${'$'}APP_PKG" | sed 's/^/SELF_PROCESS: /' || echo "SELF_PROCESS: none"
+        echo "SELF_PROCESS_END"
+
+        probe_path "ROOT_DIR" "${'$'}ROOT_DIR"
+        probe_path "MAIN_SELF_CE" "/data/user/${'$'}MAIN_USER/${'$'}APP_PKG"
+        probe_path "CLONE_SELF_CE" "/data/user/${'$'}CLONE_USER/${'$'}APP_PKG"
+        probe_path "MAIN_SELF_DE" "/data/user_de/${'$'}MAIN_USER/${'$'}APP_PKG"
+        probe_path "CLONE_SELF_DE" "/data/user_de/${'$'}CLONE_USER/${'$'}APP_PKG"
+        probe_path "MAIN_SELF_EXTERNAL" "/data/media/${'$'}MAIN_USER/Android/data/${'$'}APP_PKG"
+        probe_path "CLONE_SELF_EXTERNAL" "/data/media/${'$'}CLONE_USER/Android/data/${'$'}APP_PKG"
+        probe_path "CLONE_CE_BASE" "/data/user/${'$'}CLONE_USER"
+        probe_path "CLONE_DE_BASE" "/data/user_de/${'$'}CLONE_USER"
+        probe_path "CLONE_MEDIA_BASE" "/data/media/${'$'}CLONE_USER"
+
+        echo "V02_ARTIFACT_COMPAT_BEGIN"
+        echo "V02_ARTIFACT_MODEL=backup_records_must_include_source_user_target_user_created_in_user_kind"
+        echo "V02_ACTIVE_SNAPSHOT_ROOT=${'$'}ROOT_DIR/snapshots"
+        echo "V02_ROLLBACK_ROOT=${'$'}ROOT_DIR/rollback"
+        echo "V02_SWITCH_MARKER_ROOT=${'$'}ROOT_DIR/switches"
+        probe_path "SNAPSHOTS_ROOT" "${'$'}ROOT_DIR/snapshots"
+        probe_path "ROLLBACK_ROOT" "${'$'}ROOT_DIR/rollback"
+        probe_path "SWITCH_MARKER_ROOT" "${'$'}ROOT_DIR/switches"
+        if [ -d "${'$'}ROOT_DIR/snapshots" ]; then
+          find "${'$'}ROOT_DIR/snapshots" -mindepth 3 -maxdepth 4 -name manifest.json 2>/dev/null | sed -n '1,8p' | while IFS= read -r MANIFEST; do
+            echo "V02_SNAPSHOT_MANIFEST=${'$'}MANIFEST"
+            sed -n '1p' "${'$'}MANIFEST" 2>/dev/null | sed 's/^/V02_SNAPSHOT_MANIFEST_JSON: /'
+          done
+        fi
+        if [ -d "${'$'}ROOT_DIR/rollback" ]; then
+          find "${'$'}ROOT_DIR/rollback" -mindepth 3 -maxdepth 3 -name manifest.json 2>/dev/null | sed -n '1,8p' | while IFS= read -r MANIFEST; do
+            echo "V02_ROLLBACK_MANIFEST=${'$'}MANIFEST"
+            sed -n '1p' "${'$'}MANIFEST" 2>/dev/null | sed 's/^/V02_ROLLBACK_MANIFEST_JSON: /'
+          done
+        fi
+        echo "V02_REQUIRED_NEW_MANIFEST_FIELDS=sourceUser,targetUser,createdInUser,backupKind,activeForUsers,restorableToUsers"
+        echo "V02_ARTIFACT_COMPAT_END"
+
+        echo "DIRECT_BOOT_HINT_BEGIN"
+        case "${'$'}(user_state "${'$'}CLONE_USER")" in
+          *RUNNING_UNLOCKED*) echo "CLONE_CE_GATE=READY" ;;
+          *RUNNING_LOCKED*|RUNNING) echo "CLONE_CE_GATE=LOCKED" ;;
+          *"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*) echo "CLONE_CE_GATE=NOT_STARTED" ;;
+          *) echo "CLONE_CE_GATE=UNKNOWN" ;;
+        esac
+        echo "DIRECT_BOOT_HINT_END"
+
+        echo "V02_PRECHECK_BEGIN"
+        if /system/bin/cmd package list packages --user "${'$'}CLONE_USER" 2>/dev/null | grep -qx "package:${'$'}APP_PKG"; then
+          echo "V02_SELF_INSTALLED_IN_CLONE=1"
+        else
+          echo "V02_SELF_INSTALLED_IN_CLONE=0"
+        fi
+        case "${'$'}CURRENT_USER" in
+          "${'$'}CLONE_USER") echo "V02_DEBUG_RAN_FROM_CLONE_USER=1" ;;
+          *) echo "V02_DEBUG_RAN_FROM_CLONE_USER=0" ;;
+        esac
+        case "${'$'}(id 2>&1)" in
+          *uid=0*) echo "V02_THIS_RUNTIME_HAS_ROOT=1" ;;
+          *) echo "V02_THIS_RUNTIME_HAS_ROOT=0" ;;
+        esac
+        echo "V02_SYNC_TARGET=main_and_clone_can_create_labeled_backups_and_restore_each_other"
+        echo "V02_SYNC_OPEN_QUESTIONS=run this same debug from user0 and from clone user after installing app there"
+        echo "V02_PRECHECK_END"
+        echo "DEBUG_CLONE_SYSTEM_DONE"
+    """.trimIndent()
+
     fun auditRestoreConsistency(packageName: String, settings: UCloneSettings, appPackage: String): String = """
         set -u
         ROOT=${shellQuote(settings.rootDir)}

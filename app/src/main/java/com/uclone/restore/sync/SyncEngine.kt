@@ -158,6 +158,18 @@ class SyncEngine(
         report = report,
     )
 
+    suspend fun debugCloneSystem(
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord = runScriptTask(
+        type = TaskType.DEBUG_CLONE_SYSTEM,
+        packageName = "user${settings.cloneUserId}",
+        settings = settings,
+        labels = listOf("检查 root", "采集用户状态", "采集包/UID", "采集路径", "采集权限入口", "输出 0.2 结论"),
+        script = ShellScripts.debugCloneSystem(settings, appPackage),
+        report = report,
+    )
+
     suspend fun auditRestoreConsistency(
         packageName: String,
         settings: UCloneSettings,

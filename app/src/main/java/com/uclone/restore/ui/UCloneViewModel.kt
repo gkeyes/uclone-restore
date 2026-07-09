@@ -277,6 +277,14 @@ class UCloneViewModel(
         }
     }
 
+    fun debugCloneSystem() {
+        runTask("正在调试分身系统") { report ->
+            syncEngine.debugCloneSystem(_state.value.settings, report)
+            val environment = syncEngine.checkEnvironment(_state.value.settings)
+            _state.update { it.copy(environment = environment) }
+        }
+    }
+
     fun auditRestoreConsistencySelected() {
         val packageName = _state.value.selectedPackage ?: return
         _state.update { it.copy(selectedPackage = packageName) }

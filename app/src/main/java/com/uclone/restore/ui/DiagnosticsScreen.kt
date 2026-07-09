@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PlayArrow
@@ -22,7 +24,11 @@ import androidx.compose.ui.unit.dp
 fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     val env = state.environment
     Column(
-        modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         ScreenHeader("诊断", "确认 root、用户和工作目录是否满足恢复条件。")
@@ -48,6 +54,10 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
             IosPrimaryButton(onClick = viewModel::probeCloneCe, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.LockOpen, contentDescription = null)
                 Text("检测 CE 状态")
+            }
+            IosPrimaryButton(onClick = viewModel::debugCloneSystem, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Sync, contentDescription = null)
+                Text("分身系统调试")
             }
             IosPrimaryButton(
                 onClick = viewModel::unlockCloneWithCredential,
