@@ -542,7 +542,7 @@ timestamp
 
 ```text
 启用 Launcher Hook
-允许的 Launcher 包名
+LSPosed 作用域提示: com.miui.home
 App 白名单勾选列表
 每个 App 是否显示 UClone 菜单
 签名/权限检测
@@ -550,7 +550,7 @@ App 白名单勾选列表
 最近请求日志
 ```
 
-App 白名单不手填包名。模块设置页读取当前 user0 可启动 App 列表，显示 App 名称和包名复选框，用户勾选后保存为包名集合。LSPosed 作用域第一版只需要选择 `com.miui.home`；目标 App 是否出现 UClone 菜单由模块设置页的 App 勾选列表控制。
+App 白名单不手填包名。模块设置页读取当前 user0 可启动 App 列表，显示 App 名称和包名复选框，用户勾选后保存为包名集合。普通设置页不暴露 Launcher 包名输入框，避免和目标 App 白名单混淆。LSPosed 作用域第一版只需要选择 `com.miui.home`；目标 App 是否出现 UClone 菜单由模块设置页的 App 勾选列表控制。
 
 每个 App 的操作权限第一版固定:
 

@@ -19,7 +19,7 @@ class ModuleRelayProvider : ContentProvider() {
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
         val context = requireNotNull(context)
         val callerPackages = context.packageManager.getPackagesForUid(Binder.getCallingUid()).orEmpty().toSet()
-        val allowedLaunchers = ModuleSettingsStore.allowedLaunchers(context)
+        val allowedLaunchers = ModuleSettingsStore.allowedLaunchers()
         if (callerPackages.none { it in allowedLaunchers }) {
             return rejected("caller not allowed: ${callerPackages.joinToString()}")
         }

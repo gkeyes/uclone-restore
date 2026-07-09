@@ -22,17 +22,8 @@ object ModuleSettingsStore {
             .apply()
     }
 
-    fun allowedLaunchers(context: Context): Set<String> =
-        csvSet(
-            prefs(context).getString(
-                ModuleConstants.KEY_ALLOWED_LAUNCHERS,
-                ModuleConstants.DEFAULT_ALLOWED_LAUNCHERS,
-            ).orEmpty(),
-        )
-
-    fun setAllowedLaunchers(context: Context, value: String) {
-        prefs(context).edit().putString(ModuleConstants.KEY_ALLOWED_LAUNCHERS, value).apply()
-    }
+    fun allowedLaunchers(): Set<String> =
+        csvSet(ModuleConstants.DEFAULT_ALLOWED_LAUNCHERS)
 
     fun allowedPackageText(context: Context): String =
         prefs(context).getString(ModuleConstants.KEY_ALLOWED_PACKAGES, "").orEmpty()
@@ -41,8 +32,11 @@ object ModuleSettingsStore {
         prefs(context).edit().putString(ModuleConstants.KEY_ALLOWED_PACKAGES, value).apply()
     }
 
+    fun allowedPackageSet(context: Context): Set<String> =
+        csvSet(allowedPackageText(context))
+
     fun isPackageAllowed(context: Context, packageName: String): Boolean =
-        packageName in csvSet(allowedPackageText(context))
+        packageName in allowedPackageSet(context)
 
     fun recordHookEvent(context: Context, message: String, isError: Boolean) {
         val prefs = prefs(context)

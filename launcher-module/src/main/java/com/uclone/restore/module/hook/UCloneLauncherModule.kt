@@ -40,7 +40,7 @@ class UCloneLauncherModule : XposedModule() {
     private fun installMenuListHook(classLoader: ClassLoader) {
         val managerClass = Class.forName("com.miui.home.launcher.shortcuts.ShortcutMenuManager", false, classLoader)
         val itemInfoClass = Class.forName("com.miui.home.model.api.ItemInfo", false, classLoader)
-        val menuItemClass = Class.forName("com.miui.home.launcher.shortcuts.ShortcutMenuItem", false, classLoader)
+        val menuItemClass = findConcreteMenuItemClass(classLoader)
         val method = managerClass.getDeclaredMethod("getValidSystemShortcutMenuItemList", itemInfoClass)
 
         hook(method).intercept { chain ->
@@ -56,7 +56,11 @@ class UCloneLauncherModule : XposedModule() {
                     return@runCatching
                 }
                 list.add(createMarkerMenuItem(menuItemClass, target.userHandle, state.menuLabel))
-                recordHookEvent(context, "inject package=${target.packageName} user=${target.userId} label=${state.menuLabel}", false)
+                recordHookEvent(
+                    context,
+                    "inject package=${target.packageName} user=${target.userId} item=${menuItemClass.simpleName} label=${state.menuLabel}",
+                    false,
+                )
             }.onFailure { error ->
                 currentApplication()?.let { recordHookEvent(it, "inject error=${error.message}", true) }
                 log(Log.ERROR, TAG, "menu list hook failed", error)
@@ -113,13 +117,31 @@ class UCloneLauncherModule : XposedModule() {
     }
 
     private fun createMarkerMenuItem(menuItemClass: Class<*>, userHandle: UserHandle?, label: String): Any {
-        val item = menuItemClass.getDeclaredConstructor().newInstance()
+        val constructor = menuItemClass.getDeclaredConstructor()
+        constructor.isAccessible = true
+        val item = constructor.newInstance()
         invokeIfExists(item, "setShortTitle", arrayOf(CharSequence::class.java), label)
         invokeIfExists(item, "setLongTitle", arrayOf(CharSequence::class.java), label)
         invokeIfExists(item, "setComponentName", arrayOf(ComponentName::class.java), MARKER_COMPONENT)
         userHandle?.let { invokeIfExists(item, "setUserHandle", arrayOf(UserHandle::class.java), it) }
         invokeIfExists(item, "setIconDrawable", arrayOf(android.graphics.drawable.Drawable::class.java), ColorDrawable(Color.rgb(0, 122, 255)))
         return item
+    }
+
+    private fun findConcreteMenuItemClass(classLoader: ClassLoader): Class<*> {
+        val candidates = listOf(
+            "com.miui.home.launcher.shortcuts.SystemShortcutMenuItem\$AppDetailsShortcutMenuItem",
+            "com.miui.home.launcher.shortcuts.SystemShortcutMenuItem\$ShareAppShortcutMenuItem",
+            "com.miui.home.launcher.shortcuts.SystemShortcutMenuItem\$TipMenuItem",
+            "com.miui.home.launcher.shortcuts.AddWidgetShortcutMenuItem",
+        )
+        return candidates.firstNotNullOfOrNull { className ->
+            runCatching {
+                Class.forName(className, false, classLoader).also { candidate ->
+                    candidate.getDeclaredConstructor()
+                }
+            }.getOrNull()
+        } ?: error("No concrete ShortcutMenuItem carrier found")
     }
 
     private fun isMarkerMenuItem(item: Any): Boolean {

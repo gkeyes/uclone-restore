@@ -12,7 +12,6 @@ object ModuleConstants {
 
     const val PREFS_NAME = "uclone_module_settings"
     const val KEY_HOOK_ENABLED = "hook_enabled"
-    const val KEY_ALLOWED_LAUNCHERS = "allowed_launchers"
     const val KEY_ALLOWED_PACKAGES = "allowed_packages"
     const val KEY_HOOK_EVENTS = "hook_events"
     const val KEY_RELAY_EVENTS = "relay_events"
