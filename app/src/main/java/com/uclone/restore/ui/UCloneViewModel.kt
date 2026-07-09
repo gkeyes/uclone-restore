@@ -65,7 +65,6 @@ class UCloneViewModel(
                         apps = apps,
                         restoreBackups = restoreBackups,
                         switchRollbackIds = switchMarkers,
-                        message = "已读取 ${apps.size} 个 App",
                     )
                 }
             }
@@ -223,7 +222,7 @@ class UCloneViewModel(
             _state.update { it.copy(message = "请先在设置中填写分身锁屏 PIN/密码") }
             return
         }
-        runTask("正在带密码尝试解锁分身") { report ->
+        runTask("正在无感启动分身") { report ->
             syncEngine.unlockCloneWithCredential(_state.value.settings, report)
             val environment = syncEngine.checkEnvironment(_state.value.settings)
             _state.update { it.copy(environment = environment) }

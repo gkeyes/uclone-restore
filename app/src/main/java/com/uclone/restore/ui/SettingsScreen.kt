@@ -59,9 +59,9 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 shape = RoundedCornerShape(14.dp),
                 singleLine = true,
             )
-            Text("主动快照: ${draft.rootDir}/snapshots/<包名>/active")
-            Text("被动备份: ${draft.rootDir}/rollback/<包名>/<备份ID>")
-            Text("日志: ${draft.rootDir}/logs")
+            SingleLinePathText("主动快照: ${draft.rootDir}/snapshots/<包名>/active")
+            SingleLinePathText("被动备份: ${draft.rootDir}/rollback/<包名>/<备份ID>")
+            SingleLinePathText("日志: ${draft.rootDir}/logs")
         }
         SectionCard("分身解锁实验") {
             OutlinedTextField(
@@ -74,7 +74,16 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 visualTransformation = PasswordVisualTransformation(),
             )
             Text(
-                "仅用于诊断页的带密码尝试解锁。任务日志不会记录明文；当前版本会保存在 user0 的 App 私有设置中。",
+                "用于后台启动分身时验证 PIN。任务日志不会记录明文；当前版本会保存在 user0 的 App 私有设置中。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        SectionCard("任务结束") {
+            ToggleRow("自动关闭本次启动的分身系统", draft.stopCloneAfterTask) {
+                draft = draft.copy(stopCloneAfterTask = it)
+            }
+            Text(
+                "仅当任务开始时分身未启动、由本 App 后台启动后才会关闭；如果分身原本已解锁，不会强制关闭。",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -98,22 +107,25 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             Text("保存设置")
         }
         SectionCard("维护") {
-            InfoRow("日志目录", "${state.settings.rootDir}/logs")
+            Text("日志目录", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SingleLinePathText("${state.settings.rootDir}/logs")
             Text("清理日志只删除任务日志文件，不会删除主动备份或被动备份。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             IosSecondaryButton(onClick = { confirmClearLogs = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Delete, contentDescription = null, tint = IosRed)
                 Text("清理任务日志", color = IosRed)
             }
         }
-        if (state.message != null) {
-            Text(state.message, color = MaterialTheme.colorScheme.secondary)
-        }
     }
     if (confirmClearLogs) {
         AlertDialog(
             onDismissRequest = { confirmClearLogs = false },
             title = { Text("清理任务日志") },
-            text = { Text("将删除 ${state.settings.rootDir}/logs 下的 .log 文件，并清空本次运行中的历史列表。主动备份和被动备份不会被删除。") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("将删除以下目录下的 .log 文件，并清空本次运行中的历史列表。主动备份和被动备份不会被删除。")
+                    SingleLinePathText("${state.settings.rootDir}/logs")
+                }
+            },
             confirmButton = {
                 IosDialogButton(
                     text = "继续",

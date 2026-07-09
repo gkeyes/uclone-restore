@@ -103,13 +103,7 @@ fun PassiveBackupRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    backupPath,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                SingleLinePathText(backupPath)
                 Text(
                     backup.reason + if (backup.isActiveSwitchBackup) " · 当前切换被动备份" else "",
                     style = MaterialTheme.typography.bodySmall,

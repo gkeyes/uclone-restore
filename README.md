@@ -28,7 +28,8 @@ Default data range:
 
 - CE data: `/data/user/<user>/<pkg>`
 - DE data: `/data/user_de/<user>/<pkg>`
-- External, media, and OBB are opt-in.
+- External `Android/data` is enabled by default because many apps keep large login/cache state there.
+- Media and OBB are opt-in.
 - `cache` and `code_cache` are excluded by default.
 - `/data/misc/keystore` is never copied.
 

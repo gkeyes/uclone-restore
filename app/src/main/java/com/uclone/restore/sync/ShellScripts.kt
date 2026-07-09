@@ -12,6 +12,128 @@ object ShellScripts {
         SWITCH_TEMP
     }
 
+    private fun ensureCloneUnlockedScript(settings: UCloneSettings, required: Boolean): String {
+        if (!required) return """
+            echo "ENSURE_CLONE_UNLOCK_SKIPPED=not_required"
+        """.trimIndent()
+        val credential = settings.cloneUnlockCredential
+        return """
+            CLONE_USER=${settings.cloneUserId}
+            CLONE_UNLOCK_CREDENTIAL=${shellQuote(credential)}
+            STOP_CLONE_AFTER_TASK=${if (settings.stopCloneAfterTask) "1" else "0"}
+            CLONE_STARTED_BY_TASK=0
+            clone_state() {
+              /system/bin/am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
+            }
+            wait_for_clone_state() {
+              WAIT_LABEL="${'$'}1"
+              WAIT_LIMIT="${'$'}2"
+              WAIT_INDEX=0
+              while [ "${'$'}WAIT_INDEX" -lt "${'$'}WAIT_LIMIT" ]; do
+                WAIT_STATE=${'$'}(clone_state)
+                echo "${'$'}{WAIT_LABEL}_${'$'}{WAIT_INDEX}=${'$'}WAIT_STATE"
+                case "${'$'}WAIT_STATE" in
+                  *RUNNING_UNLOCKED*) return 0 ;;
+                  *RUNNING_LOCKED*) [ "${'$'}WAIT_LABEL" = "WAIT_AFTER_START" ] && return 2 ;;
+                esac
+                sleep 1
+                WAIT_INDEX=${'$'}((WAIT_INDEX + 1))
+              done
+              return 1
+            }
+            cleanup_clone_user() {
+              if [ "${'$'}STOP_CLONE_AFTER_TASK" = "1" ] && [ "${'$'}CLONE_STARTED_BY_TASK" = "1" ]; then
+                echo "STOP_CLONE_AFTER_TASK=1"
+                STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user -w "${'$'}CLONE_USER" 2>&1 || true)
+                echo "STOP_USER_OUTPUT=${'$'}STOP_USER_OUTPUT"
+                echo "STATE_AFTER_STOP=${'$'}(clone_state)"
+              else
+                echo "STOP_CLONE_AFTER_TASK=0 startedByTask=${'$'}CLONE_STARTED_BY_TASK"
+              fi
+            }
+            cleanup_on_exit() {
+              if command -v cleanup_switch_temp >/dev/null 2>&1; then
+                cleanup_switch_temp
+              fi
+              cleanup_clone_user
+            }
+            trap cleanup_on_exit EXIT
+            echo "ENSURE_CLONE_UNLOCK_BEGIN"
+            echo "ENSURE_CLONE_USER=${'$'}CLONE_USER"
+            echo "CREDENTIAL_CONFIGURED=${if (credential.isBlank()) "0" else "1"}"
+            echo "CREDENTIAL_LENGTH=${credential.length}"
+            STATE_BEFORE_UNLOCK=${'$'}(clone_state)
+            echo "STATE_BEFORE_UNLOCK=${'$'}STATE_BEFORE_UNLOCK"
+            case "${'$'}STATE_BEFORE_UNLOCK" in
+              *RUNNING_UNLOCKED*)
+                echo "ENSURE_CLONE_UNLOCK_RESULT=READY_ALREADY"
+                ;;
+              *)
+                case "${'$'}STATE_BEFORE_UNLOCK" in
+                  *"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*)
+                    echo "START_USER_BEGIN"
+                    START_USER_OUTPUT=${'$'}(/system/bin/am start-user -w "${'$'}CLONE_USER" 2>&1 || true)
+                    echo "START_USER_OUTPUT=${'$'}START_USER_OUTPUT"
+                    CLONE_STARTED_BY_TASK=1
+                    STATE_AFTER_START=${'$'}(clone_state)
+                    echo "STATE_AFTER_START=${'$'}STATE_AFTER_START"
+                    case "${'$'}STATE_AFTER_START" in
+                      *RUNNING_UNLOCKED*) ;;
+                      *RUNNING_LOCKED*) ;;
+                      *)
+                        wait_for_clone_state "WAIT_AFTER_START" 15
+                        WAIT_START_RESULT=${'$'}?
+                        STATE_AFTER_START_WAIT=${'$'}(clone_state)
+                        echo "STATE_AFTER_START_WAIT=${'$'}STATE_AFTER_START_WAIT"
+                        case "${'$'}STATE_AFTER_START_WAIT" in
+                          *RUNNING_UNLOCKED*|*RUNNING_LOCKED*) ;;
+                          *) echo "ERR_CLONE_START_FAILED:${'$'}STATE_AFTER_START_WAIT" >&2; exit 80 ;;
+                        esac
+                        ;;
+                    esac
+                    ;;
+                esac
+                STATE_BEFORE_VERIFY=${'$'}(clone_state)
+                echo "STATE_BEFORE_VERIFY=${'$'}STATE_BEFORE_VERIFY"
+                case "${'$'}STATE_BEFORE_VERIFY" in
+                  *RUNNING_UNLOCKED*)
+                    echo "ENSURE_CLONE_UNLOCK_RESULT=READY_AFTER_START"
+                    ;;
+                  *)
+                    if [ -z "${'$'}CLONE_UNLOCK_CREDENTIAL" ]; then
+                      echo "ERR_CLONE_PIN_MISSING" >&2
+                      exit 83
+                    fi
+                    echo "VERIFY_BEGIN"
+                    VERIFY_EXIT=0
+                    VERIFY_OUTPUT=${'$'}(/system/bin/cmd lock_settings verify --old "${'$'}CLONE_UNLOCK_CREDENTIAL" --user "${'$'}CLONE_USER" 2>&1) || VERIFY_EXIT=${'$'}?
+                    echo "VERIFY_EXIT=${'$'}VERIFY_EXIT"
+                    case "${'$'}VERIFY_OUTPUT" in
+                      *"Lock credential verified successfully"*) VERIFY_RESULT="SUCCESS" ;;
+                      *"didn't match"*) VERIFY_RESULT="BAD_CREDENTIAL" ;;
+                      *"Profile uses unified challenge"*) VERIFY_RESULT="UNIFIED_CHALLENGE_UNSUPPORTED" ;;
+                      *"Request throttled"*) VERIFY_RESULT="THROTTLED" ;;
+                      *"Unknown command"*|*"Unknown option"*|*"Can't find service"*) VERIFY_RESULT="UNSUPPORTED" ;;
+                      "") VERIFY_RESULT="EMPTY_OUTPUT" ;;
+                      *) VERIFY_RESULT="OTHER_OUTPUT_LEN_${'$'}(printf '%s' "${'$'}VERIFY_OUTPUT" | wc -c | tr -d ' ')" ;;
+                    esac
+                    echo "VERIFY_RESULT=${'$'}VERIFY_RESULT"
+                    [ "${'$'}VERIFY_RESULT" = "SUCCESS" ] || { echo "ERR_CLONE_PIN_VERIFY_FAILED:${'$'}VERIFY_RESULT" >&2; exit 84; }
+                    wait_for_clone_state "WAIT_AFTER_VERIFY" 30 || {
+                      STATE_AFTER_VERIFY_WAIT=${'$'}(clone_state)
+                      echo "STATE_AFTER_VERIFY_WAIT=${'$'}STATE_AFTER_VERIFY_WAIT"
+                      echo "ERR_CLONE_UNLOCK_TIMEOUT:${'$'}STATE_AFTER_VERIFY_WAIT" >&2
+                      exit 85
+                    }
+                    echo "STATE_AFTER_VERIFY=${'$'}(clone_state)"
+                    echo "ENSURE_CLONE_UNLOCK_RESULT=READY_AFTER_VERIFY"
+                    ;;
+                esac
+                ;;
+            esac
+        """.trimIndent()
+    }
+
     fun capture(packageName: String, rule: AppRule, settings: UCloneSettings, appPackage: String): String = """
         set -u
         ROOT=${shellQuote(settings.rootDir)}
@@ -25,21 +147,8 @@ object ShellScripts {
         mkdir -p "${'$'}ROOT/snapshots" "${'$'}ROOT/rollback" "${'$'}ROOT/logs" "${'$'}ROOT/tmp" "${'$'}ROOT/config" "${'$'}BASE/history" || exit 10
         rm -rf "${'$'}TMP" "${'$'}TMP".try_*
         CAPTURE_REQUIRE_CE=${if (rule.includeCe) "1" else "0"}
-        CANDIDATE_USERS=""
-        add_candidate_user() {
-          U="${'$'}1"
-          [ -n "${'$'}U" ] || return 0
-          [ "${'$'}U" != "${settings.mainUserId}" ] || return 0
-          case " ${'$'}CANDIDATE_USERS " in
-            *" ${'$'}U "*) ;;
-            *) CANDIDATE_USERS="${'$'}CANDIDATE_USERS ${'$'}U" ;;
-          esac
-        }
-        add_candidate_user "${'$'}CONFIG_SRC_USER"
-        for U in ${'$'}(pm list users 2>/dev/null | sed -n 's/.*UserInfo{\([0-9][0-9]*\):.*/\1/p'); do
-          add_candidate_user "${'$'}U"
-        done
-        add_candidate_user 999
+        ${ensureCloneUnlockedScript(settings, rule.includeCe)}
+        CANDIDATE_USERS="${'$'}CONFIG_SRC_USER"
         echo "CANDIDATE_USERS=${'$'}CANDIDATE_USERS"
         [ -n "${'$'}CANDIDATE_USERS" ] || { echo "ERR_NO_CLONE_USER_CANDIDATES" >&2; exit 42; }
         count_items() {
@@ -252,218 +361,15 @@ object ShellScripts {
         esac
     """.trimIndent()
 
-    fun unlockCloneWithCredential(settings: UCloneSettings): String {
-        val credential = settings.cloneUnlockCredential
-        val inputText = androidInputTextToken(credential)
-        return """
+    fun unlockCloneWithCredential(settings: UCloneSettings): String = """
         set -u
-        CLONE_USER=${settings.cloneUserId}
-        MAIN_USER=${settings.mainUserId}
-        CREDENTIAL=${shellQuote(credential)}
-        INPUT_TEXT=${shellQuote(inputText)}
-        echo "UNLOCK_CLONE_USER=${'$'}CLONE_USER"
+        echo "UNLOCK_CLONE_USER=${settings.cloneUserId}"
         echo "ROOT_ID=${'$'}(id 2>&1)"
-        echo "CREDENTIAL_CONFIGURED=${if (credential.isBlank()) "0" else "1"}"
-        echo "CREDENTIAL_LENGTH=${credential.length}"
-        state_of_clone() {
-          am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
-        }
-        current_user() {
-          am get-current-user 2>&1 || true
-        }
-        print_keyguard_summary() {
-          LABEL="${'$'}1"
-          FOCUS=${'$'}(dumpsys window 2>/dev/null | grep -m 1 'mCurrentFocus' | sed 's/[[:space:]][[:space:]]*/ /g' || true)
-          KEYGUARD=${'$'}(dumpsys window 2>/dev/null | grep -m 1 -E 'mShowingLockscreen|isStatusBarKeyguard|mDreamingLockscreen' | sed 's/[[:space:]][[:space:]]*/ /g' || true)
-          echo "${'$'}LABEL"_FOCUS="${'$'}FOCUS"
-          echo "${'$'}LABEL"_KEYGUARD="${'$'}KEYGUARD"
-        }
-        wait_for_current_user() {
-          WANT_USER="${'$'}1"
-          i=0
-          while [ "${'$'}i" -lt 10 ]; do
-            NOW_USER=${'$'}(current_user)
-            [ "${'$'}NOW_USER" = "${'$'}WANT_USER" ] && return 0
-            sleep 1
-            i=${'$'}((i + 1))
-          done
-          return 1
-        }
-        check_unlocked_or_continue() {
-          LABEL="${'$'}1"
-          CHECK_STATE=${'$'}(state_of_clone)
-          echo "${'$'}LABEL=${'$'}CHECK_STATE"
-          case "${'$'}CHECK_STATE" in
-            *RUNNING_UNLOCKED*)
-              echo "USER10_CE_STATE=RUNNING_UNLOCKED"
-              echo "USER10_CE_READY=1"
-              echo "UNLOCK_SUCCESS_STAGE=${'$'}LABEL"
-              return 0
-              ;;
-          esac
-          return 1
-        }
-        prepare_keyguard_input() {
-          echo "WAKE_AND_DISMISS_BEGIN"
-          input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || input keyevent 224 >/dev/null 2>&1 || true
-          input keyevent 82 >/dev/null 2>&1 || true
-          wm dismiss-keyguard >/dev/null 2>&1 || true
-          input swipe "${'$'}X" "${'$'}Y_START" "${'$'}X" "${'$'}Y_END" 350 >/dev/null 2>&1 || true
-          input tap "${'$'}X" "${'$'}Y_FIELD" >/dev/null 2>&1 || true
-          sleep 1
-        }
-        send_digit_keyevents() {
-          case "${'$'}CREDENTIAL" in
-            ''|*[!0-9]*)
-              echo "DIGIT_KEYEVENTS_SKIPPED=non_numeric"
-              return 1
-              ;;
-          esac
-          echo "DIGIT_KEYEVENTS_BEGIN"
-          i=1
-          while [ "${'$'}i" -le ${credential.length} ]; do
-            DIGIT=${'$'}(printf '%s' "${'$'}CREDENTIAL" | cut -c "${'$'}i")
-            input keyevent "KEYCODE_${'$'}DIGIT" >/dev/null 2>&1 || echo "WARN_DIGIT_KEYEVENT_FAILED:index=${'$'}i"
-            i=${'$'}((i + 1))
-          done
-          input keyevent 66 >/dev/null 2>&1 || true
-          echo "DIGIT_KEYEVENTS_SENT=${credential.length}"
-          return 0
-        }
-        send_pin_pad_taps() {
-          case "${'$'}CREDENTIAL" in
-            ''|*[!0-9]*)
-              echo "PIN_PAD_TAPS_SKIPPED=non_numeric"
-              return 1
-              ;;
-          esac
-          echo "PIN_PAD_TAPS_BEGIN"
-          echo "PIN_PAD_GRID=cols_25_50_75_rows_56_66_76_86"
-          i=1
-          while [ "${'$'}i" -le ${credential.length} ]; do
-            DIGIT=${'$'}(printf '%s' "${'$'}CREDENTIAL" | cut -c "${'$'}i")
-            case "${'$'}DIGIT" in
-              1) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * 56 / 100)) ;;
-              2) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 56 / 100)) ;;
-              3) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * 56 / 100)) ;;
-              4) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * 66 / 100)) ;;
-              5) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 66 / 100)) ;;
-              6) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * 66 / 100)) ;;
-              7) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * 76 / 100)) ;;
-              8) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 76 / 100)) ;;
-              9) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * 76 / 100)) ;;
-              0) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 86 / 100)) ;;
-              *) echo "WARN_PIN_PAD_BAD_DIGIT:index=${'$'}i"; return 1 ;;
-            esac
-            input tap "${'$'}TAP_X" "${'$'}TAP_Y" >/dev/null 2>&1 || echo "WARN_PIN_PAD_TAP_FAILED:index=${'$'}i"
-            sleep 0.15
-            i=${'$'}((i + 1))
-          done
-          input keyevent 66 >/dev/null 2>&1 || true
-          echo "PIN_PAD_TAPS_SENT=${credential.length}"
-          return 0
-        }
-        STATE_BEFORE=${'$'}(state_of_clone)
-        echo "STATE_BEFORE=${'$'}STATE_BEFORE"
-        CURRENT_BEFORE=${'$'}(current_user)
-        echo "CURRENT_USER_BEFORE=${'$'}CURRENT_BEFORE"
-        if [ -z "${'$'}CREDENTIAL" ]; then
-          echo "ERR_CREDENTIAL_EMPTY" >&2
-          exit 83
-        fi
-        case "${'$'}STATE_BEFORE" in
-          *RUNNING_UNLOCKED*)
-            echo "USER10_CE_STATE=RUNNING_UNLOCKED"
-            echo "USER10_CE_READY=1"
-            echo "UNLOCK_SUCCESS_STAGE=STATE_BEFORE"
-            exit 0
-            ;;
-        esac
-        echo "START_USER_BEGIN"
-        START_OUTPUT=${'$'}(am start-user -w "${'$'}CLONE_USER" 2>&1 || true)
-        echo "START_USER_OUTPUT=${'$'}START_OUTPUT"
-        STATE_AFTER_START=${'$'}(state_of_clone)
-        echo "STATE_AFTER_START=${'$'}STATE_AFTER_START"
-        VERIFY_EXIT=0
-        VERIFY_OUTPUT=${'$'}(cmd lock_settings verify --old "${'$'}CREDENTIAL" --user "${'$'}CLONE_USER" 2>&1) || VERIFY_EXIT=${'$'}?
-        echo "LOCK_SETTINGS_VERIFY_EXIT=${'$'}VERIFY_EXIT"
-        case "${'$'}VERIFY_OUTPUT" in
-          *"Lock credential verified successfully"*) VERIFY_RESULT="SUCCESS" ;;
-          *"Profile uses unified challenge"*) VERIFY_RESULT="UNIFIED_CHALLENGE_UNSUPPORTED" ;;
-          *"Request throttled"*) VERIFY_RESULT="THROTTLED" ;;
-          *"didn't match"*) VERIFY_RESULT="BAD_CREDENTIAL" ;;
-          *"Unknown command"*|*"Unknown option"*|*"Can't find service"*) VERIFY_RESULT="UNSUPPORTED" ;;
-          "") VERIFY_RESULT="EMPTY_OUTPUT" ;;
-          *) VERIFY_RESULT="OTHER_OUTPUT_LEN_${'$'}(printf '%s' "${'$'}VERIFY_OUTPUT" | wc -c | tr -d ' ')" ;;
-        esac
-        echo "LOCK_SETTINGS_VERIFY_RESULT=${'$'}VERIFY_RESULT"
-        check_unlocked_or_continue "STATE_AFTER_VERIFY" && exit 0
-        echo "SWITCH_USER_BEGIN"
-        SWITCH_OUTPUT=${'$'}(am switch-user "${'$'}CLONE_USER" 2>&1 || true)
-        echo "SWITCH_USER_OUTPUT=${'$'}SWITCH_OUTPUT"
-        wait_for_current_user "${'$'}CLONE_USER" || echo "WARN_CURRENT_USER_NOT_CLONE:${'$'}(current_user)"
-        SIZE=${'$'}(wm size 2>/dev/null | sed -n 's/.*: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\1 \2/p' | head -1)
-        if [ -n "${'$'}SIZE" ]; then
-          WIDTH=${'$'}(printf '%s' "${'$'}SIZE" | awk '{print ${'$'}1}')
-          HEIGHT=${'$'}(printf '%s' "${'$'}SIZE" | awk '{print ${'$'}2}')
-        else
-          WIDTH=1080
-          HEIGHT=2400
-        fi
-        X=${'$'}((WIDTH / 2))
-        Y_START=${'$'}((HEIGHT * 4 / 5))
-        Y_END=${'$'}((HEIGHT / 3))
-        Y_FIELD=${'$'}((HEIGHT * 3 / 5))
-        echo "INPUT_SCREEN=${'$'}WIDTH x ${'$'}HEIGHT"
-        print_keyguard_summary "BEFORE_INPUT"
-        prepare_keyguard_input
-        print_keyguard_summary "AFTER_PREPARE"
-        if send_digit_keyevents; then
-          sleep 3
-          check_unlocked_or_continue "STATE_AFTER_DIGIT_KEYEVENTS" && {
-            echo "RETURN_MAIN_AFTER_DIGITS_BEGIN"
-            RETURN_DIGIT_OUTPUT=${'$'}(am switch-user "${'$'}MAIN_USER" 2>&1 || true)
-            echo "RETURN_MAIN_AFTER_DIGITS_OUTPUT=${'$'}RETURN_DIGIT_OUTPUT"
-            exit 0
-          }
-        fi
-        prepare_keyguard_input
-        if send_pin_pad_taps; then
-          sleep 3
-          check_unlocked_or_continue "STATE_AFTER_PIN_PAD_TAPS" && {
-            echo "RETURN_MAIN_AFTER_PIN_PAD_BEGIN"
-            RETURN_PIN_PAD_OUTPUT=${'$'}(am switch-user "${'$'}MAIN_USER" 2>&1 || true)
-            echo "RETURN_MAIN_AFTER_PIN_PAD_OUTPUT=${'$'}RETURN_PIN_PAD_OUTPUT"
-            exit 0
-          }
-        fi
-        prepare_keyguard_input
-        input text "${'$'}INPUT_TEXT" >/dev/null 2>&1 || echo "WARN_INPUT_TEXT_FAILED"
-        echo "INPUT_TEXT_SENT_LENGTH=${credential.length}"
-        input keyevent 66 >/dev/null 2>&1 || input keyevent 160 >/dev/null 2>&1 || true
-        sleep 3
-        STATE_AFTER_INPUT=${'$'}(state_of_clone)
-        echo "STATE_AFTER_INPUT=${'$'}STATE_AFTER_INPUT"
-        CURRENT_AFTER_INPUT=${'$'}(current_user)
-        echo "CURRENT_USER_AFTER_INPUT=${'$'}CURRENT_AFTER_INPUT"
-        echo "RETURN_MAIN_BEGIN"
-        RETURN_OUTPUT=${'$'}(am switch-user "${'$'}MAIN_USER" 2>&1 || true)
-        echo "RETURN_MAIN_OUTPUT=${'$'}RETURN_OUTPUT"
-        STATE_AFTER_RETURN=${'$'}(state_of_clone)
-        echo "STATE_AFTER_RETURN=${'$'}STATE_AFTER_RETURN"
-        case "${'$'}STATE_AFTER_INPUT ${'$'}STATE_AFTER_RETURN" in
-          *RUNNING_UNLOCKED*)
-            echo "USER10_CE_STATE=RUNNING_UNLOCKED"
-            echo "USER10_CE_READY=1"
-            ;;
-          *)
-            echo "USER10_CE_STATE=LOCKED_AFTER_CREDENTIAL_ATTEMPT"
-            echo "ERR_USER10_CREDENTIAL_UNLOCK_FAILED:${'$'}STATE_AFTER_RETURN" >&2
-            exit 84
-            ;;
-        esac
+        ${ensureCloneUnlockedScript(settings, required = true)}
+        echo "USER10_CE_STATE=RUNNING_UNLOCKED"
+        echo "USER10_CE_READY=1"
+        echo "UNLOCK_CLONE_WITH_CREDENTIAL_DONE"
     """.trimIndent()
-    }
 
     fun auditRestoreConsistency(packageName: String, settings: UCloneSettings, appPackage: String): String = """
         set -u
@@ -675,21 +581,8 @@ object ShellScripts {
         mkdir -p "${'$'}ROOT/tmp" || exit 10
         rm -rf "${'$'}SWITCH_TEMP" "${'$'}SWITCH_TEMP".try_*
         SWITCH_REQUIRE_CE=${if (rule.includeCe) "1" else "0"}
-        CANDIDATE_USERS=""
-        add_candidate_user() {
-          U="${'$'}1"
-          [ -n "${'$'}U" ] || return 0
-          [ "${'$'}U" != "${settings.mainUserId}" ] || return 0
-          case " ${'$'}CANDIDATE_USERS " in
-            *" ${'$'}U "*) ;;
-            *) CANDIDATE_USERS="${'$'}CANDIDATE_USERS ${'$'}U" ;;
-          esac
-        }
-        add_candidate_user "${settings.cloneUserId}"
-        for U in ${'$'}(pm list users 2>/dev/null | sed -n 's/.*UserInfo{\([0-9][0-9]*\):.*/\1/p'); do
-          add_candidate_user "${'$'}U"
-        done
-        add_candidate_user 999
+        ${ensureCloneUnlockedScript(settings, rule.includeCe)}
+        CANDIDATE_USERS="${settings.cloneUserId}"
         echo "CANDIDATE_USERS=${'$'}CANDIDATE_USERS"
         [ -n "${'$'}CANDIDATE_USERS" ] || { echo "ERR_NO_CLONE_USER_CANDIDATES" >&2; exit 42; }
         count_items() {
@@ -1130,6 +1023,9 @@ object ShellScripts {
             }
             backup_dir "/data/user/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/ce"
             backup_dir "/data/user_de/${settings.mainUserId}/${'$'}PKG" "${'$'}ROLLBACK/de"
+            backup_dir "/data/media/${settings.mainUserId}/Android/data/${'$'}PKG" "${'$'}ROLLBACK/external"
+            backup_dir "/data/media/${settings.mainUserId}/Android/media/${'$'}PKG" "${'$'}ROLLBACK/media"
+            backup_dir "/data/media/${settings.mainUserId}/Android/obb/${'$'}PKG" "${'$'}ROLLBACK/obb"
             ${if (settings.includePermissions) "backup_permission_state \"${'$'}ROLLBACK/permissions\"" else ":"}
             ROLLBACK_SIZE_KB=${'$'}(du -sk "${'$'}ROLLBACK" 2>/dev/null | awk '{print ${'$'}1}')
             printf '%s\n' "{\"packageName\":\"${'$'}PKG\",\"rollbackId\":\"${'$'}ROLLBACK_ID\",\"createdAt\":\"${'$'}TS\",\"reason\":\"$rollbackReason\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
@@ -1168,6 +1064,4 @@ object ShellScripts {
         }
     }
 
-    private fun androidInputTextToken(value: String): String =
-        value.replace(" ", "%s")
 }

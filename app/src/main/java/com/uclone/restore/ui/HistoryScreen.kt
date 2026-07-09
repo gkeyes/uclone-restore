@@ -33,7 +33,8 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                     InfoRow("开始", Formatters.time(task.startedAt))
                     InfoRow("结束", Formatters.time(task.finishedAt))
                     InfoRow("状态", task.status.name, if (task.status == TaskStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                    InfoRow("日志", task.logPath)
+                    Text("日志", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SingleLinePathText(task.logPath)
                     if (task.packageName != state.selectedPackage) {
                         IosSecondaryButton(onClick = { viewModel.selectPackage(task.packageName) }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Default.Apps, contentDescription = null)

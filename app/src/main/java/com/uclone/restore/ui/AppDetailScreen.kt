@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -82,12 +81,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             InfoRow("时间", Formatters.time(app.lastSnapshotAt))
             InfoRow("大小", Formatters.kilobytes(app.snapshotSizeKb))
             Text("保存位置", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SelectionContainer {
-                Text(
-                    "${state.settings.rootDir}/snapshots/${app.packageName}/active",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+            SingleLinePathText("${state.settings.rootDir}/snapshots/${app.packageName}/active")
             Text("恢复到主系统只读取 active 主动备份，不会实时读取分身最新数据。")
         }
         SectionCard("数据范围") {

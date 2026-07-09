@@ -50,6 +50,18 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun restoreBacksUpExternalMediaAndObbBeforeRestoring() {
+        val script = ShellScripts.restore("com.example.app", settings, appPackage)
+
+        assertContains(script, "backup_dir \"/data/media/0/Android/data/${'$'}PKG\" \"${'$'}ROLLBACK/external\"")
+        assertContains(script, "backup_dir \"/data/media/0/Android/media/${'$'}PKG\" \"${'$'}ROLLBACK/media\"")
+        assertContains(script, "backup_dir \"/data/media/0/Android/obb/${'$'}PKG\" \"${'$'}ROLLBACK/obb\"")
+        assertContains(script, "restore_part \"${'$'}ACTIVE/external\" \"/data/media/0/Android/data/${'$'}PKG\" \"\"")
+        assertContains(script, "restore_part \"${'$'}ACTIVE/media\" \"/data/media/0/Android/media/${'$'}PKG\" \"\"")
+        assertContains(script, "restore_part \"${'$'}ACTIVE/obb\" \"/data/media/0/Android/obb/${'$'}PKG\" \"\"")
+    }
+
+    @Test
     fun switchFromCloneLatest_usesTemporaryCloneSourceWithoutActivatingSnapshot() {
         val script = ShellScripts.switchFromCloneLatest(
             "com.example.app",
@@ -83,10 +95,13 @@ class ShellScriptsTest {
         val script = ShellScripts.switchFromCloneLatest(
             "com.example.app",
             AppRule(packageName = "com.example.app"),
-            settings,
+            settings.copy(cloneUnlockCredential = "123456"),
             appPackage,
         )
 
+        assertContains(script, "ENSURE_CLONE_UNLOCK_BEGIN")
+        assertContains(script, "/system/bin/am start-user -w")
+        assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
         assertContains(script, "ERR_SWITCH_CE_MISSING:${'$'}TRY_USER")
         assertContains(script, "SWITCH_REQUIRE_CE=1")
@@ -102,6 +117,7 @@ class ShellScriptsTest {
         )
 
         assertContains(script, "SWITCH_REQUIRE_CE=0")
+        assertContains(script, "ENSURE_CLONE_UNLOCK_SKIPPED=not_required")
     }
 
     @Test
@@ -109,11 +125,14 @@ class ShellScriptsTest {
         val script = ShellScripts.capture(
             "com.example.app",
             AppRule(packageName = "com.example.app"),
-            settings,
+            settings.copy(cloneUnlockCredential = "123456"),
             appPackage,
         )
 
         assertContains(script, "CAPTURE_REQUIRE_CE=1")
+        assertContains(script, "ENSURE_CLONE_UNLOCK_BEGIN")
+        assertContains(script, "/system/bin/am start-user -w")
+        assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
         assertContains(script, "ERR_CAPTURE_CE_MISSING:${'$'}TRY_USER")
     }
@@ -128,6 +147,7 @@ class ShellScriptsTest {
         )
 
         assertContains(script, "CAPTURE_REQUIRE_CE=0")
+        assertContains(script, "ENSURE_CLONE_UNLOCK_SKIPPED=not_required")
     }
 
     @Test
@@ -144,22 +164,23 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun unlockCloneWithCredential_triesLockSettingsThenUiInputWithRedactedLogs() {
+    fun unlockCloneWithCredential_startsVerifiesAndWaitsWithoutUiAutomation() {
         val script = ShellScripts.unlockCloneWithCredential(settings.copy(cloneUnlockCredential = "123456"))
 
-        assertContains(script, "cmd lock_settings verify --old")
-        assertContains(script, "LOCK_SETTINGS_VERIFY_RESULT=")
-        assertContains(script, "am switch-user")
+        assertContains(script, "ENSURE_CLONE_UNLOCK_BEGIN")
         assertContains(script, "START_USER_BEGIN")
-        assertContains(script, "DIGIT_KEYEVENTS_BEGIN")
-        assertContains(script, "KEYCODE_${'$'}DIGIT")
-        assertContains(script, "PIN_PAD_TAPS_BEGIN")
-        assertContains(script, "STATE_AFTER_PIN_PAD_TAPS")
-        assertContains(script, "print_keyguard_summary \"BEFORE_INPUT\"")
-        assertContains(script, "input text")
-        assertContains(script, "INPUT_TEXT_SENT_LENGTH=6")
-        assertContains(script, "RETURN_MAIN_BEGIN")
+        assertContains(script, "/system/bin/am start-user -w")
+        assertContains(script, "/system/bin/cmd lock_settings verify --old")
+        assertContains(script, "VERIFY_RESULT=")
+        assertContains(script, "WAIT_AFTER_VERIFY")
+        assertContains(script, "STOP_CLONE_AFTER_TASK=1")
+        assertContains(script, "STOP_USER_OUTPUT=")
+        assertContains(script, "USER10_CE_READY=1")
         assertFalse(script.contains("am unlock-user"))
+        assertFalse(script.contains("am switch-user"))
+        assertFalse(script.contains("input text"))
+        assertFalse(script.contains("KEYCODE_"))
+        assertFalse(script.contains("PIN_PAD_TAPS"))
         assertFalse(script.contains("VERIFY_OUTPUT=${'$'}VERIFY_OUTPUT"))
         assertFalse(script.contains("UNLOCK_OUTPUT="))
     }

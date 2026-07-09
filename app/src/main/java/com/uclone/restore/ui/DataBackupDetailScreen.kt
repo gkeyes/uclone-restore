@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -88,12 +87,7 @@ fun DataBackupDetailScreen(
                 InfoRow("来源", passiveBackup.reason)
             }
             Text("保存位置", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SelectionContainer {
-                Text(
-                    passivePath ?: activePath.orEmpty(),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+            SingleLinePathText(passivePath ?: activePath.orEmpty())
         }
         SectionCard("操作") {
             IosPrimaryButton(
@@ -126,16 +120,21 @@ fun DataBackupDetailScreen(
                 )
             },
             text = {
-                Text(
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     when (action) {
-                        DataBackupAction.RESTORE -> "将使用 $path 覆盖主系统 user0 数据。"
-                        DataBackupAction.DELETE -> if (isPassive) {
-                            "将删除 $rootDir/rollback/$packageName 下该 App 的全部被动备份。主动快照不会被删除。"
-                        } else {
-                            "将删除 $path。删除后不能从这份快照恢复。"
+                        DataBackupAction.RESTORE -> {
+                            Text("将使用以下备份覆盖主系统 user0 数据。")
+                            SingleLinePathText(path)
                         }
-                    },
-                )
+                        DataBackupAction.DELETE -> if (isPassive) {
+                            Text("将删除以下目录下该 App 的全部被动备份。主动快照不会被删除。")
+                            SingleLinePathText("$rootDir/rollback/$packageName")
+                        } else {
+                            Text("将删除以下快照。删除后不能从这份快照恢复。")
+                            SingleLinePathText(path)
+                        }
+                    }
+                }
             },
             confirmButton = {
                 IosDialogButton(

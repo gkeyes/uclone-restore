@@ -113,11 +113,6 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
                 )
             }
         }
-        if (state.message != null) {
-            item {
-                Text(state.message, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(horizontal = 4.dp))
-            }
-        }
     }
     confirm?.let { action ->
         HomeConfirmDialog(

@@ -153,7 +153,7 @@ class SyncEngine(
         type = TaskType.UNLOCK_CLONE_WITH_CREDENTIAL,
         packageName = "user${settings.cloneUserId}",
         settings = settings,
-        labels = listOf("检查 root", "校验密码", "切换分身", "输入密码", "返回主系统", "确认 CE"),
+        labels = listOf("检查 root", "后台启动分身", "验证 PIN", "等待 CE 解锁", "按需关闭分身", "完成"),
         script = ShellScripts.unlockCloneWithCredential(settings),
         report = report,
     )

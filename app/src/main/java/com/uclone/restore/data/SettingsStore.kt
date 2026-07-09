@@ -5,6 +5,7 @@ import com.uclone.restore.model.UCloneSettings
 
 class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("uclone_settings", Context.MODE_PRIVATE)
+    private val schemaVersion = 6
 
     fun load(): UCloneSettings = UCloneSettings(
         mainUserId = prefs.getInt("mainUserId", 0),
@@ -12,11 +13,16 @@ class SettingsStore(context: Context) {
         rootDir = prefs.getString("rootDir", "/data/adb/uclone") ?: "/data/adb/uclone",
         includeCe = prefs.getBoolean("includeCe", true),
         includeDe = prefs.getBoolean("includeDe", true),
-        includeExternal = prefs.getBoolean("includeExternal", false),
+        includeExternal = if (prefs.getInt("settingsSchemaVersion", 0) < schemaVersion) {
+            true
+        } else {
+            prefs.getBoolean("includeExternal", true)
+        },
         includeMedia = prefs.getBoolean("includeMedia", false),
         includeObb = prefs.getBoolean("includeObb", false),
         includePermissions = prefs.getBoolean("includePermissions", true),
         excludeCache = prefs.getBoolean("excludeCache", true),
+        stopCloneAfterTask = prefs.getBoolean("stopCloneAfterTask", true),
         favoritePackages = prefs.getStringSet("favoritePackages", emptySet()).orEmpty().toSet(),
         cloneUnlockCredential = prefs.getString("cloneUnlockCredential", "") ?: "",
     )
@@ -33,8 +39,10 @@ class SettingsStore(context: Context) {
             .putBoolean("includeObb", settings.includeObb)
             .putBoolean("includePermissions", settings.includePermissions)
             .putBoolean("excludeCache", settings.excludeCache)
+            .putBoolean("stopCloneAfterTask", settings.stopCloneAfterTask)
             .putStringSet("favoritePackages", settings.favoritePackages.toMutableSet())
             .putString("cloneUnlockCredential", settings.cloneUnlockCredential)
+            .putInt("settingsSchemaVersion", schemaVersion)
             .apply()
     }
 }

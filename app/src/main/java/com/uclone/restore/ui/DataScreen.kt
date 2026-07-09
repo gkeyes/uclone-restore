@@ -49,8 +49,8 @@ fun DataScreen(
         }
         item {
             SectionCard("存储区分") {
-                Text("主动快照: $rootDir/snapshots/<包名>/active")
-                Text("被动备份: $rootDir/rollback/<包名>/<备份ID>")
+                SingleLinePathText("主动快照: $rootDir/snapshots/<包名>/active")
+                SingleLinePathText("被动备份: $rootDir/rollback/<包名>/<备份ID>")
                 Text(
                     "切换和还原产生的被动备份每个 App 只显示最新一份。",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -103,9 +103,11 @@ fun DataScreen(
             onDismissRequest = { confirmRestore = null },
             title = { Text("恢复被动备份") },
             text = {
-                Text(
-                    "将使用 $rootDir/rollback/${backup.packageName}/${backup.rollbackId} 覆盖主系统 user0 数据。该备份来源: ${backup.reason}。",
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("将使用以下被动备份覆盖主系统 user0 数据。")
+                    SingleLinePathText("$rootDir/rollback/${backup.packageName}/${backup.rollbackId}")
+                    Text("来源: ${backup.reason}")
+                }
             },
             confirmButton = {
                 IosDialogButton(

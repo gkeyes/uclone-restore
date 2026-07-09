@@ -54,7 +54,7 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Default.LockOpen, contentDescription = null)
-                Text("带密码尝试解锁")
+                Text("无感启动分身")
             }
             IosSecondaryButton(onClick = viewModel::startCloneUser, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null)
@@ -64,9 +64,6 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
                 Icon(Icons.Default.Sync, contentDescription = null)
                 Text("切换到分身解锁")
             }
-        }
-        if (state.message != null) {
-            Text(state.message, color = MaterialTheme.colorScheme.secondary)
         }
     }
 }
