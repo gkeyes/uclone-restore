@@ -28,7 +28,7 @@ import com.uclone.restore.module.relay.ModuleSettingsStore
 class ModuleSettingsActivity : Activity() {
     private lateinit var hookSwitch: Switch
     private lateinit var appListContainer: LinearLayout
-    private lateinit var diagnostics: TextView
+    private lateinit var diagnosticsContainer: LinearLayout
     private lateinit var hookLog: TextView
     private lateinit var relayLog: TextView
     private lateinit var selectedCountText: TextView
@@ -53,18 +53,14 @@ class ModuleSettingsActivity : Activity() {
         }
 
         root.addView(headerCard(), matchWrap())
-        root.addView(space(14))
-        root.addView(scopeCard(), matchWrap())
-        root.addView(space(14))
-        root.addView(appPickerCard(), matchWrap())
-        root.addView(space(14))
-        root.addView(actionCard(), matchWrap())
-        root.addView(space(14))
+        root.addView(space(12))
         root.addView(diagnosticsCard(), matchWrap())
-        root.addView(space(14))
-        root.addView(logCard("最近 Hook 事件") { hookLog = it }, matchWrap())
-        root.addView(space(14))
-        root.addView(logCard("最近 Relay 请求") { relayLog = it }, matchWrap())
+        root.addView(space(12))
+        root.addView(appPickerCard(), matchWrap())
+        root.addView(space(12))
+        root.addView(scopeCard(), matchWrap())
+        root.addView(space(12))
+        root.addView(logCard(), matchWrap())
 
         return ScrollView(this).apply {
             isFillViewport = true
@@ -117,8 +113,26 @@ class ModuleSettingsActivity : Activity() {
 
     private fun scopeCard(): LinearLayout =
         glassCard().apply {
-            addView(cardTitle("LSPosed 作用域"))
-            addView(bodyText("只在 LSPosed 里给本模块勾选 com.miui.home。目标 App 不要放进 LSPosed 作用域。"))
+            val header = LinearLayout(this@ModuleSettingsActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            header.addView(cardTitle("控制与作用域"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            header.addView(pillButton("保存", prominent = true) {
+                saveValues()
+                Toast.makeText(this@ModuleSettingsActivity, "设置已保存", Toast.LENGTH_SHORT).show()
+                refreshDiagnostics()
+            })
+            addView(header, matchWrap())
+
+            addView(space(10))
+            addView(infoStrip("LSPosed 只勾选 com.miui.home；目标 App 在本页选择，不放进作用域。"))
+            addView(space(10))
+            addView(pillButton("解除 Hook 自动禁用") {
+                ModuleSettingsStore.resetAutoDisable(this@ModuleSettingsActivity)
+                Toast.makeText(this@ModuleSettingsActivity, "Hook 熔断计数已清零", Toast.LENGTH_SHORT).show()
+                refreshDiagnostics()
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
         }
 
     private fun appPickerCard(): LinearLayout =
@@ -130,7 +144,7 @@ class ModuleSettingsActivity : Activity() {
             val titleGroup = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
             }
-            titleGroup.addView(cardTitle("目标 App"))
+            titleGroup.addView(cardTitle("允许的 App"))
             selectedCountText = bodyText("已选择 0 个 App")
             titleGroup.addView(selectedCountText)
             header.addView(titleGroup, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -145,33 +159,25 @@ class ModuleSettingsActivity : Activity() {
                         check.isChecked = pkg != packageName && pkg != ModuleConstants.UCLONE_PACKAGE && !isSystemPackage(pkg)
                     }
                     updateSelectedCount()
-                }, LinearLayout.LayoutParams(0, dp(44), 1f))
+                }, LinearLayout.LayoutParams(0, dp(42), 1f))
                 addView(space(8, horizontal = true))
-                addView(pillButton("取消全选") {
+                addView(pillButton("清空") {
                     appChecks.values.forEach { it.isChecked = false }
                     updateSelectedCount()
-                }, LinearLayout.LayoutParams(0, dp(44), 1f))
+                }, LinearLayout.LayoutParams(0, dp(42), 1f))
             }
             addView(controls, matchWrap())
 
             addView(space(12))
+            val listSurface = ScrollView(this@ModuleSettingsActivity).apply {
+                isFillViewport = false
+                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                background = roundedSolid(Color.argb(118, 255, 255, 255), dp(18))
+                setPadding(dp(10), dp(4), dp(10), dp(4))
+            }
             appListContainer = LinearLayout(this@ModuleSettingsActivity).apply { orientation = LinearLayout.VERTICAL }
-            addView(appListContainer, matchWrap())
-        }
-
-    private fun actionCard(): LinearLayout =
-        glassCard().apply {
-            addView(pillButton("保存设置", prominent = true) {
-                saveValues()
-                Toast.makeText(this@ModuleSettingsActivity, "设置已保存", Toast.LENGTH_SHORT).show()
-                refreshDiagnostics()
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
-            addView(space(10))
-            addView(pillButton("解除 Hook 自动禁用") {
-                ModuleSettingsStore.resetAutoDisable(this@ModuleSettingsActivity)
-                Toast.makeText(this@ModuleSettingsActivity, "Hook 熔断计数已清零", Toast.LENGTH_SHORT).show()
-                refreshDiagnostics()
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
+            listSurface.addView(appListContainer, matchWrap())
+            addView(listSurface, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330)))
         }
 
     private fun diagnosticsCard(): LinearLayout =
@@ -180,29 +186,23 @@ class ModuleSettingsActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
-            header.addView(cardTitle("签名与权限"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            header.addView(cardTitle("运行状态"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             header.addView(pillButton("刷新") { refreshDiagnostics() })
             addView(header, matchWrap())
-            addView(space(8))
-            diagnostics = TextView(this@ModuleSettingsActivity).apply {
-                textSize = 13f
-                setTextColor(TEXT_SECONDARY)
-                setLineSpacing(dp(2).toFloat(), 1.0f)
+            addView(space(10))
+            diagnosticsContainer = LinearLayout(this@ModuleSettingsActivity).apply {
+                orientation = LinearLayout.VERTICAL
             }
-            addView(diagnostics, matchWrap())
+            addView(diagnosticsContainer, matchWrap())
         }
 
-    private fun logCard(title: String, bindBody: (TextView) -> Unit): LinearLayout =
+    private fun logCard(): LinearLayout =
         glassCard().apply {
-            addView(cardTitle(title))
+            addView(cardTitle("最近事件"))
+            addView(space(10))
+            addView(logBlock("Hook") { hookLog = it }, matchWrap())
             addView(space(8))
-            val body = TextView(this@ModuleSettingsActivity).apply {
-                textSize = 12f
-                setTextColor(TEXT_TERTIARY)
-                setLineSpacing(dp(2).toFloat(), 1.0f)
-            }
-            bindBody(body)
-            addView(body, matchWrap())
+            addView(logBlock("Relay") { relayLog = it }, matchWrap())
         }
 
     private fun loadValues() {
@@ -239,7 +239,8 @@ class ModuleSettingsActivity : Activity() {
 
     private fun appRow(app: LaunchableApp, checked: Boolean): LinearLayout {
         val check = CheckBox(this).apply {
-            isChecked = checked
+            isChecked = checked && !app.isSystem
+            isEnabled = !app.isSystem
             buttonTintList = android.content.res.ColorStateList.valueOf(BLUE)
             setOnCheckedChangeListener { _, _ -> updateSelectedCount() }
         }
@@ -249,6 +250,11 @@ class ModuleSettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(9), 0, dp(9))
+            alpha = if (app.isSystem) 0.52f else 1f
+            foreground = selectableItemBackground()
+            setOnClickListener {
+                if (!app.isSystem) check.isChecked = !check.isChecked
+            }
 
             addView(ImageView(this@ModuleSettingsActivity).apply {
                 setImageDrawable(app.icon)
@@ -260,7 +266,19 @@ class ModuleSettingsActivity : Activity() {
             val labelGroup = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(12), 0, dp(8), 0)
-                addView(text(app.label, 15f, TEXT_PRIMARY, true))
+                val titleLine = LinearLayout(this@ModuleSettingsActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(text(app.label, 15f, TEXT_PRIMARY, true).apply {
+                        isSingleLine = true
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    if (app.isSystem) {
+                        addView(space(6, horizontal = true))
+                        addView(tinyTag("系统", ORANGE))
+                    }
+                }
+                addView(titleLine, matchWrap())
                 addView(text(app.packageName, 11f, TEXT_TERTIARY, false).apply {
                     isSingleLine = true
                     ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
@@ -291,17 +309,22 @@ class ModuleSettingsActivity : Activity() {
     }
 
     private fun refreshDiagnostics() {
-        diagnostics.text = buildString {
-            appendLine("UClone 安装        ${yesNo(isPackageInstalled(ModuleConstants.UCLONE_PACKAGE))}")
-            appendLine("UClone 版本        ${packageVersion(ModuleConstants.UCLONE_PACKAGE)}")
-            appendLine("同签名             ${yesNo(sameSignature())}")
-            appendLine("CONTROL 权限       ${yesNo(hasControlPermission())}")
-            appendLine("ActionService      ${yesNo(hasUCloneService())}")
-            appendLine("RelayProvider      ${yesNo(hasRelayProvider())}")
-            appendLine("Hook 自动禁用       ${yesNo(ModuleSettingsStore.isAutoDisabled(this@ModuleSettingsActivity))}")
-            appendLine("连续 Hook 异常      ${ModuleSettingsStore.consecutiveHookErrors(this@ModuleSettingsActivity)}")
-            appendLine("目标 App           ${selectedPackageCount()}")
-            appendLine("LSPosed 作用域      com.miui.home")
+        if (::diagnosticsContainer.isInitialized) {
+            diagnosticsContainer.removeAllViews()
+            val rows = listOf(
+                Triple("UClone", packageVersion(ModuleConstants.UCLONE_PACKAGE), isPackageInstalled(ModuleConstants.UCLONE_PACKAGE)),
+                Triple("同签名", yesNo(sameSignature()), sameSignature()),
+                Triple("CONTROL 权限", yesNo(hasControlPermission()), hasControlPermission()),
+                Triple("ActionService", yesNo(hasUCloneService()), hasUCloneService()),
+                Triple("RelayProvider", yesNo(hasRelayProvider()), hasRelayProvider()),
+                Triple("Hook 自动禁用", yesNo(ModuleSettingsStore.isAutoDisabled(this)), !ModuleSettingsStore.isAutoDisabled(this)),
+                Triple("连续 Hook 异常", ModuleSettingsStore.consecutiveHookErrors(this).toString(), ModuleSettingsStore.consecutiveHookErrors(this) == 0),
+                Triple("目标 App", "${selectedPackageCount()} 个", selectedPackageCount() > 0),
+            )
+            rows.forEachIndexed { index, row ->
+                diagnosticsContainer.addView(diagnosticRow(row.first, row.second, row.third), matchWrap())
+                if (index != rows.lastIndex) diagnosticsContainer.addView(divider(), matchWrap())
+            }
         }
         hookLog.text = ModuleSettingsStore.hookEvents(this).ifBlank { "暂无" }
         relayLog.text = ModuleSettingsStore.relayEvents(this).ifBlank { "暂无" }
@@ -362,6 +385,12 @@ class ModuleSettingsActivity : Activity() {
             setLineSpacing(dp(2).toFloat(), 1.0f)
         }
 
+    private fun infoStrip(text: String): TextView =
+        bodyText(text).apply {
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = roundedSolid(Color.argb(118, 255, 255, 255), dp(16))
+        }
+
     private fun text(value: String, size: Float, color: Int, bold: Boolean): TextView =
         TextView(this).apply {
             text = value
@@ -381,6 +410,59 @@ class ModuleSettingsActivity : Activity() {
             setPadding(dp(12), 0, dp(12), 0)
             background = roundedSolid(colorWithAlpha(color, 28), dp(18))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32))
+        }
+
+    private fun tinyTag(label: String, color: Int): TextView =
+        TextView(this).apply {
+            text = label
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(color)
+            gravity = Gravity.CENTER
+            setPadding(dp(7), 0, dp(7), 0)
+            background = roundedSolid(colorWithAlpha(color, 26), dp(10))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(22))
+        }
+
+    private fun diagnosticRow(label: String, value: String, ok: Boolean): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(9), 0, dp(9))
+            addView(statusDot(if (ok) GREEN else ORANGE), LinearLayout.LayoutParams(dp(10), dp(10)))
+            addView(space(10, horizontal = true))
+            addView(text(label, 14f, TEXT_SECONDARY, false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(text(value, 14f, if (ok) TEXT_PRIMARY else ORANGE, true).apply {
+                gravity = Gravity.END
+                isSingleLine = true
+                ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.3f))
+        }
+
+    private fun statusDot(color: Int): View =
+        View(this).apply {
+            background = roundedSolid(color, dp(5))
+        }
+
+    private fun logBlock(title: String, bindBody: (TextView) -> Unit): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = roundedSolid(Color.argb(112, 255, 255, 255), dp(16))
+            addView(text(title, 13f, TEXT_SECONDARY, true))
+            addView(space(6))
+            val scroller = ScrollView(this@ModuleSettingsActivity).apply {
+                isFillViewport = false
+                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            }
+            val body = TextView(this@ModuleSettingsActivity).apply {
+                textSize = 12f
+                setTextColor(TEXT_TERTIARY)
+                setLineSpacing(dp(2).toFloat(), 1.0f)
+            }
+            bindBody(body)
+            scroller.addView(body, matchWrap())
+            addView(scroller, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(92)))
         }
 
     private fun pillButton(label: String, prominent: Boolean = false, onClick: () -> Unit): TextView =
@@ -485,5 +567,6 @@ class ModuleSettingsActivity : Activity() {
         private val BLUE = Color.rgb(0, 122, 255)
         private val CYAN = Color.rgb(90, 200, 250)
         private val GREEN = Color.rgb(52, 199, 89)
+        private val ORANGE = Color.rgb(255, 149, 0)
     }
 }

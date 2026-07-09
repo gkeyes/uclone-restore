@@ -18,6 +18,7 @@ class ExternalActionNotifier(private val context: Context) {
             .setContentText("${displayName(packageName)}：$message")
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 

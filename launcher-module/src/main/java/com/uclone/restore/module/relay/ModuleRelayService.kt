@@ -20,6 +20,7 @@ class ModuleRelayService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        ModuleSettingsStore.recordRelayEvent(this, "received package=$packageName request=$requestId")
         runCatching {
             val ucloneIntent = Intent(ModuleRelayContract.UCLONE_ACTION_EXECUTE)
                 .setClassName(ModuleConstants.UCLONE_PACKAGE, ModuleConstants.UCLONE_SERVICE)
@@ -35,7 +36,10 @@ class ModuleRelayService : Service() {
             }
             ModuleSettingsStore.recordRelayEvent(this, "sent package=$packageName request=$requestId")
         }.onFailure { error ->
-            ModuleSettingsStore.recordRelayEvent(this, "failed package=$packageName request=$requestId error=${error.message}")
+            ModuleSettingsStore.recordRelayEvent(
+                this,
+                "failed package=$packageName request=$requestId type=${error.javaClass.simpleName} error=${error.message}",
+            )
         }
         stopSelf(startId)
         return START_NOT_STICKY

@@ -29,6 +29,7 @@ class SyncForegroundService : Service() {
                 .setContentText(message)
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
                 .build(),
         )
         return START_STICKY

@@ -5,11 +5,20 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.ColorFilter
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.RectF
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Bundle
 import android.os.UserHandle
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import com.uclone.restore.module.relay.ModuleConstants
@@ -93,6 +102,7 @@ class UCloneLauncherModule : XposedModule() {
     private fun bindMarkerView(view: View, target: TargetInfo) {
         val context = view.context
         setFieldText(view, "mTitle", ModuleConstants.MENU_LABEL)
+        setMarkerIcon(view)
         view.setOnClickListener {
             val state = queryMenuState(context, target)
             val pendingIntent = state?.pendingIntent
@@ -110,6 +120,14 @@ class UCloneLauncherModule : XposedModule() {
                 recordHookEvent(context, "click error=${error.message}", true)
             }
         }
+    }
+
+    private fun setMarkerIcon(view: View) {
+        val imageView = view.findFirstImageView() ?: return
+        imageView.imageTintList = null
+        imageView.clearColorFilter()
+        imageView.setImageDrawable(UCloneMenuDrawable())
+        imageView.contentDescription = ModuleConstants.MENU_LABEL
     }
 
     private fun createMarkerMenuItem(menuItemClass: Class<*>, userHandle: UserHandle?, label: String): Any {
@@ -280,4 +298,63 @@ private fun Any.findField(fieldName: String): Field? {
         type = current.superclass
     }
     return null
+}
+
+private fun View.findFirstImageView(): ImageView? {
+    if (this is ImageView) return this
+    if (this !is ViewGroup) return null
+    for (index in 0 until childCount) {
+        val image = getChildAt(index).findFirstImageView()
+        if (image != null) return image
+    }
+    return null
+}
+
+private class UCloneMenuDrawable : Drawable() {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2.6f
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = Color.rgb(0, 122, 255)
+    }
+
+    override fun draw(canvas: Canvas) {
+        val b = bounds
+        val size = minOf(b.width(), b.height()).toFloat()
+        val left = b.left + (b.width() - size) / 2f
+        val top = b.top + (b.height() - size) / 2f
+        val unit = size / 48f
+
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(34, 0, 122, 255)
+        canvas.drawRoundRect(RectF(left + 5f * unit, top + 6f * unit, left + 43f * unit, top + 42f * unit), 12f * unit, 12f * unit, paint)
+
+        paint.color = Color.rgb(0, 122, 255)
+        canvas.drawRoundRect(RectF(left + 10f * unit, top + 13f * unit, left + 22f * unit, top + 35f * unit), 6f * unit, 6f * unit, paint)
+
+        paint.color = Color.rgb(236, 247, 255)
+        canvas.drawRoundRect(RectF(left + 26f * unit, top + 13f * unit, left + 38f * unit, top + 35f * unit), 6f * unit, 6f * unit, paint)
+
+        stroke.strokeWidth = 2.6f * unit
+        canvas.drawLine(left + 22f * unit, top + 24f * unit, left + 26f * unit, top + 24f * unit, stroke)
+
+        paint.color = Color.rgb(67, 226, 211)
+        canvas.drawCircle(left + 22f * unit, top + 24f * unit, 2.4f * unit, paint)
+        canvas.drawCircle(left + 26f * unit, top + 24f * unit, 2.4f * unit, paint)
+    }
+
+    override fun setAlpha(alpha: Int) {
+        paint.alpha = alpha
+        stroke.alpha = alpha
+    }
+
+    override fun setColorFilter(colorFilter: ColorFilter?) {
+        paint.colorFilter = colorFilter
+        stroke.colorFilter = colorFilter
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
