@@ -131,16 +131,31 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun probeCloneCe_startsAndUnlocksWithoutSwitchingUiOrDeleting() {
+    fun probeCloneCe_onlyChecksStateWithoutStartingUnlockingSwitchingOrDeleting() {
         val script = ShellScripts.probeCloneCe(settings)
 
-        assertContains(script, "am start-user -w")
-        assertContains(script, "am unlock-user")
         assertContains(script, "am get-started-user-state")
         assertContains(script, "USER10_CE_READY=1")
+        assertFalse(script.contains("am start-user"))
+        assertFalse(script.contains("am unlock-user"))
         assertFalse(script.contains("switch-user"))
         assertFalse(script.contains("rm "))
         assertFalse(script.contains("rm -"))
+    }
+
+    @Test
+    fun unlockCloneWithCredential_triesLockSettingsThenUiInputWithRedactedLogs() {
+        val script = ShellScripts.unlockCloneWithCredential(settings.copy(cloneUnlockCredential = "123456"))
+
+        assertContains(script, "cmd lock_settings verify --old")
+        assertContains(script, "LOCK_SETTINGS_VERIFY_RESULT=")
+        assertContains(script, "am switch-user")
+        assertContains(script, "input text")
+        assertContains(script, "INPUT_TEXT_SENT_LENGTH=6")
+        assertContains(script, "RETURN_MAIN_BEGIN")
+        assertFalse(script.contains("am unlock-user"))
+        assertFalse(script.contains("VERIFY_OUTPUT=${'$'}VERIFY_OUTPUT"))
+        assertFalse(script.contains("UNLOCK_OUTPUT="))
     }
 
     @Test

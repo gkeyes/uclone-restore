@@ -141,8 +141,20 @@ class SyncEngine(
         type = TaskType.PROBE_CLONE_CE,
         packageName = "user${settings.cloneUserId}",
         settings = settings,
-        labels = listOf("检查 root", "读取状态", "启动 user${settings.cloneUserId}", "尝试 unlock-user", "探测 CE/DE", "输出结论"),
+        labels = listOf("检查 root", "读取状态", "探测 CE/DE", "输出结论"),
         script = ShellScripts.probeCloneCe(settings),
+        report = report,
+    )
+
+    suspend fun unlockCloneWithCredential(
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord = runScriptTask(
+        type = TaskType.UNLOCK_CLONE_WITH_CREDENTIAL,
+        packageName = "user${settings.cloneUserId}",
+        settings = settings,
+        labels = listOf("检查 root", "校验密码", "切换分身", "输入密码", "返回主系统", "确认 CE"),
+        script = ShellScripts.unlockCloneWithCredential(settings),
         report = report,
     )
 

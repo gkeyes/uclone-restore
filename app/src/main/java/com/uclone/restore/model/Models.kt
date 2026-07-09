@@ -127,6 +127,7 @@ data class UCloneSettings(
     val includePermissions: Boolean = true,
     val excludeCache: Boolean = true,
     val favoritePackages: Set<String> = emptySet(),
+    val cloneUnlockCredential: String = "",
 )
 
 enum class RiskLevel {
@@ -145,6 +146,7 @@ enum class TaskType {
     DELETE_SNAPSHOT,
     DELETE_RESTORE_BACKUP,
     PROBE_CLONE_CE,
+    UNLOCK_CLONE_WITH_CREDENTIAL,
     AUDIT_RESTORE_CONSISTENCY,
 }
 

@@ -225,42 +225,127 @@ object ShellScripts {
             echo "${'$'}LABEL=MISSING path=${'$'}PATH_VALUE"
           fi
         }
-        STATE_BEFORE=${'$'}(state_of_clone)
-        echo "STATE_BEFORE=${'$'}STATE_BEFORE"
-        echo "START_USER_BEGIN"
-        START_OUTPUT=${'$'}(am start-user -w "${'$'}CLONE_USER" 2>&1 || true)
-        echo "START_USER_OUTPUT=${'$'}START_OUTPUT"
-        STATE_AFTER_START=${'$'}(state_of_clone)
-        echo "STATE_AFTER_START=${'$'}STATE_AFTER_START"
-        echo "UNLOCK_USER_BEGIN"
-        UNLOCK_OUTPUT=${'$'}(am unlock-user "${'$'}CLONE_USER" 2>&1 || true)
-        echo "UNLOCK_USER_OUTPUT=${'$'}UNLOCK_OUTPUT"
-        STATE_AFTER_UNLOCK=${'$'}(state_of_clone)
-        echo "STATE_AFTER_UNLOCK=${'$'}STATE_AFTER_UNLOCK"
+        STATE=${'$'}(state_of_clone)
+        echo "STATE=${'$'}STATE"
         probe_base_path "CE_BASE" "/data/user/${'$'}CLONE_USER"
         probe_base_path "DE_BASE" "/data/user_de/${'$'}CLONE_USER"
-        case "${'$'}STATE_AFTER_UNLOCK" in
+        case "${'$'}STATE" in
           *RUNNING_UNLOCKED*)
             echo "USER10_CE_STATE=RUNNING_UNLOCKED"
             echo "USER10_CE_READY=1"
             ;;
           *RUNNING_LOCKED*|RUNNING)
             echo "USER10_CE_STATE=STARTED_LOCKED"
-            echo "ERR_USER10_CE_LOCKED:${'$'}STATE_AFTER_UNLOCK" >&2
+            echo "ERR_USER10_CE_LOCKED:${'$'}STATE" >&2
             exit 80
             ;;
           *"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*)
             echo "USER10_CE_STATE=NOT_STARTED"
-            echo "ERR_USER10_NOT_STARTED:${'$'}STATE_AFTER_UNLOCK" >&2
+            echo "ERR_USER10_NOT_STARTED:${'$'}STATE" >&2
             exit 81
             ;;
           *)
             echo "USER10_CE_STATE=UNKNOWN"
-            echo "ERR_USER10_STATE_UNKNOWN:${'$'}STATE_AFTER_UNLOCK" >&2
+            echo "ERR_USER10_STATE_UNKNOWN:${'$'}STATE" >&2
             exit 82
             ;;
         esac
     """.trimIndent()
+
+    fun unlockCloneWithCredential(settings: UCloneSettings): String {
+        val credential = settings.cloneUnlockCredential
+        val inputText = androidInputTextToken(credential)
+        return """
+        set -u
+        CLONE_USER=${settings.cloneUserId}
+        MAIN_USER=${settings.mainUserId}
+        CREDENTIAL=${shellQuote(credential)}
+        INPUT_TEXT=${shellQuote(inputText)}
+        echo "UNLOCK_CLONE_USER=${'$'}CLONE_USER"
+        echo "ROOT_ID=${'$'}(id 2>&1)"
+        echo "CREDENTIAL_CONFIGURED=${if (credential.isBlank()) "0" else "1"}"
+        echo "CREDENTIAL_LENGTH=${credential.length}"
+        state_of_clone() {
+          am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
+        }
+        current_user() {
+          am get-current-user 2>&1 || true
+        }
+        STATE_BEFORE=${'$'}(state_of_clone)
+        echo "STATE_BEFORE=${'$'}STATE_BEFORE"
+        CURRENT_BEFORE=${'$'}(current_user)
+        echo "CURRENT_USER_BEFORE=${'$'}CURRENT_BEFORE"
+        if [ -z "${'$'}CREDENTIAL" ]; then
+          echo "ERR_CREDENTIAL_EMPTY" >&2
+          exit 83
+        fi
+        VERIFY_EXIT=0
+        VERIFY_OUTPUT=${'$'}(cmd lock_settings verify --old "${'$'}CREDENTIAL" --user "${'$'}CLONE_USER" 2>&1) || VERIFY_EXIT=${'$'}?
+        echo "LOCK_SETTINGS_VERIFY_EXIT=${'$'}VERIFY_EXIT"
+        case "${'$'}VERIFY_OUTPUT" in
+          *"Lock credential verified successfully"*) VERIFY_RESULT="SUCCESS" ;;
+          *"Profile uses unified challenge"*) VERIFY_RESULT="UNIFIED_CHALLENGE_UNSUPPORTED" ;;
+          *"Request throttled"*) VERIFY_RESULT="THROTTLED" ;;
+          *"didn't match"*) VERIFY_RESULT="BAD_CREDENTIAL" ;;
+          *"Unknown command"*|*"Unknown option"*|*"Can't find service"*) VERIFY_RESULT="UNSUPPORTED" ;;
+          "") VERIFY_RESULT="EMPTY_OUTPUT" ;;
+          *) VERIFY_RESULT="OTHER_OUTPUT_LEN_${'$'}(printf '%s' "${'$'}VERIFY_OUTPUT" | wc -c | tr -d ' ')" ;;
+        esac
+        echo "LOCK_SETTINGS_VERIFY_RESULT=${'$'}VERIFY_RESULT"
+        STATE_AFTER_VERIFY=${'$'}(state_of_clone)
+        echo "STATE_AFTER_VERIFY=${'$'}STATE_AFTER_VERIFY"
+        case "${'$'}STATE_AFTER_VERIFY" in
+          *RUNNING_UNLOCKED*)
+            echo "USER10_CE_STATE=RUNNING_UNLOCKED"
+            echo "USER10_CE_READY=1"
+            exit 0
+            ;;
+        esac
+        echo "SWITCH_USER_BEGIN"
+        SWITCH_OUTPUT=${'$'}(am switch-user "${'$'}CLONE_USER" 2>&1 || true)
+        echo "SWITCH_USER_OUTPUT=${'$'}SWITCH_OUTPUT"
+        sleep 2
+        SIZE=${'$'}(wm size 2>/dev/null | sed -n 's/.*: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\1 \2/p' | head -1)
+        if [ -n "${'$'}SIZE" ]; then
+          WIDTH=${'$'}(printf '%s' "${'$'}SIZE" | awk '{print ${'$'}1}')
+          HEIGHT=${'$'}(printf '%s' "${'$'}SIZE" | awk '{print ${'$'}2}')
+        else
+          WIDTH=1080
+          HEIGHT=2400
+        fi
+        X=${'$'}((WIDTH / 2))
+        Y_START=${'$'}((HEIGHT * 4 / 5))
+        Y_END=${'$'}((HEIGHT / 3))
+        echo "INPUT_SCREEN=${'$'}WIDTH x ${'$'}HEIGHT"
+        input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || input keyevent 224 >/dev/null 2>&1 || true
+        input swipe "${'$'}X" "${'$'}Y_START" "${'$'}X" "${'$'}Y_END" 250 >/dev/null 2>&1 || true
+        sleep 1
+        input text "${'$'}INPUT_TEXT" >/dev/null 2>&1 || echo "WARN_INPUT_TEXT_FAILED"
+        echo "INPUT_TEXT_SENT_LENGTH=${credential.length}"
+        input keyevent 66 >/dev/null 2>&1 || true
+        sleep 3
+        STATE_AFTER_INPUT=${'$'}(state_of_clone)
+        echo "STATE_AFTER_INPUT=${'$'}STATE_AFTER_INPUT"
+        CURRENT_AFTER_INPUT=${'$'}(current_user)
+        echo "CURRENT_USER_AFTER_INPUT=${'$'}CURRENT_AFTER_INPUT"
+        echo "RETURN_MAIN_BEGIN"
+        RETURN_OUTPUT=${'$'}(am switch-user "${'$'}MAIN_USER" 2>&1 || true)
+        echo "RETURN_MAIN_OUTPUT=${'$'}RETURN_OUTPUT"
+        STATE_AFTER_RETURN=${'$'}(state_of_clone)
+        echo "STATE_AFTER_RETURN=${'$'}STATE_AFTER_RETURN"
+        case "${'$'}STATE_AFTER_INPUT ${'$'}STATE_AFTER_RETURN" in
+          *RUNNING_UNLOCKED*)
+            echo "USER10_CE_STATE=RUNNING_UNLOCKED"
+            echo "USER10_CE_READY=1"
+            ;;
+          *)
+            echo "USER10_CE_STATE=LOCKED_AFTER_CREDENTIAL_ATTEMPT"
+            echo "ERR_USER10_CREDENTIAL_UNLOCK_FAILED:${'$'}STATE_AFTER_RETURN" >&2
+            exit 84
+            ;;
+        esac
+    """.trimIndent()
+    }
 
     fun auditRestoreConsistency(packageName: String, settings: UCloneSettings, appPackage: String): String = """
         set -u
@@ -964,4 +1049,7 @@ object ShellScripts {
             "Unsafe rollback id: $rollbackId"
         }
     }
+
+    private fun androidInputTextToken(value: String): String =
+        value.replace(" ", "%s")
 }

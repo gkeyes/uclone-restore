@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -61,6 +62,21 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             Text("主动快照: ${draft.rootDir}/snapshots/<包名>/active")
             Text("被动备份: ${draft.rootDir}/rollback/<包名>/<备份ID>")
             Text("日志: ${draft.rootDir}/logs")
+        }
+        SectionCard("分身解锁实验") {
+            OutlinedTextField(
+                value = draft.cloneUnlockCredential,
+                onValueChange = { draft = draft.copy(cloneUnlockCredential = it) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("分身锁屏 PIN/密码") },
+                shape = RoundedCornerShape(14.dp),
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+            )
+            Text(
+                "仅用于诊断页的带密码尝试解锁。任务日志不会记录明文；当前版本会保存在 user0 的 App 私有设置中。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         SectionCard("默认数据范围") {
             ToggleRow("CE 数据", draft.includeCe) { draft = draft.copy(includeCe = it) }

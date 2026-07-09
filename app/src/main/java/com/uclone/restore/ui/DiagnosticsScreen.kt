@@ -47,7 +47,15 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
             }
             IosPrimaryButton(onClick = viewModel::probeCloneCe, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.LockOpen, contentDescription = null)
-                Text("探测分身 CE")
+                Text("检测 CE 状态")
+            }
+            IosPrimaryButton(
+                onClick = viewModel::unlockCloneWithCredential,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = state.settings.cloneUnlockCredential.isNotBlank(),
+            ) {
+                Icon(Icons.Default.LockOpen, contentDescription = null)
+                Text("带密码尝试解锁")
             }
             IosSecondaryButton(onClick = viewModel::startCloneUser, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null)

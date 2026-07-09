@@ -217,6 +217,19 @@ class UCloneViewModel(
         }
     }
 
+    fun unlockCloneWithCredential() {
+        val settings = _state.value.settings
+        if (settings.cloneUnlockCredential.isBlank()) {
+            _state.update { it.copy(message = "请先在设置中填写分身锁屏 PIN/密码") }
+            return
+        }
+        runTask("正在带密码尝试解锁分身") { report ->
+            syncEngine.unlockCloneWithCredential(_state.value.settings, report)
+            val environment = syncEngine.checkEnvironment(_state.value.settings)
+            _state.update { it.copy(environment = environment) }
+        }
+    }
+
     fun auditRestoreConsistencySelected() {
         val packageName = _state.value.selectedPackage ?: return
         _state.update { it.copy(selectedPackage = packageName) }

@@ -18,6 +18,7 @@ class SettingsStore(context: Context) {
         includePermissions = prefs.getBoolean("includePermissions", true),
         excludeCache = prefs.getBoolean("excludeCache", true),
         favoritePackages = prefs.getStringSet("favoritePackages", emptySet()).orEmpty().toSet(),
+        cloneUnlockCredential = prefs.getString("cloneUnlockCredential", "") ?: "",
     )
 
     fun save(settings: UCloneSettings) {
@@ -33,6 +34,7 @@ class SettingsStore(context: Context) {
             .putBoolean("includePermissions", settings.includePermissions)
             .putBoolean("excludeCache", settings.excludeCache)
             .putStringSet("favoritePackages", settings.favoritePackages.toMutableSet())
+            .putString("cloneUnlockCredential", settings.cloneUnlockCredential)
             .apply()
     }
 }
