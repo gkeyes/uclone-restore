@@ -140,17 +140,17 @@ class ModuleSettingsActivity : Activity() {
             addView(space(12))
             val controls = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
-                addView(pillButton("选择用户 App") {
+                addView(pillButton("选择用户 App", prominent = true) {
                     appChecks.forEach { (pkg, check) ->
                         check.isChecked = pkg != packageName && pkg != ModuleConstants.UCLONE_PACKAGE && !isSystemPackage(pkg)
                     }
                     updateSelectedCount()
-                }, prominent = true), LinearLayout.LayoutParams(0, dp(44), 1f))
+                }, LinearLayout.LayoutParams(0, dp(44), 1f))
                 addView(space(8, horizontal = true))
                 addView(pillButton("取消全选") {
                     appChecks.values.forEach { it.isChecked = false }
                     updateSelectedCount()
-                }, prominent = false), LinearLayout.LayoutParams(0, dp(44), 1f))
+                }, LinearLayout.LayoutParams(0, dp(44), 1f))
             }
             addView(controls, matchWrap())
 
