@@ -2,6 +2,7 @@ package com.uclone.restore.external
 
 object ExternalActionContract {
     const val PERMISSION_CONTROL = "com.uclone.restore.permission.CONTROL"
+    const val LAUNCHER_MODULE_PACKAGE = "com.uclone.restore.module"
 
     const val ACTION_EXECUTE = "com.uclone.restore.action.EXECUTE"
     const val ACTION_STATUS = "com.uclone.restore.action.STATUS"
@@ -12,6 +13,7 @@ object ExternalActionContract {
     const val EXTRA_REQUEST_ID = "com.uclone.restore.extra.REQUEST_ID"
     const val EXTRA_SOURCE = "com.uclone.restore.extra.SOURCE"
     const val EXTRA_STATUS = "com.uclone.restore.extra.STATUS"
+    const val EXTRA_ERROR_CODE = "com.uclone.restore.extra.ERROR_CODE"
     const val EXTRA_MESSAGE = "com.uclone.restore.extra.MESSAGE"
     const val EXTRA_TASK_TYPE = "com.uclone.restore.extra.TASK_TYPE"
 
@@ -30,6 +32,9 @@ object ExternalActionContract {
     const val STATUS_FAILED = "FAILED"
     const val STATUS_REJECTED = "REJECTED"
     const val STATUS_BUSY = "BUSY"
+    const val STATUS_NEED_CONFIRMATION = "NEED_CONFIRMATION"
+    const val STATUS_NEED_USER_ACTION = "NEED_USER_ACTION"
 
     const val SOURCE_MODULE = "module"
+    const val SOURCE_LAUNCHER_MODULE = "launcher_module"
 }

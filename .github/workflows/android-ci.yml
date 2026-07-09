@@ -59,11 +59,11 @@ jobs:
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: gradle --no-daemon :app:assembleRelease
+        run: gradle --no-daemon :app:assembleRelease :launcher-module:assembleRelease
 
       - name: Assemble debug APK fallback
         if: env.HAS_RELEASE_SIGNING != 'true'
-        run: gradle --no-daemon :app:assembleDebug
+        run: gradle --no-daemon :app:assembleDebug :launcher-module:assembleDebug
 
       - name: Upload fixed-signed release APK
         if: env.HAS_RELEASE_SIGNING == 'true'
@@ -79,4 +79,20 @@ jobs:
         with:
           name: uclone-restore-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload fixed-signed launcher module APK
+        if: env.HAS_RELEASE_SIGNING == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uclone-launcher-module-release-apk
+          path: launcher-module/build/outputs/apk/release/launcher-module-release.apk
+          if-no-files-found: error
+
+      - name: Upload launcher module debug APK fallback
+        if: env.HAS_RELEASE_SIGNING != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uclone-launcher-module-debug-apk
+          path: launcher-module/build/outputs/apk/debug/launcher-module-debug.apk
           if-no-files-found: error

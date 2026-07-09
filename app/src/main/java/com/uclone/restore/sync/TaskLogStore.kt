@@ -11,10 +11,14 @@ class TaskLogStore(private val shell: RootShellExecutor) {
     private val ids = AtomicLong(System.currentTimeMillis())
     private val records = mutableListOf<TaskRecord>()
 
-    fun all(): List<TaskRecord> = records.sortedByDescending { it.startedAt }
+    fun all(): List<TaskRecord> = synchronized(records) {
+        records.toList().sortedByDescending { it.startedAt }
+    }
 
     fun clear() {
-        records.clear()
+        synchronized(records) {
+            records.clear()
+        }
     }
 
     fun running(type: TaskType, packageName: String, logPath: String): TaskRecord =
@@ -27,7 +31,11 @@ class TaskLogStore(private val shell: RootShellExecutor) {
             status = TaskStatus.RUNNING,
             logPath = logPath,
             message = "运行中",
-        ).also { records += it }
+        ).also {
+            synchronized(records) {
+                records += it
+            }
+        }
 
     fun finish(task: TaskRecord, status: TaskStatus, message: String): TaskRecord {
         val finished = task.copy(
@@ -35,7 +43,9 @@ class TaskLogStore(private val shell: RootShellExecutor) {
             status = status,
             message = message,
         )
-        records.replaceAll { if (it.id == task.id) finished else it }
+        synchronized(records) {
+            records.replaceAll { if (it.id == task.id) finished else it }
+        }
         return finished
     }
 

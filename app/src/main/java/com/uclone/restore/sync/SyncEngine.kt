@@ -71,7 +71,10 @@ class SyncEngine(
         settings: UCloneSettings,
         report: suspend (TaskProgress) -> Unit,
     ): TaskRecord {
-        captureSnapshot(packageName, rule, settings, report)
+        val capture = captureSnapshot(packageName, rule, settings, report)
+        if (capture.status != TaskStatus.SUCCESS) {
+            return capture
+        }
         return restoreSnapshot(packageName, settings, report)
     }
 
@@ -470,6 +473,7 @@ class SyncEngine(
             "ERR_CLONE_UNLOCK_TIMEOUT" in output -> "分身解锁超时，请确认 PIN 和系统状态"
             "ERR_PACKAGE_NOT_LISTED_TARGET" in output -> "分身系统未安装此 App，无法推送"
             "ERR_PACKAGE_NOT_LISTED_SOURCE" in output -> "主系统未安装此 App，无法推送"
+            "ERR_PACKAGE_NOT_LISTED" in output -> "分身系统未安装此 App，未执行备份或切换"
             "ERR_PUSH_CE_MISSING" in output -> "主系统 CE 数据缺失，未执行推送"
             "ERR_NOTHING_PUSHED" in output || "ERR_NOTHING_COPIED" in output -> "没有找到可推送的数据"
             else -> result.stderr.ifBlank { "命令失败：${result.exitCode}" }

@@ -102,7 +102,7 @@ class ExternalActionService : Service() {
                 ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK ->
                     container.syncEngine.restoreCloneRollback(request.packageName, settings, report)
                 ExternalActionContract.OPERATION_SWITCH_TO_CLONE ->
-                    container.syncEngine.switchToCloneState(request.packageName, ruleFor(request.packageName, settings), settings, report)
+                    switchToCloneState(request.packageName, settings, report)
                 ExternalActionContract.OPERATION_RESTORE_MAIN ->
                     restoreMainState(request.packageName, settings, report)
                 ExternalActionContract.OPERATION_SWITCH_OR_RESTORE ->
@@ -141,6 +141,18 @@ class ExternalActionService : Service() {
         } else {
             (application as UCloneApplication).container.syncEngine.restoreSwitchMainState(packageName, rollbackId, settings, report)
         }
+    }
+
+    private suspend fun switchToCloneState(
+        packageName: String,
+        settings: UCloneSettings,
+        report: suspend (TaskProgress) -> Unit,
+    ): TaskRecord {
+        val container = (application as UCloneApplication).container
+        if (container.syncEngine.switchMarkerId(packageName, settings) != null) {
+            error("已处于分身态，请先还原主系统")
+        }
+        return container.syncEngine.switchToCloneState(packageName, ruleFor(packageName, settings), settings, report)
     }
 
     private suspend fun restoreMainState(
@@ -203,6 +215,10 @@ class ExternalActionService : Service() {
             .putExtra(ExternalActionContract.EXTRA_MESSAGE, message)
         task?.let {
             statusIntent.putExtra(ExternalActionContract.EXTRA_TASK_TYPE, it.type.name)
+        }
+        val source = intent.getStringExtra(ExternalActionContract.EXTRA_SOURCE).orEmpty()
+        if (source == ExternalActionContract.SOURCE_MODULE || source == ExternalActionContract.SOURCE_LAUNCHER_MODULE) {
+            statusIntent.setPackage(ExternalActionContract.LAUNCHER_MODULE_PACKAGE)
         }
         sendBroadcast(statusIntent, ExternalActionContract.PERMISSION_CONTROL)
     }

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="com.uclone.restore.permission.CONTROL" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <queries>
+        <package android:name="com.uclone.restore" />
+        <package android:name="com.miui.home" />
+        <package android:name="com.android.launcher3" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@drawable/ic_launcher_module"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.UCloneModule">
+
+        <activity
+            android:name=".settings.ModuleSettingsActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name=".relay.ModuleRelayProvider"
+            android:authorities="com.uclone.restore.module.relay"
+            android:exported="true" />
+
+        <service
+            android:name=".relay.ModuleRelayService"
+            android:exported="false" />
+
+        <receiver
+            android:name=".relay.UCloneStatusReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.uclone.restore.action.STATUS" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

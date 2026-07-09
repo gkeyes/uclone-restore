@@ -265,7 +265,9 @@ object ShellScripts {
           if cmd package list packages --user "${'$'}TRY_USER" 2>/dev/null | grep -qx "package:${'$'}PKG"; then
             echo "PACKAGE_LISTED:${'$'}TRY_USER"
           else
-            echo "WARN_PACKAGE_NOT_LISTED:${'$'}TRY_USER"
+            echo "ERR_PACKAGE_NOT_LISTED:${'$'}TRY_USER" >&2
+            rm -rf "${'$'}TRY_TMP"
+            return 1
           fi
           am force-stop --user "${'$'}TRY_USER" "${'$'}PKG" >/dev/null 2>&1 || true
           COPIED_PARTS=0
@@ -1406,6 +1408,24 @@ object ShellScripts {
               CONTEXT_TARGET="${'$'}1"
               ls -Zd "${'$'}CONTEXT_TARGET" 2>/dev/null | awk '{print ${'$'}1; exit}'
             }
+            target_owner_for() {
+              OWNER_TARGET="${'$'}1"
+              OWNER_UID_ARG="${'$'}2"
+              OWNER_KIND="${'$'}3"
+              if [ -n "${'$'}OWNER_UID_ARG" ]; then
+                echo "${'$'}OWNER_UID_ARG:${'$'}OWNER_UID_ARG"
+                return 0
+              fi
+              case "${'$'}OWNER_KIND" in
+                app) echo "${'$'}UID_VALUE:${'$'}UID_VALUE"; return 0 ;;
+                media) echo "${'$'}UID_VALUE:1078"; return 0 ;;
+              esac
+              EXISTING_OWNER=${'$'}(stat -c '%u:%g' "${'$'}OWNER_TARGET" 2>/dev/null || true)
+              case "${'$'}EXISTING_OWNER" in
+                *:*) echo "${'$'}EXISTING_OWNER" ;;
+                *) echo "" ;;
+              esac
+            }
             apply_target_security() {
               SEC_TARGET="${'$'}1"
               SEC_OWNER="${'$'}2"
@@ -1433,10 +1453,12 @@ object ShellScripts {
               SNAP="${'$'}1"
               TARGET="${'$'}2"
               OWNER_UID="${'$'}3"
+              OWNER_KIND="${'$'}4"
               [ -d "${'$'}SNAP" ] || { echo "SKIP_PART:${'$'}SNAP"; return 0; }
               validate_target_path "${'$'}TARGET"
               SNAP_ITEMS=${'$'}(count_items "${'$'}SNAP")
               [ "${'$'}SNAP_ITEMS" -gt 0 ] || { echo "ERR_EMPTY_SNAPSHOT_PART:${'$'}SNAP" >&2; exit 64; }
+              TARGET_OWNER=${'$'}(target_owner_for "${'$'}TARGET" "${'$'}OWNER_UID" "${'$'}OWNER_KIND")
               mkdir -p "${'$'}TARGET" || exit 56
               TARGET_CONTEXT=${'$'}(read_target_context "${'$'}TARGET")
               case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
@@ -1444,12 +1466,6 @@ object ShellScripts {
                 restorecon -RF "${'$'}TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}TARGET" >/dev/null 2>&1 || true
                 TARGET_CONTEXT=${'$'}(read_target_context "${'$'}TARGET")
                 case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
-              fi
-              if [ -n "${'$'}OWNER_UID" ]; then
-                TARGET_OWNER="${'$'}OWNER_UID:${'$'}OWNER_UID"
-              else
-                TARGET_OWNER=${'$'}(stat -c '%u:%g' "${'$'}TARGET" 2>/dev/null || true)
-                case "${'$'}TARGET_OWNER" in *:*) ;; *) TARGET_OWNER="" ;; esac
               fi
               TMP_INDEX=${'$'}((RESTORED_PARTS + 1))
               TMP="${'$'}ROOT/tmp/restore_${'$'}{PKG}_${'$'}{TS}_${'$'}TMP_INDEX"
@@ -1580,11 +1596,11 @@ object ShellScripts {
             ${if (settings.includePermissions) "backup_permission_state \"${'$'}ROLLBACK/permissions\"" else ":"}
             ROLLBACK_SIZE_KB=${'$'}(du -sk "${'$'}ROLLBACK" 2>/dev/null | awk '{print ${'$'}1}')
             printf '%s\n' "{\"packageName\":\"${'$'}PKG\",\"rollbackId\":\"${'$'}ROLLBACK_ID\",\"createdAt\":\"${'$'}TS\",\"reason\":\"$rollbackReason\",\"targetUser\":\"${'$'}DST_USER\",\"backupKind\":\"$rollbackRootName\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
-            restore_part "${'$'}ACTIVE/ce" "/data/user/${'$'}DST_USER/${'$'}PKG" "${'$'}UID_VALUE"
-            restore_part "${'$'}ACTIVE/de" "/data/user_de/${'$'}DST_USER/${'$'}PKG" "${'$'}UID_VALUE"
-            restore_part "${'$'}ACTIVE/external" "/data/media/${'$'}DST_USER/Android/data/${'$'}PKG" ""
-            restore_part "${'$'}ACTIVE/media" "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG" ""
-            restore_part "${'$'}ACTIVE/obb" "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG" ""
+            restore_part "${'$'}ACTIVE/ce" "/data/user/${'$'}DST_USER/${'$'}PKG" "${'$'}UID_VALUE" "app"
+            restore_part "${'$'}ACTIVE/de" "/data/user_de/${'$'}DST_USER/${'$'}PKG" "${'$'}UID_VALUE" "app"
+            restore_part "${'$'}ACTIVE/external" "/data/media/${'$'}DST_USER/Android/data/${'$'}PKG" "" "media"
+            restore_part "${'$'}ACTIVE/media" "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG" "" "media"
+            restore_part "${'$'}ACTIVE/obb" "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG" "" "media"
             ${if (settings.includePermissions) "restore_permission_state \"${'$'}ACTIVE/permissions\"" else ":"}
             [ "${'$'}RESTORED_PARTS" -gt 0 ] || { echo "ERR_NOTHING_RESTORED:${'$'}ACTIVE" >&2; exit 62; }
             ${if (writeSwitchMarker) """

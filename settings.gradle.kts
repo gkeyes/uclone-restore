@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "UCloneRestore"
 include(":app")
+include(":launcher-module")
