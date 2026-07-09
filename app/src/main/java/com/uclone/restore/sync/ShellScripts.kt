@@ -330,6 +330,39 @@ object ShellScripts {
           echo "DIGIT_KEYEVENTS_SENT=${credential.length}"
           return 0
         }
+        send_pin_pad_taps() {
+          case "${'$'}CREDENTIAL" in
+            ''|*[!0-9]*)
+              echo "PIN_PAD_TAPS_SKIPPED=non_numeric"
+              return 1
+              ;;
+          esac
+          echo "PIN_PAD_TAPS_BEGIN"
+          echo "PIN_PAD_GRID=cols_25_50_75_rows_56_66_76_86"
+          i=1
+          while [ "${'$'}i" -le ${credential.length} ]; do
+            DIGIT=${'$'}(printf '%s' "${'$'}CREDENTIAL" | cut -c "${'$'}i")
+            case "${'$'}DIGIT" in
+              1) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * 56 / 100)) ;;
+              2) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 56 / 100)) ;;
+              3) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * 56 / 100)) ;;
+              4) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * 66 / 100)) ;;
+              5) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 66 / 100)) ;;
+              6) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * 66 / 100)) ;;
+              7) TAP_X=${'$'}((WIDTH * 25 / 100)); TAP_Y=${'$'}((HEIGHT * 76 / 100)) ;;
+              8) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 76 / 100)) ;;
+              9) TAP_X=${'$'}((WIDTH * 75 / 100)); TAP_Y=${'$'}((HEIGHT * 76 / 100)) ;;
+              0) TAP_X=${'$'}((WIDTH * 50 / 100)); TAP_Y=${'$'}((HEIGHT * 86 / 100)) ;;
+              *) echo "WARN_PIN_PAD_BAD_DIGIT:index=${'$'}i"; return 1 ;;
+            esac
+            input tap "${'$'}TAP_X" "${'$'}TAP_Y" >/dev/null 2>&1 || echo "WARN_PIN_PAD_TAP_FAILED:index=${'$'}i"
+            sleep 0.15
+            i=${'$'}((i + 1))
+          done
+          input keyevent 66 >/dev/null 2>&1 || true
+          echo "PIN_PAD_TAPS_SENT=${credential.length}"
+          return 0
+        }
         STATE_BEFORE=${'$'}(state_of_clone)
         echo "STATE_BEFORE=${'$'}STATE_BEFORE"
         CURRENT_BEFORE=${'$'}(current_user)
@@ -391,6 +424,16 @@ object ShellScripts {
             echo "RETURN_MAIN_AFTER_DIGITS_BEGIN"
             RETURN_DIGIT_OUTPUT=${'$'}(am switch-user "${'$'}MAIN_USER" 2>&1 || true)
             echo "RETURN_MAIN_AFTER_DIGITS_OUTPUT=${'$'}RETURN_DIGIT_OUTPUT"
+            exit 0
+          }
+        fi
+        prepare_keyguard_input
+        if send_pin_pad_taps; then
+          sleep 3
+          check_unlocked_or_continue "STATE_AFTER_PIN_PAD_TAPS" && {
+            echo "RETURN_MAIN_AFTER_PIN_PAD_BEGIN"
+            RETURN_PIN_PAD_OUTPUT=${'$'}(am switch-user "${'$'}MAIN_USER" 2>&1 || true)
+            echo "RETURN_MAIN_AFTER_PIN_PAD_OUTPUT=${'$'}RETURN_PIN_PAD_OUTPUT"
             exit 0
           }
         fi

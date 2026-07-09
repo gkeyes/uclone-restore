@@ -25,7 +25,8 @@
 - 「检测 CE 状态」不会执行 `am start-user`、`am unlock-user` 或 `am switch-user`，不会删除文件。
 - 如需实验性自动解锁，先到「设置」填写分身锁屏 PIN/密码并点击「保存设置」，再在「诊断」点击「带密码尝试解锁」。
 - 如果未保存密码，按钮仍可点击，但只会提示先填写密码，不会执行 root 命令。
-- 带密码尝试会先执行 `cmd lock_settings verify --old <已脱敏> --user 10`；如果仍未解锁，会切换到 user10，唤醒/滑开锁屏，数字密码优先用 KEYCODE_0-9 输入，再兜底使用 `input text`。日志只记录结果分类、焦点摘要和密码长度，不记录明文。
+- 带密码尝试会先执行 `cmd lock_settings verify --old <已脱敏> --user 10`；如果仍未解锁，会切换到 user10，唤醒/滑开锁屏，依次尝试 KEYCODE_0-9、屏幕 PIN 键盘坐标点击、`input text`。日志只记录结果分类、焦点摘要、坐标网格和密码长度，不记录明文。
+- 成功标准只有一个：日志出现 `USER10_CE_READY=1` 且 `UNLOCK_SUCCESS_STAGE=...`。如果只看到 `CURRENT_USER_AFTER_INPUT=10` 但状态仍是 `RUNNING_LOCKED`，说明只是切换到了分身，没有解锁。
 
 ## 3. 主动备份和切换
 

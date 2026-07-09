@@ -153,6 +153,8 @@ class ShellScriptsTest {
         assertContains(script, "START_USER_BEGIN")
         assertContains(script, "DIGIT_KEYEVENTS_BEGIN")
         assertContains(script, "KEYCODE_${'$'}DIGIT")
+        assertContains(script, "PIN_PAD_TAPS_BEGIN")
+        assertContains(script, "STATE_AFTER_PIN_PAD_TAPS")
         assertContains(script, "print_keyguard_summary \"BEFORE_INPUT\"")
         assertContains(script, "input text")
         assertContains(script, "INPUT_TEXT_SENT_LENGTH=6")
