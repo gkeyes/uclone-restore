@@ -119,8 +119,8 @@ class ShellScriptsTest {
         assertContains(script, "DST_USER=10")
         assertContains(script, "ROLLBACK_PARENT=\"${'$'}ROOT/clone_rollback/${'$'}PKG\"")
         assertContains(script, "ROLLBACK=\"${'$'}ROLLBACK_PARENT/latest\"")
-        assertContains(script, "backupKind\":\"clone_rollback\"")
-        assertContains(script, "retention\":\"latest_only\"")
+        assertContains(script, "\\\"backupKind\\\":\\\"clone_rollback\\\"")
+        assertContains(script, "\\\"retention\\\":\\\"latest_only\\\"")
         assertContains(script, "copy_first_nonempty \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}SRC_USER/${'$'}PKG\"")
         assertContains(script, "restore_part \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}DST_USER/${'$'}PKG\" \"app\"")
         assertContains(script, "PUSH_MAIN_TO_CLONE_DONE")
@@ -169,7 +169,7 @@ class ShellScriptsTest {
         )
 
         assertContains(script, "ENSURE_CLONE_CE_BEGIN")
-        assertContains(script, "ENSURE_CLONE_AUTO_UNLOCK=0")
+        assertContains(script, "CLONE_AUTO_UNLOCK=0")
         assertContains(script, "ERR_CLONE_AUTO_UNLOCK_DISABLED:${'$'}STATE_BEFORE_UNLOCK")
     }
 
@@ -183,7 +183,7 @@ class ShellScriptsTest {
         )
 
         assertContains(script, "ENSURE_CLONE_CE_BEGIN")
-        assertContains(script, "ENSURE_CLONE_AUTO_UNLOCK=1")
+        assertContains(script, "CLONE_AUTO_UNLOCK=1")
         assertContains(script, "/system/bin/am start-user -w")
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
@@ -201,7 +201,7 @@ class ShellScriptsTest {
         )
 
         assertContains(script, "ENSURE_CLONE_CE_BEGIN")
-        assertContains(script, "ENSURE_CLONE_AUTO_UNLOCK=0")
+        assertContains(script, "CLONE_AUTO_UNLOCK=0")
         assertContains(script, "ERR_CLONE_AUTO_UNLOCK_DISABLED:${'$'}STATE_BEFORE_UNLOCK")
     }
 
@@ -229,7 +229,7 @@ class ShellScriptsTest {
 
         assertContains(script, "CAPTURE_REQUIRE_CE=1")
         assertContains(script, "ENSURE_CLONE_CE_BEGIN")
-        assertContains(script, "ENSURE_CLONE_AUTO_UNLOCK=1")
+        assertContains(script, "CLONE_AUTO_UNLOCK=1")
         assertContains(script, "/system/bin/am start-user -w")
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
@@ -267,7 +267,7 @@ class ShellScriptsTest {
         val script = ShellScripts.unlockCloneWithCredential(settings.copy(cloneUnlockCredential = "123456"))
 
         assertContains(script, "ENSURE_CLONE_CE_BEGIN")
-        assertContains(script, "ENSURE_CLONE_AUTO_UNLOCK=1")
+        assertContains(script, "CLONE_AUTO_UNLOCK=1")
         assertContains(script, "START_USER_BEGIN")
         assertContains(script, "/system/bin/am start-user -w")
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
