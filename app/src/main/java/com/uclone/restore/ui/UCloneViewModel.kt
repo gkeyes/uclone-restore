@@ -11,6 +11,7 @@ import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.model.User10CeState
 import com.uclone.restore.service.SyncForegroundService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -365,12 +366,24 @@ class UCloneViewModel(
                 val settings = _state.value.settings
                 val restoreBackups = syncEngine.listRestoreBackups(settings)
                 val switchMarkers = syncEngine.switchMarkerIds(settings)
+                val environment = syncEngine.checkEnvironment(settings)
+                val finalTask = _state.value.currentTask.task
+                val finalMessage = if (
+                    finalTask?.status == TaskStatus.SUCCESS &&
+                    environment.user10CeState is User10CeState.NotStarted
+                ) {
+                    "任务完成，分身已关闭"
+                } else {
+                    _state.value.message
+                }
                 _state.update {
                     it.copy(
                         busy = false,
+                        environment = environment,
                         history = syncEngine.history(),
                         restoreBackups = restoreBackups,
                         switchRollbackIds = switchMarkers,
+                        message = finalMessage,
                     )
                 }
                 syncLauncherShortcuts()
