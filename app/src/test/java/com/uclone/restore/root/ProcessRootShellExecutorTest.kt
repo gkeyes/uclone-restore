@@ -254,7 +254,7 @@ class ProcessRootShellExecutorTest {
 
     @Test
     fun interruptedRunnerReturnsNonSuccessAndTerminatesRealProcess() {
-        val processReady = CountDownLatch(1)
+        val processReady = CountDownLatch(2)
         val processId = AtomicLong(-1)
         val result = AtomicReference<ShellResult?>()
         val runner = ProcessCommandRunner(listOf("/bin/sh"), timeoutGraceSeconds = 0)
@@ -267,6 +267,7 @@ class ProcessRootShellExecutorTest {
                 ) { output ->
                     output.line.toLongOrNull()?.let(processId::set)
                     if (output.line == "ready") processReady.countDown()
+                    if (output.line == "before-interrupt") processReady.countDown()
                 },
             )
         }.apply { isDaemon = true }
