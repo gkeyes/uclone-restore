@@ -287,7 +287,7 @@ App 页用于选择目标应用：
 /data/adb/uclone/snapshots/<pkg>/active
 /data/adb/uclone/snapshots/<pkg>/history/<timestamp>
 /data/adb/uclone/rollback/<pkg>/<timestamp>
-/data/adb/uclone/clone_rollback/<pkg>/<timestamp>
+/data/adb/uclone/clone_rollback/<pkg>/latest
 /data/adb/uclone/switches/<pkg>/active
 /data/adb/uclone/logs
 /data/adb/uclone/tmp

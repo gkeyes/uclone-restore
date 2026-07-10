@@ -135,12 +135,12 @@ Required extras:
 com.uclone.restore.extra.PROTOCOL_VERSION = 1
 com.uclone.restore.extra.OPERATION = <operation>
 com.uclone.restore.extra.PACKAGE_NAME = <target package>
+com.uclone.restore.extra.REQUEST_ID = <non-empty uuid>
 ```
 
 Optional extras:
 
 ```text
-com.uclone.restore.extra.REQUEST_ID = <uuid>
 com.uclone.restore.extra.SOURCE = module
 ```
 
@@ -192,6 +192,7 @@ PACKAGE_NAME
 PRIMARY_ACTION
 PRIMARY_LABEL
 BUSY
+ALREADY_RUNNING
 HAS_SWITCH_MARKER
 HAS_ACTIVE_SNAPSHOT
 NEED_USER10_UNLOCK
@@ -268,7 +269,7 @@ Intent("com.uclone.restore.action.STATUS")
 
 Do not rely on a global implicit broadcast for module callbacks.
 
-`ACCEPTED` only means UClone accepted the request into its execution path. The module should wait for a later `SUCCESS`, `FAILED`, `REJECTED`, `BUSY`, `NEED_CONFIRMATION`, or `NEED_USER_ACTION` status with the same `REQUEST_ID`.
+`ACCEPTED` only means UClone accepted the request into its execution path. `ALREADY_RUNNING` means the same `REQUEST_ID` is already active and was not submitted twice. `BUSY` means a different request owns the single execution slot. UClone does not queue either case. The module should wait for a later terminal status with the same `REQUEST_ID` after `ACCEPTED`.
 
 ## UClone-Side Guard Rails
 
@@ -278,11 +279,15 @@ UClone rejects the request when:
 - target package is UClone itself;
 - target package is a system or updated-system app;
 - target package is not visible/installed for the current user;
-- another external operation is already running;
-- any in-app UClone operation is already running;
+- another operation from either the module or the main App is already running;
+- a module request is outside the published switch/backup/restore/push operation allowlist;
 - the operation is unsupported or missing required extras.
 
+User lifecycle controls, deletion, workspace reset, and diagnostics are internal main-App operations. `STOP_CLONE_USER` is an explicit user command from the Home screen; it is separate from automatic post-task cleanup. Automatic cleanup remains guarded by `CLONE_STARTED_BY_TASK=1` and never stops a user10 session that was already running before the task.
+
 The module can still have its own per-app settings page. Those settings should only decide whether to show hook menu entries for each App. UClone remains the authority for whether the operation is allowed.
+
+All main-App and module mutations share one `TaskCoordinator`, one persistent `TaskRepository`, and the same foreground `ExternalActionService`. The main App does not execute backup or restore work from a ViewModel coroutine. This keeps request deduplication, progress, history, notifications, and final status in one path even when the UI process was previously closed.
 
 `SOURCE` is only diagnostic metadata. It must never be treated as authentication because any caller can forge an extra.
 

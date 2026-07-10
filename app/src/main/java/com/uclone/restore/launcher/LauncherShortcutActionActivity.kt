@@ -32,6 +32,10 @@ class LauncherShortcutActionActivity : Activity() {
                 .putExtra(ExternalActionContract.EXTRA_PACKAGE_NAME, packageName)
                 .putExtra(ExternalActionContract.EXTRA_REQUEST_ID, UUID.randomUUID().toString())
                 .putExtra(ExternalActionContract.EXTRA_SOURCE, ExternalActionContract.SOURCE_LAUNCHER_SHORTCUT)
+                .putExtra(
+                    ExternalActionContract.EXTRA_INTERNAL_TOKEN,
+                    (context.applicationContext as UCloneApplication).container.internalRequestToken,
+                )
             ExternalActionService.start(context, intent)
             return true
         }

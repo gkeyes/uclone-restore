@@ -6,14 +6,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.uclone.restore.AppContainer
+import com.uclone.restore.external.ExternalActionService
 import com.uclone.restore.launcher.FavoriteShortcutEntry
-import com.uclone.restore.model.AppRule
-import com.uclone.restore.model.TaskProgress
-import com.uclone.restore.model.TaskStatus
+import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.UCloneSettings
-import com.uclone.restore.model.User10CeState
-import com.uclone.restore.service.SyncForegroundService
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -26,11 +22,15 @@ class UCloneViewModel(
     private val settingsStore = container.settingsStore
     private val packageInspector = container.packageInspector
     private val syncEngine = container.syncEngine
+    private val taskRepository = container.taskRepository
+    private val taskCoordinator = container.taskCoordinator
     private val launcherShortcutController = container.launcherShortcutController
     private val _state = MutableStateFlow(UiState(settings = settingsStore.load()))
     val state: StateFlow<UiState> = _state
+    private var refreshedTerminalRequestId: String? = null
 
     init {
+        observeTasks()
         refreshAll()
     }
 
@@ -134,10 +134,7 @@ class UCloneViewModel(
 
     fun captureSelected() {
         val packageName = _state.value.selectedPackage ?: return
-        val rule = _state.value.selectedRule ?: AppRule(packageName)
-        runTask("正在建立分身快照") { report ->
-            syncEngine.captureSnapshot(packageName, rule, _state.value.settings, report)
-        }
+        submitTask(UiTaskAction.CAPTURE, packageName, "正在建立分身快照")
     }
 
     fun restoreSelected() {
@@ -147,25 +144,17 @@ class UCloneViewModel(
 
     fun restoreSnapshot(packageName: String) {
         _state.update { it.copy(selectedPackage = packageName) }
-        runTask("正在恢复到主系统") { report ->
-            syncEngine.restoreSnapshot(packageName, _state.value.settings, report)
-        }
+        submitTask(UiTaskAction.RESTORE_ACTIVE, packageName, "正在恢复到主系统")
     }
 
     fun restoreLatestSelected() {
         val packageName = _state.value.selectedPackage ?: return
-        val rule = _state.value.selectedRule ?: AppRule(packageName)
-        runTask("正在从分身最新恢复") { report ->
-            syncEngine.restoreFromCloneLatest(packageName, rule, _state.value.settings, report)
-        }
+        submitTask(UiTaskAction.RESTORE_CLONE_LATEST, packageName, "正在从分身最新恢复")
     }
 
     fun switchToCloneState(packageName: String) {
         _state.update { it.copy(selectedPackage = packageName) }
-        val rule = _state.value.selectedRule ?: AppRule(packageName)
-        runTask("正在切换到分身态") { report ->
-            syncEngine.switchToCloneState(packageName, rule, _state.value.settings, report)
-        }
+        submitTask(UiTaskAction.SWITCH_TO_CLONE, packageName, "正在切换到分身态")
     }
 
     fun switchToCloneStateSelected() {
@@ -175,26 +164,17 @@ class UCloneViewModel(
 
     fun pushMainToClone(packageName: String) {
         _state.update { it.copy(selectedPackage = packageName) }
-        runTask("正在推送到分身") { report ->
-            syncEngine.pushMainToClone(packageName, ruleFor(packageName), _state.value.settings, report)
-        }
+        submitTask(UiTaskAction.PUSH_MAIN, packageName, "正在推送到分身")
     }
 
     fun restoreCloneRollback(packageName: String) {
         _state.update { it.copy(selectedPackage = packageName) }
-        runTask("正在恢复分身回滚") { report ->
-            syncEngine.restoreCloneRollback(packageName, _state.value.settings, report)
-        }
+        submitTask(UiTaskAction.RESTORE_CLONE_ROLLBACK, packageName, "正在恢复分身回滚")
     }
 
     fun restoreSwitchMainState(packageName: String) {
         _state.update { it.copy(selectedPackage = packageName) }
-        runTask("正在还原主系统态") { report ->
-            val settings = _state.value.settings
-            val rollbackId = syncEngine.switchMarkerId(packageName, settings)
-                ?: error("没有可用的切换回滚点")
-            syncEngine.restoreSwitchMainState(packageName, rollbackId, settings, report)
-        }
+        submitTask(UiTaskAction.RESTORE_MAIN, packageName, "正在还原主系统态")
     }
 
     fun restoreSwitchMainStateSelected() {
@@ -209,38 +189,8 @@ class UCloneViewModel(
             syncLauncherShortcuts()
             return
         }
-        viewModelScope.launch {
-            if (_state.value.currentTask.task?.status == TaskStatus.RUNNING) {
-                _state.update { it.copy(message = "已有任务正在执行") }
-                return@launch
-            }
-            if (!waitUntilIdleForLauncherShortcut()) {
-                _state.update { it.copy(message = "初始化未完成，请稍后重试快捷入口") }
-                return@launch
-            }
-            val rollbackId = syncEngine.switchMarkerId(packageName, _state.value.settings)
-            _state.update {
-                val switchRollbackIds = if (rollbackId == null) {
-                    it.switchRollbackIds - packageName
-                } else {
-                    it.switchRollbackIds + (packageName to rollbackId)
-                }
-                it.copy(
-                    selectedPackage = packageName,
-                    switchRollbackIds = switchRollbackIds,
-                )
-            }
-            syncLauncherShortcuts()
-            if (rollbackId == null) {
-                runTask("正在从桌面快捷入口切换") { report ->
-                    syncEngine.switchToCloneState(packageName, ruleFor(packageName), _state.value.settings, report)
-                }
-            } else {
-                runTask("正在从桌面快捷入口还原") { report ->
-                    syncEngine.restoreSwitchMainState(packageName, rollbackId, _state.value.settings, report)
-                }
-            }
-        }
+        _state.update { it.copy(selectedPackage = packageName) }
+        submitTask(UiTaskAction.SWITCH_OR_RESTORE, packageName, "正在从桌面快捷入口切换/还原")
     }
 
     fun rollbackSelected(rollbackId: String) {
@@ -250,9 +200,7 @@ class UCloneViewModel(
 
     fun restoreBackup(packageName: String, rollbackId: String) {
         _state.update { it.copy(selectedPackage = packageName) }
-        runTask("正在恢复被动备份") { report ->
-            syncEngine.rollback(packageName, rollbackId, _state.value.settings, report)
-        }
+        submitTask(UiTaskAction.RESTORE_ROLLBACK, packageName, "正在恢复被动备份", rollbackId)
     }
 
     fun deleteSnapshotSelected() {
@@ -262,24 +210,16 @@ class UCloneViewModel(
 
     fun deleteSnapshot(packageName: String) {
         _state.update { it.copy(selectedPackage = packageName) }
-        runTask("正在删除 active 快照") { report ->
-            syncEngine.deleteSnapshot(packageName, _state.value.settings, report)
-        }
+        submitTask(UiTaskAction.DELETE_SNAPSHOT, packageName, "正在删除 active 快照")
     }
 
     fun deleteRestoreBackup(packageName: String, rollbackId: String) {
         _state.update { it.copy(selectedPackage = packageName) }
-        runTask("正在删除被动备份") { report ->
-            syncEngine.deleteRestoreBackup(packageName, rollbackId, _state.value.settings, report)
-        }
+        submitTask(UiTaskAction.DELETE_ROLLBACK, packageName, "正在删除被动备份", rollbackId)
     }
 
     fun probeCloneCe() {
-        runTask("正在探测分身 CE") { report ->
-            syncEngine.probeCloneCe(_state.value.settings, report)
-            val environment = syncEngine.checkEnvironment(_state.value.settings)
-            _state.update { it.copy(environment = environment) }
-        }
+        submitTask(UiTaskAction.PROBE_CLONE, cloneUserLabel(), "正在探测分身 CE")
     }
 
     fun unlockCloneWithCredential() {
@@ -288,214 +228,93 @@ class UCloneViewModel(
             _state.update { it.copy(message = "请先在设置中填写分身锁屏 PIN/密码") }
             return
         }
-        runTask("正在无感启动分身") { report ->
-            syncEngine.unlockCloneWithCredential(_state.value.settings, report)
-            val environment = syncEngine.checkEnvironment(_state.value.settings)
-            _state.update { it.copy(environment = environment) }
-        }
+        submitTask(UiTaskAction.UNLOCK_CLONE, cloneUserLabel(), "正在无感启动分身")
     }
 
     fun debugCloneSystem() {
-        runTask("正在调试分身系统") { report ->
-            syncEngine.debugCloneSystem(_state.value.settings, report)
-            val environment = syncEngine.checkEnvironment(_state.value.settings)
-            _state.update { it.copy(environment = environment) }
-        }
+        submitTask(UiTaskAction.DEBUG_CLONE, cloneUserLabel(), "正在调试分身系统")
     }
 
     fun auditRestoreConsistencySelected() {
         val packageName = _state.value.selectedPackage ?: return
         _state.update { it.copy(selectedPackage = packageName) }
-        runTask("正在生成恢复审计包") { report ->
-            syncEngine.auditRestoreConsistency(packageName, _state.value.settings, report)
-        }
+        submitTask(UiTaskAction.AUDIT_RESTORE, packageName, "正在生成恢复审计包")
     }
 
     fun clearLogs() {
-        viewModelScope.launch {
-            runBusy("清理日志") {
-                val result = syncEngine.clearLogs(_state.value.settings)
-                val message = if (result.isSuccess) {
-                    result.stdout.trim().ifBlank { "日志已清理" }
-                } else {
-                    result.stderr.trim().ifBlank { "日志清理失败：${result.exitCode}" }
-                }
-                _state.update {
-                    it.copy(
-                        currentTask = TaskProgress(null),
-                        history = syncEngine.history(),
-                        message = message,
-                    )
-                }
-            }
-        }
+        submitTask(UiTaskAction.CLEAR_LOGS, "logs", "正在清理日志")
     }
 
     fun resetWorkspace() {
-        if (_state.value.busy) {
-            _state.update { it.copy(message = "已有任务正在执行") }
-            return
-        }
-        if (!syncEngine.tryBeginOperation()) {
-            _state.update { it.copy(message = "已有任务正在执行") }
-            return
-        }
-        viewModelScope.launch {
-            _state.update { it.copy(busy = true, message = "正在重置 UClone 数据") }
-            try {
-                val settings = _state.value.settings
-                val result = syncEngine.resetWorkspace(settings)
-                if (result.isSuccess) {
-                    val cleanedApps = _state.value.apps.map {
-                        it.copy(lastSnapshotAt = null, snapshotSizeKb = null)
-                    }
-                    _state.update {
-                        it.copy(
-                            apps = cleanedApps,
-                            currentTask = TaskProgress(null),
-                            history = emptyList(),
-                            rollbackIds = emptyList(),
-                            restoreBackups = emptyList(),
-                            cloneRollbackBackups = emptyList(),
-                            switchRollbackIds = emptyMap(),
-                            message = result.stdout.trim().ifBlank { "UClone 数据已重置" },
-                        )
-                    }
-                    syncLauncherShortcuts()
-                } else {
-                    _state.update {
-                        it.copy(
-                            message = result.stderr.trim()
-                                .ifBlank { result.stdout.trim().ifBlank { "重置失败：${result.exitCode}" } },
-                        )
-                    }
-                }
-            } catch (error: Exception) {
-                _state.update { it.copy(message = error.message ?: "重置失败") }
-            } finally {
-                syncEngine.finishOperation()
-                _state.update { it.copy(busy = false) }
-            }
-        }
+        submitTask(UiTaskAction.RESET_WORKSPACE, "workspace", "正在重置 UClone 数据")
     }
 
     fun startCloneUser() {
-        viewModelScope.launch {
-            runBusy("启动分身") {
-                val result = syncEngine.startCloneUser(_state.value.settings)
-                _state.update { it.copy(message = result.stdout.ifBlank { result.stderr }) }
-                refreshEnvironment()
-            }
-        }
+        submitTask(UiTaskAction.START_CLONE_USER, cloneUserLabel(), "正在启动分身")
     }
 
     fun switchToCloneUser() {
-        viewModelScope.launch {
-            val result = syncEngine.switchToCloneUser(_state.value.settings)
-            _state.update { it.copy(message = result.stdout.ifBlank { result.stderr }) }
-        }
+        submitTask(UiTaskAction.SWITCH_CLONE_USER, cloneUserLabel(), "正在切换到分身")
     }
 
     fun stopCloneUser() {
-        viewModelScope.launch {
-            runBusy("关闭分身") {
-                val result = syncEngine.stopCloneUser(_state.value.settings)
-                _state.update { it.copy(message = result.stdout.ifBlank { result.stderr }) }
-                refreshEnvironment()
-            }
-        }
+        submitTask(UiTaskAction.STOP_CLONE_USER, cloneUserLabel(), "正在关闭分身")
     }
 
     fun refreshTaskHistory() {
-        _state.update { it.copy(history = syncEngine.history()) }
+        _state.update { it.copy(history = taskRepository.all()) }
     }
 
-    private fun runTask(
-        serviceMessage: String,
-        block: suspend (suspend (TaskProgress) -> Unit) -> Unit,
-    ) {
-        if (_state.value.busy) {
-            _state.update { it.copy(message = "已有任务正在执行") }
-            return
-        }
-        if (!syncEngine.tryBeginOperation()) {
-            _state.update { it.copy(message = "已有任务正在执行") }
-            return
-        }
-        _state.update { it.copy(busy = true, message = serviceMessage) }
+    private fun observeTasks() {
         viewModelScope.launch {
-            try {
-                SyncForegroundService.start(getApplication(), serviceMessage)
-                block { progress ->
-                    _state.update {
-                        it.copy(
-                            currentTask = progress,
-                            history = syncEngine.history(),
-                        )
-                    }
-                }
-                val task = _state.value.currentTask.task
-                val message = if (task?.status == TaskStatus.SUCCESS) "任务完成" else task?.message ?: "任务结束"
-                _state.update { it.copy(message = message) }
-            } catch (error: Exception) {
-                _state.update { it.copy(message = error.message ?: "任务失败") }
-            } finally {
-                try {
-                    SyncForegroundService.stop(getApplication())
-                    val settings = _state.value.settings
-                    val restoreBackups = syncEngine.listRestoreBackups(settings)
-                    val cloneRollbackBackups = syncEngine.listCloneRollbackBackups(settings)
-                    val switchMarkers = syncEngine.switchMarkerIds(settings)
-                    val environment = syncEngine.checkEnvironment(settings)
-                    val finalTask = _state.value.currentTask.task
-                    val finalMessage = if (
-                        finalTask?.status == TaskStatus.SUCCESS &&
-                        environment.user10CeState is User10CeState.NotStarted
-                    ) {
-                        "任务完成，分身已关闭"
-                    } else {
-                        _state.value.message
-                    }
-                    _state.update {
-                        it.copy(
-                            busy = false,
-                            environment = environment,
-                            history = syncEngine.history(),
-                            restoreBackups = restoreBackups,
-                            cloneRollbackBackups = cloneRollbackBackups,
-                            switchRollbackIds = switchMarkers,
-                            message = finalMessage,
-                        )
-                    }
-                    syncLauncherShortcuts()
-                    _state.value.selectedPackage?.let(::selectPackage)
-                } catch (error: Exception) {
-                    _state.update {
-                        it.copy(
-                            busy = false,
-                            message = error.message ?: "任务结束后刷新状态失败",
-                        )
-                    }
-                } finally {
-                    syncEngine.finishOperation()
+            taskRepository.history.collect { history ->
+                _state.update { it.copy(history = history) }
+            }
+        }
+        viewModelScope.launch {
+            taskRepository.progress.collect { progress ->
+                val task = progress.task
+                _state.update { TaskUiStateReducer.progress(it, progress) }
+                if (task?.status?.isTerminal == true && refreshedTerminalRequestId != task.requestId) {
+                    refreshedTerminalRequestId = task.requestId
+                    refreshAfterTask(task)
                 }
             }
         }
     }
 
-    private fun ruleFor(packageName: String): AppRule {
-        val settings = _state.value.settings
-        return AppRule(
-            packageName = packageName,
-            includeCe = settings.includeCe,
-            includeDe = settings.includeDe,
-            includeExternal = settings.includeExternal,
-            includeMedia = settings.includeMedia,
-            includeObb = settings.includeObb,
-            includePermissions = settings.includePermissions,
-            excludeCache = settings.excludeCache,
-        )
+    private fun submitTask(action: UiTaskAction, packageName: String, message: String, rollbackId: String? = null) {
+        if (_state.value.busy || taskCoordinator.isBusy()) {
+            _state.update { it.copy(message = "已有任务正在执行") }
+            return
+        }
+        _state.update { it.copy(message = message) }
+        ExternalActionService.startInternal(getApplication(), action.operation, packageName, rollbackId)
     }
+
+    private suspend fun refreshAfterTask(task: TaskRecord) {
+        runCatching {
+            val settings = _state.value.settings
+            val restoreBackups = syncEngine.listRestoreBackups(settings)
+            val cloneRollbackBackups = syncEngine.listCloneRollbackBackups(settings)
+            val switchMarkers = syncEngine.switchMarkerIds(settings)
+            val environment = syncEngine.checkEnvironment(settings)
+            val snapshot = TaskRefreshSnapshot(
+                environment = environment,
+                history = taskRepository.all(),
+                restoreBackups = restoreBackups,
+                cloneRollbackBackups = cloneRollbackBackups,
+                switchRollbackIds = switchMarkers,
+            )
+            _state.update { TaskUiStateReducer.refreshed(it, task, snapshot) }
+            syncLauncherShortcuts()
+            _state.value.selectedPackage?.let(::selectPackage)
+        }.onFailure { error ->
+            _state.update { it.copy(busy = false, message = error.message ?: "任务结束后刷新状态失败") }
+        }
+    }
+
+    private fun cloneUserLabel(): String = "user${_state.value.settings.cloneUserId}"
 
     private fun syncLauncherShortcuts() {
         val state = _state.value
@@ -510,14 +329,6 @@ class UCloneViewModel(
         )
     }
 
-    private suspend fun waitUntilIdleForLauncherShortcut(): Boolean {
-        repeat(LAUNCHER_SHORTCUT_IDLE_RETRY_COUNT) {
-            if (!_state.value.busy) return true
-            delay(LAUNCHER_SHORTCUT_IDLE_RETRY_DELAY_MS)
-        }
-        return !_state.value.busy
-    }
-
     private suspend fun runBusy(label: String, block: suspend () -> Unit) {
         _state.update { it.copy(busy = true, message = label) }
         try {
@@ -525,7 +336,7 @@ class UCloneViewModel(
         } catch (error: Exception) {
             _state.update { it.copy(message = error.message ?: "操作失败") }
         } finally {
-            _state.update { it.copy(busy = false) }
+            _state.update { it.copy(busy = taskCoordinator.isBusy()) }
         }
     }
 }
@@ -542,6 +353,3 @@ class UCloneViewModelFactory(
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
 }
-
-private const val LAUNCHER_SHORTCUT_IDLE_RETRY_COUNT = 80
-private const val LAUNCHER_SHORTCUT_IDLE_RETRY_DELAY_MS = 250L

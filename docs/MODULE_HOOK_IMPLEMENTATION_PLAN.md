@@ -64,12 +64,12 @@ Launcher Hook
 ```text
 Launcher Hook
   -> ModuleRelayProvider.queryMenuState(...)
-  -> PendingIntent(ModuleRelayService)
-  -> ModuleRelayService 以模块进程 UID 调用 UClone
-  -> UClone ExternalActionService 执行任务
+  -> Provider 以模块 UID 创建 PendingIntent.getForegroundService(...)
+  -> Hook 仅调用 pendingIntent.send()
+  -> UClone ExternalActionService 以 PendingIntent 创建者身份校验并执行任务
 ```
 
-`com.uclone.restore.permission.CONTROL(signature)` 仍然有价值，但前提是调用 UClone 的组件运行在模块 APK 自身进程中，并且模块与 UClone 使用同一签名。
+`com.uclone.restore.permission.CONTROL(signature)` 仍然有价值。`PendingIntent` 的创建者是同签名模块 APK，因此权限校验针对模块 UID，而不是 Launcher UID。
 
 ## 4. 推荐架构
 
@@ -79,8 +79,8 @@ UClone Launcher Module APK
 ├─ HookEntry
 ├─ ModuleConfigStore
 ├─ ModuleRelayProvider
-├─ ModuleRelayService
 ├─ PendingIntentFactory
+├─ LegacyRelayComponents（仅兼容旧 token，不签发新 token）
 └─ HookEventLog
 
 UClone Restore APK
@@ -129,12 +129,12 @@ UClone Restore APK
 - 校验模块全局开关。
 - 校验 App 白名单。
 - 校验操作白名单。
-- 创建指向 `ModuleRelayService` 的 `PendingIntent`。
+- 创建显式指向 UClone `ExternalActionService` 的一次性前台服务 `PendingIntent`。
 
 推荐 Provider API:
 
 ```text
-content://com.uclone.module.relay
+content://com.uclone.restore.module.relay
 method=queryMenuState
 ```
 
@@ -164,7 +164,7 @@ Manifest 要求:
 ```xml
 <provider
     android:name=".relay.ModuleRelayProvider"
-    android:authorities="com.uclone.module.relay"
+    android:authorities="com.uclone.restore.module.relay"
     android:exported="true" />
 ```
 
@@ -182,26 +182,17 @@ pendingIntent.send()
 
 这样可以避免 Hook 代码直接以 Launcher 身份启动 UClone。
 
-第一版 PendingIntent 目标必须是模块自己的 `ModuleRelayService`，不要直达 UClone:
+现行 PendingIntent 目标是 UClone 的 `ExternalActionService`:
 
 ```text
-Hook -> ModuleRelayProvider -> PendingIntent(ModuleRelayService) -> ModuleRelayService -> UClone ExternalActionService
+Hook -> ModuleRelayProvider -> module-owned PendingIntent.getForegroundService -> UClone ExternalActionService
 ```
 
-这样可以确保调用 UClone 的实际身份是模块 APK UID，而不是 Launcher UID。
+这样既确保权限校验使用模块 APK UID，又避免后台 Activity trampoline 在 Android 14+ 被异步拦截。PendingIntent 必须使用显式组件、`FLAG_IMMUTABLE`、`FLAG_ONE_SHOT` 和 request-specific data URI。
 
-### 4.4 ModuleRelayService
+### 4.4 旧 Relay 组件兼容边界
 
-运行在模块 APK 自身进程。
-
-职责:
-
-- 接收模块 Provider 创建的 `PendingIntent`。
-- 重新读取模块配置和操作白名单。
-- 构造显式 Intent 调用 UClone `ExternalActionService`。
-- 记录 Relay 请求日志。
-
-Manifest 要求:
+已安装版本可能仍持有旧 token，因此旧 `ModuleRelayService` 可以暂时保留，但不得签发新 token，且必须保持非导出:
 
 ```xml
 <service
@@ -209,30 +200,7 @@ Manifest 要求:
     android:exported="false" />
 ```
 
-`ModuleRelayService` 必须 `exported=false`，只接受模块自己创建的 `PendingIntent`。
-
-UClone 启动目标优先级:
-
-1. `UCloneExternalActionActivity(NoDisplay)`
-2. `ExternalActionService`
-
-推荐先支持 Service 直达；如目标 ROM 受 Android 12+ foreground service 限制影响，再增加 NoDisplay Activity trampoline。
-
-### 4.5 UCloneExternalActionActivity
-
-这是 UClone 侧的可选补充组件。
-
-用途:
-
-```text
-PendingIntent -> ModuleRelayService -> NoDisplay Activity -> startForegroundService(ExternalActionService) -> finish()
-```
-
-约束:
-
-- 不展示 UI。
-- 不做 root 操作。
-- 不做业务判断。
+透明 Activity trampoline 不用于新请求。Provider 返回的前台服务 PendingIntent 是唯一现行入口。
 - 只负责在用户点击语义下启动前台服务。
 - 立即 `finish()`。
 
@@ -501,7 +469,7 @@ UClone 切换/还原
 点击后:
 
 ```text
-Hook -> ModuleRelayProvider -> PendingIntent(ModuleRelayService) -> ModuleRelayService -> UClone -> Toast: UClone 已接收任务
+Hook -> ModuleRelayProvider -> module-owned foreground-service PendingIntent -> UClone 通知：任务已接收
 ```
 
 ### Step 4: 接入 UClone 查询接口
@@ -625,13 +593,12 @@ message
 1. `ExternalQueryProvider` 或 `ExternalQueryService`
 2. `QUERY_ACTION_STATE`
 3. `ActionStateResolver`
-4. 可选 `UCloneExternalActionActivity(NoDisplay)`
-5. `PUSH_MAIN_TO_CLONE` 的确认机制
-6. 更明确的模块操作白名单设置
-7. status broadcast 增加 `ERROR_CODE`
-8. STATUS 广播显式 `setPackage(modulePackage)`
+4. `PUSH_MAIN_TO_CLONE` 的确认机制
+5. 更明确的模块操作白名单设置
+6. status broadcast 增加 `ERROR_CODE`
+7. STATUS 广播显式 `setPackage(modulePackage)`
 
-当前已有 `ExternalActionService` 可以先支撑第一版执行，但模块不应绕过 Relay 直接调用。
+当前 `ModuleRelayProvider` 负责 Launcher 调用方、配置和白名单校验；UClone `ExternalActionService` 负责签名权限、目标包、操作和并发状态的二次校验。
 
 ## 11. 第一版 MVP
 
@@ -658,17 +625,17 @@ message
 - Hook 异常不会导致 Launcher 崩溃。
 - 连续异常超过阈值后自动禁用 Hook。
 
-### 12.2 Relay
+### 12.2 Provider 与 PendingIntent
 
 - Hook 调 Provider 成功。
 - 非 Launcher 调 Provider 被拒绝。
 - 未在白名单的 App 被拒绝。
 - Provider 能返回 `PendingIntent`。
 - Provider `queryMenuState` 能返回 `showMenu`、`menuLabel` 和 `PendingIntent`。
-- Hook 调 `pendingIntent.send()` 后 `ModuleRelayService` 收到请求。
-- `ModuleRelayService` 以模块 UID 调用 UClone。
+- Hook 调 `pendingIntent.send()` 后 UClone `ExternalActionService` 收到请求。
+- PendingIntent creator 为模块 UID，UClone 的 signature 权限校验通过。
 - Provider `exported=true` 且不用 signature permission 保护。
-- `ModuleRelayService exported=false`。
+- 新 token 不经过旧 Relay Activity/Service。
 
 ### 12.3 UClone 执行
 
@@ -697,7 +664,7 @@ HyperOS Launcher 内部类和菜单结构可能随版本变化。第一版只适
 
 ### 13.2 Android 前台服务限制
 
-Android 12+ 对后台启动前台服务有限制。若 Provider 直接启动 UClone Service 不稳定，使用 PendingIntent 或 NoDisplay Activity trampoline。
+Android 12+ 对后台启动前台服务有限制。现行方案由可见 Launcher 用户操作触发模块创建的前台服务 PendingIntent；不要退回透明 Activity trampoline。
 
 ### 13.3 多用户图标识别
 
@@ -720,9 +687,8 @@ LSPosed 本身和 Android 新版本存在兼容性不确定性。第一版不要
   -> ModuleRelayProvider.queryMenuState(...)
   -> Provider 校验 caller = allowed Launcher
   -> Provider 校验 App 白名单 / 操作白名单
-  -> Provider 返回 showMenu / menuLabel / PendingIntent(ModuleRelayService)
+  -> Provider 返回 showMenu / menuLabel / module-owned foreground-service PendingIntent
   -> Hook pendingIntent.send()
-  -> ModuleRelayService 重新校验模块配置
   -> UClone ExternalActionService
   -> UClone 校验 allowModuleControl / signature / package / operation / busy / marker
   -> SyncEngine 执行 SWITCH_OR_RESTORE
@@ -731,11 +697,11 @@ LSPosed 本身和 Android 新版本存在兼容性不确定性。第一版不要
 
 ## 15. 结论
 
-模块方案可行，但必须以中继层作为第一原则:
+模块方案可行，但必须以身份边界和双重校验作为第一原则:
 
 ```text
 Hook 不直接调用 UClone。
-模块进程中继调用 UClone。
+Provider 只向通过校验的 Launcher 返回模块 UID 创建的 PendingIntent。
 UClone 决定状态和执行。
 ```
 

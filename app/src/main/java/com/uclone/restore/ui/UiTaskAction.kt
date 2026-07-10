@@ -1,0 +1,26 @@
+package com.uclone.restore.ui
+
+import com.uclone.restore.external.ExternalActionContract
+
+internal enum class UiTaskAction(val operation: String) {
+    CAPTURE(ExternalActionContract.OPERATION_BACKUP_DEFAULT),
+    RESTORE_ACTIVE(ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP),
+    RESTORE_CLONE_LATEST(ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST),
+    SWITCH_TO_CLONE(ExternalActionContract.OPERATION_SWITCH_TO_CLONE),
+    SWITCH_OR_RESTORE(ExternalActionContract.OPERATION_SWITCH_OR_RESTORE),
+    RESTORE_MAIN(ExternalActionContract.OPERATION_RESTORE_MAIN),
+    PUSH_MAIN(ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE),
+    RESTORE_CLONE_ROLLBACK(ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK),
+    RESTORE_ROLLBACK(ExternalActionContract.OPERATION_RESTORE_ROLLBACK),
+    DELETE_SNAPSHOT(ExternalActionContract.OPERATION_DELETE_SNAPSHOT),
+    DELETE_ROLLBACK(ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP),
+    PROBE_CLONE(ExternalActionContract.OPERATION_PROBE_CLONE_CE),
+    UNLOCK_CLONE(ExternalActionContract.OPERATION_UNLOCK_CLONE),
+    DEBUG_CLONE(ExternalActionContract.OPERATION_DEBUG_CLONE_SYSTEM),
+    AUDIT_RESTORE(ExternalActionContract.OPERATION_AUDIT_RESTORE),
+    CLEAR_LOGS(ExternalActionContract.OPERATION_CLEAR_LOGS),
+    RESET_WORKSPACE(ExternalActionContract.OPERATION_RESET_WORKSPACE),
+    START_CLONE_USER(ExternalActionContract.OPERATION_START_CLONE_USER),
+    SWITCH_CLONE_USER(ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER),
+    STOP_CLONE_USER(ExternalActionContract.OPERATION_STOP_CLONE_USER),
+}

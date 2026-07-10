@@ -1,20 +1,33 @@
 package com.uclone.restore.sync
 
+import com.uclone.restore.model.TaskMetrics
+import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskType
 import com.uclone.restore.root.RootShellExecutor
+import com.uclone.restore.root.ShellResult
 import com.uclone.restore.root.shellQuote
 import java.io.File
-import java.net.URLDecoder
-import java.net.URLEncoder
+import java.io.FileOutputStream
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class TaskLogStore(
     private val shell: RootShellExecutor,
     private val historyFile: File? = null,
-) {
-    private val records = loadPersistedRecords().toMutableList()
+    private val legacyHistoryFile: File? = null,
+) : TaskRepository {
+    private val records = loadInitialRecords().toMutableList()
+    private val recordsFlow = MutableStateFlow(records.sortedByDescending(TaskRecord::startedAt))
+    private val progressFlow = MutableStateFlow(TaskProgress(null))
+    override val history: StateFlow<List<TaskRecord>> = recordsFlow.asStateFlow()
+    override val progress: StateFlow<TaskProgress> = progressFlow.asStateFlow()
     private val ids = AtomicLong(
         maxOf(
             System.currentTimeMillis(),
@@ -22,123 +35,176 @@ class TaskLogStore(
         ),
     )
 
-    fun all(): List<TaskRecord> = synchronized(records) {
-        records.toList().sortedByDescending { it.startedAt }
-    }
-
-    fun clear() {
-        synchronized(records) {
-            records.clear()
-            persistLocked()
+    init {
+        if (records.isNotEmpty()) {
+            synchronized(records) { persist(records) }
         }
     }
 
-    fun running(type: TaskType, packageName: String, logPath: String): TaskRecord =
-        TaskRecord(
-            id = ids.incrementAndGet(),
+    override fun all(): List<TaskRecord> = synchronized(records) {
+        records.toList().sortedByDescending { it.startedAt }
+    }
+
+    override fun clear() {
+        synchronized(records) {
+            clearHistoryLocked()
+            progressFlow.value = TaskProgress(null)
+        }
+    }
+
+    override fun clearHistoryPreservingProgress() {
+        synchronized(records) { clearHistoryLocked() }
+    }
+
+    override fun accepted(type: TaskType, packageName: String, requestId: String): TaskRecord =
+        store(
+            TaskRecord(
+                id = ids.incrementAndGet(),
+                requestId = requestId,
+                packageName = packageName,
+                type = type,
+                startedAt = System.currentTimeMillis(),
+                finishedAt = null,
+                status = TaskStatus.ACCEPTED,
+                logPath = "",
+                message = "任务已接收",
+            ),
+        )
+
+    override fun running(
+        type: TaskType,
+        packageName: String,
+        logPath: String,
+        requestId: String,
+    ): TaskRecord {
+        val accepted = find(requestId)
+        return TaskRecord(
+            id = accepted?.id ?: ids.incrementAndGet(),
+            requestId = requestId,
             packageName = packageName,
             type = type,
-            startedAt = System.currentTimeMillis(),
+            startedAt = accepted?.startedAt ?: System.currentTimeMillis(),
             finishedAt = null,
             status = TaskStatus.RUNNING,
             logPath = logPath,
             message = "运行中",
-        ).also {
-            synchronized(records) {
-                records += it
-                trimLocked()
-                persistLocked()
-            }
-        }
+        ).let(::store)
+    }
 
-    fun finish(task: TaskRecord, status: TaskStatus, message: String): TaskRecord {
+    override fun finish(
+        task: TaskRecord,
+        status: TaskStatus,
+        message: String,
+        metrics: TaskMetrics,
+    ): TaskRecord {
         val finished = task.copy(
             finishedAt = System.currentTimeMillis(),
             status = status,
             message = message,
+            currentStage = null,
+            metrics = metrics,
         )
         synchronized(records) {
-            val index = records.indexOfFirst { it.id == task.id }
+            val next = records.toMutableList()
+            val index = next.indexOfFirst { it.id == task.id }
             if (index >= 0) {
-                records[index] = finished
+                next[index] = finished
             } else {
-                records += finished
+                next += finished
             }
-            trimLocked()
-            persistLocked()
+            val retained = next.sortedByDescending(TaskRecord::startedAt).take(MAX_RECORDS)
+            persist(retained)
+            records.clear()
+            records += retained
+            recordsFlow.value = retained
         }
         return finished
     }
 
-    suspend fun append(logPath: String, text: String) {
-        val command = "mkdir -p ${shellQuote(logPath.substringBeforeLast('/'))} && printf %s ${shellQuote(text)} >> ${shellQuote(logPath)}"
-        shell.exec(command, timeoutSeconds = 20)
+    override fun find(requestId: String): TaskRecord? = synchronized(records) {
+        records.firstOrNull { it.requestId == requestId }
     }
 
-    private fun loadPersistedRecords(): List<TaskRecord> {
-        val file = historyFile ?: return emptyList()
-        if (!file.isFile) return emptyList()
-        return runCatching {
+    override fun publish(progress: TaskProgress) {
+        progressFlow.value = progress
+    }
+
+    override suspend fun append(logPath: String, text: String): ShellResult {
+        val command = "mkdir -p ${shellQuote(logPath.substringBeforeLast('/'))} && printf %s ${shellQuote(text)} >> ${shellQuote(logPath)}"
+        return shell.exec(command, timeoutSeconds = 20)
+    }
+
+    private fun store(record: TaskRecord): TaskRecord = synchronized(records) {
+        val next = records.filterNot { it.requestId == record.requestId } + record
+        val retained = next.sortedByDescending(TaskRecord::startedAt).take(MAX_RECORDS)
+        persist(retained)
+        records.clear()
+        records += retained
+        recordsFlow.value = retained
+        record
+    }
+
+    private fun clearHistoryLocked() {
+        persist(emptyList())
+        records.clear()
+        recordsFlow.value = emptyList()
+    }
+
+    private fun loadInitialRecords(): List<TaskRecord> {
+        val current = historyFile
+        if (current?.isFile == true) return loadJsonRecords(current)
+        val legacy = legacyHistoryFile
+        if (legacy?.isFile == true) return loadLegacyRecords(legacy)
+        return emptyList()
+    }
+
+    private fun loadJsonRecords(file: File): List<TaskRecord> = runCatching {
             file.readLines()
-                .mapNotNull(::decodeRecord)
+                .mapNotNull(TaskRecordJsonCodec::decode)
                 .sortedByDescending { it.startedAt }
                 .take(MAX_RECORDS)
         }.getOrDefault(emptyList())
-    }
 
-    private fun persistLocked() {
+    private fun loadLegacyRecords(file: File): List<TaskRecord> = runCatching {
+        file.readLines()
+            .mapNotNull(TaskRecordJsonCodec::decodeLegacy)
+            .sortedByDescending { it.startedAt }
+            .take(MAX_RECORDS)
+    }.getOrDefault(emptyList())
+
+    private fun persist(recordsToPersist: List<TaskRecord>) {
         val file = historyFile ?: return
-        runCatching {
-            file.parentFile?.mkdirs()
-            file.writeText(records.sortedByDescending { it.startedAt }.take(MAX_RECORDS).joinToString("\n", transform = ::encodeRecord))
+        val parent = file.parentFile
+        if (parent != null && !parent.isDirectory && !parent.mkdirs()) {
+            throw IllegalStateException("无法创建任务历史目录：${parent.absolutePath}")
+        }
+        val tempFile = file.resolveSibling("${file.name}.tmp")
+        try {
+            val content = recordsToPersist
+                .sortedByDescending { it.startedAt }
+                .take(MAX_RECORDS)
+                .joinToString("\n", transform = TaskRecordJsonCodec::encode)
+            FileOutputStream(tempFile).use { output ->
+                output.write(content.toByteArray(Charsets.UTF_8))
+                output.fd.sync()
+            }
+            try {
+                Files.move(
+                    tempFile.toPath(),
+                    file.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(tempFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+        } catch (error: Exception) {
+            tempFile.delete()
+            throw IllegalStateException("无法持久化任务历史：${file.absolutePath}", error)
         }
     }
 
-    private fun trimLocked() {
-        if (records.size <= MAX_RECORDS) return
-        val retained = records.sortedByDescending { it.startedAt }.take(MAX_RECORDS)
-        records.clear()
-        records += retained
-    }
-
-    private fun encodeRecord(record: TaskRecord): String = listOf(
-        record.id.toString(),
-        encode(record.packageName),
-        record.type.name,
-        record.startedAt.toString(),
-        record.finishedAt?.toString().orEmpty(),
-        record.status.name,
-        encode(record.logPath),
-        encode(record.message),
-    ).joinToString("\t")
-
-    private fun decodeRecord(line: String): TaskRecord? {
-        val parts = line.split("\t")
-        if (parts.size != FIELD_COUNT) return null
-        return runCatching {
-            val status = TaskStatus.valueOf(parts[5])
-            val interrupted = status == TaskStatus.RUNNING
-            TaskRecord(
-                id = parts[0].toLong(),
-                packageName = decode(parts[1]),
-                type = TaskType.valueOf(parts[2]),
-                startedAt = parts[3].toLong(),
-                finishedAt = parts[4].takeIf(String::isNotBlank)?.toLong()
-                    ?: if (interrupted) System.currentTimeMillis() else null,
-                status = if (interrupted) TaskStatus.FAILED else status,
-                logPath = decode(parts[6]),
-                message = if (interrupted) "任务中断" else decode(parts[7]),
-            )
-        }.getOrNull()
-    }
-
-    private fun encode(value: String): String = URLEncoder.encode(value, UTF_8)
-
-    private fun decode(value: String): String = URLDecoder.decode(value, UTF_8)
-
     private companion object {
         const val MAX_RECORDS = 200
-        const val FIELD_COUNT = 8
-        const val UTF_8 = "UTF-8"
     }
 }

@@ -78,7 +78,7 @@ Important subdirectories:
 /data/adb/uclone/snapshots/<pkg>/active
 /data/adb/uclone/snapshots/<pkg>/history/<timestamp>
 /data/adb/uclone/rollback/<pkg>/<timestamp>
-/data/adb/uclone/clone_rollback/<pkg>/<timestamp>
+/data/adb/uclone/clone_rollback/<pkg>/latest
 /data/adb/uclone/logs
 /data/adb/uclone/tmp
 ```
@@ -152,8 +152,8 @@ Design constraints:
 
 - Hook layer never performs root operations.
 - Hook layer queries `ModuleRelayProvider` for menu state.
-- Click actions go through `ModuleRelayService`.
-- `ModuleRelayService` calls UClone's `ExternalActionService`.
+- Click actions use a module-owned foreground-service `PendingIntent` returned by `ModuleRelayProvider`.
+- The `PendingIntent` starts UClone's `ExternalActionService` directly; legacy relay components are not used for new tokens.
 - UClone's external service is protected by the signature permission `com.uclone.restore.permission.CONTROL`.
 
 This keeps Launcher, module, and UClone responsibilities separated.

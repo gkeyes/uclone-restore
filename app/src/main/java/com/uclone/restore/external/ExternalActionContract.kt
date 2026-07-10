@@ -17,6 +17,8 @@ object ExternalActionContract {
     const val EXTRA_ERROR_CODE = "com.uclone.restore.extra.ERROR_CODE"
     const val EXTRA_MESSAGE = "com.uclone.restore.extra.MESSAGE"
     const val EXTRA_TASK_TYPE = "com.uclone.restore.extra.TASK_TYPE"
+    const val EXTRA_ROLLBACK_ID = "com.uclone.restore.extra.ROLLBACK_ID"
+    internal const val EXTRA_INTERNAL_TOKEN = "com.uclone.restore.extra.INTERNAL_TOKEN"
 
     const val PROTOCOL_VERSION = 1
 
@@ -27,16 +29,31 @@ object ExternalActionContract {
     const val OPERATION_RESTORE_LATEST_BACKUP = "RESTORE_LATEST_BACKUP"
     const val OPERATION_PUSH_MAIN_TO_CLONE = "PUSH_MAIN_TO_CLONE"
     const val OPERATION_RESTORE_LATEST_CLONE_ROLLBACK = "RESTORE_LATEST_CLONE_ROLLBACK"
+    const val OPERATION_RESTORE_FROM_CLONE_LATEST = "RESTORE_FROM_CLONE_LATEST"
+    const val OPERATION_RESTORE_ROLLBACK = "RESTORE_ROLLBACK"
+    const val OPERATION_DELETE_SNAPSHOT = "DELETE_SNAPSHOT"
+    const val OPERATION_DELETE_RESTORE_BACKUP = "DELETE_RESTORE_BACKUP"
+    const val OPERATION_PROBE_CLONE_CE = "PROBE_CLONE_CE"
+    const val OPERATION_UNLOCK_CLONE = "UNLOCK_CLONE"
+    const val OPERATION_DEBUG_CLONE_SYSTEM = "DEBUG_CLONE_SYSTEM"
+    const val OPERATION_AUDIT_RESTORE = "AUDIT_RESTORE"
+    const val OPERATION_CLEAR_LOGS = "CLEAR_LOGS"
+    const val OPERATION_RESET_WORKSPACE = "RESET_WORKSPACE"
+    const val OPERATION_START_CLONE_USER = "START_CLONE_USER"
+    const val OPERATION_SWITCH_TO_CLONE_USER = "SWITCH_TO_CLONE_USER"
+    const val OPERATION_STOP_CLONE_USER = "STOP_CLONE_USER"
 
     const val STATUS_ACCEPTED = "ACCEPTED"
     const val STATUS_SUCCESS = "SUCCESS"
     const val STATUS_FAILED = "FAILED"
     const val STATUS_REJECTED = "REJECTED"
     const val STATUS_BUSY = "BUSY"
+    const val STATUS_ALREADY_RUNNING = "ALREADY_RUNNING"
     const val STATUS_NEED_CONFIRMATION = "NEED_CONFIRMATION"
     const val STATUS_NEED_USER_ACTION = "NEED_USER_ACTION"
 
     const val SOURCE_MODULE = "module"
     const val SOURCE_LAUNCHER_MODULE = "launcher_module"
     const val SOURCE_LAUNCHER_SHORTCUT = "launcher_shortcut"
+    const val SOURCE_APP = "app"
 }

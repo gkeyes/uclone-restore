@@ -32,7 +32,24 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                     InfoRow("类型", task.type.name)
                     InfoRow("开始", Formatters.time(task.startedAt))
                     InfoRow("结束", Formatters.time(task.finishedAt))
-                    InfoRow("状态", task.status.name, if (task.status == TaskStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                    val statusColor = when (task.status) {
+                        TaskStatus.FAILED,
+                        TaskStatus.FAILED_FATAL,
+                        TaskStatus.INTERRUPTED,
+                        -> MaterialTheme.colorScheme.error
+
+                        TaskStatus.ACCEPTED,
+                        TaskStatus.RUNNING,
+                        TaskStatus.AUTO_ROLLING_BACK,
+                        TaskStatus.SUCCESS_WITH_WARNINGS,
+                        -> MaterialTheme.colorScheme.tertiary
+
+                        TaskStatus.ROLLED_BACK,
+                        TaskStatus.SUCCESS,
+                        -> MaterialTheme.colorScheme.primary
+                    }
+                    InfoRow("状态", task.status.name, statusColor)
+                    InfoRow("结果", task.message)
                     Text("日志", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SingleLinePathText(task.logPath)
                     if (task.packageName != state.selectedPackage) {

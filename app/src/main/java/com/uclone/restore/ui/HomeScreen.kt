@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.StepStatus
+import com.uclone.restore.model.TaskStep
 import com.uclone.restore.util.Formatters
 
 @Composable
@@ -135,7 +136,8 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
 @Composable
 private fun CurrentTaskCard(state: UiState) {
     val task = state.currentTask.task ?: return
-    val activeStep = state.currentTask.steps.firstOrNull { it.status == StepStatus.RUNNING }
+    val activeStep = state.currentTask.task?.currentStage?.let { TaskStep(it.displayLabel, StepStatus.RUNNING) }
+        ?: state.currentTask.steps.firstOrNull { it.status == StepStatus.RUNNING }
         ?: state.currentTask.steps.lastOrNull { it.status == StepStatus.SUCCESS }
     SectionCard("最新任务") {
         Row(

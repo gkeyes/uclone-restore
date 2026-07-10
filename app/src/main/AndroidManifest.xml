@@ -47,11 +47,6 @@
             android:theme="@android:style/Theme.NoDisplay" />
 
         <service
-            android:name=".service.SyncForegroundService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-        <service
             android:name=".external.ExternalActionService"
             android:exported="true"
             android:foregroundServiceType="dataSync"

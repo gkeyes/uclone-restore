@@ -86,6 +86,7 @@ sealed class User10CeState {
 
 data class TaskRecord(
     val id: Long,
+    val requestId: String,
     val packageName: String,
     val type: TaskType,
     val startedAt: Long,
@@ -93,7 +94,59 @@ data class TaskRecord(
     val status: TaskStatus,
     val logPath: String,
     val message: String,
+    val currentStage: TaskStage? = null,
+    val metrics: TaskMetrics = TaskMetrics(),
 )
+
+data class TaskMetrics(
+    val rootProcessStarts: Int = 0,
+    val rootCommandCount: Int = 0,
+    val scannedFiles: Long = 0,
+    val copiedFiles: Long = 0,
+    val copiedBytes: Long = 0,
+    val peakTemporaryBytes: Long = 0,
+    val targetDowntimeMs: Long? = null,
+    val stages: List<TaskStageMetric> = emptyList(),
+)
+
+data class TaskStageMetric(
+    val stage: TaskStage,
+    val startedAt: Long,
+    val finishedAt: Long,
+) {
+    val durationMs: Long = (finishedAt - startedAt).coerceAtLeast(0)
+}
+
+enum class TaskStage {
+    PRECHECK,
+    SOURCE_PREPARE,
+    TARGET_STOP,
+    ROLLBACK_BACKUP,
+    RESTORE_DATA,
+    RESTORE_METADATA,
+    RESTORE_PERMISSIONS,
+    VERIFY,
+    COMMIT,
+    AUTO_ROLLBACK,
+    CLEANUP,
+
+    ;
+
+    val displayLabel: String
+        get() = when (this) {
+            PRECHECK -> "检查运行条件"
+            SOURCE_PREPARE -> "准备源数据"
+            TARGET_STOP -> "停止目标 App"
+            ROLLBACK_BACKUP -> "生成回滚备份"
+            RESTORE_DATA -> "写入目标数据"
+            RESTORE_METADATA -> "修复文件属性"
+            RESTORE_PERMISSIONS -> "恢复权限/AppOps"
+            VERIFY -> "验证恢复结果"
+            COMMIT -> "提交任务结果"
+            AUTO_ROLLBACK -> "自动回滚"
+            CLEANUP -> "清理临时数据"
+        }
+}
 
 data class TaskStep(
     val label: String,
@@ -155,12 +208,34 @@ enum class TaskType {
     UNLOCK_CLONE_WITH_CREDENTIAL,
     DEBUG_CLONE_SYSTEM,
     AUDIT_RESTORE_CONSISTENCY,
+    CLEAR_LOGS,
+    RESET_WORKSPACE,
+    START_CLONE_USER,
+    SWITCH_TO_CLONE_USER,
+    STOP_CLONE_USER,
 }
 
 enum class TaskStatus {
+    ACCEPTED,
     RUNNING,
+    AUTO_ROLLING_BACK,
+    ROLLED_BACK,
     SUCCESS,
+    SUCCESS_WITH_WARNINGS,
     FAILED,
+    FAILED_FATAL,
+    INTERRUPTED,
+
+    ;
+
+    val isSuccessful: Boolean
+        get() = this == SUCCESS || this == SUCCESS_WITH_WARNINGS
+
+    val isTerminal: Boolean
+        get() = when (this) {
+            ACCEPTED, RUNNING, AUTO_ROLLING_BACK -> false
+            else -> true
+        }
 }
 
 enum class StepStatus {

@@ -11,6 +11,7 @@ class TaskResultMessagesTest {
             RESTORED:/data/user/0/com.example.app ITEMS=10
             WARN_GRANT_FAILED:android.permission.CAMERA
             WARN_GRANT_FAILED:android.permission.POST_NOTIFICATIONS
+            WARN_REVOKE_FAILED:android.permission.RECORD_AUDIO
             WARN_APPOPS_FAILED:CAMERA:allow
             WARN_APPOPS_FAILED:POST_NOTIFICATION:allow
             WARN_APPOPS_FAILED:MIUIOP(10001):allow
@@ -20,7 +21,7 @@ class TaskResultMessagesTest {
 
         val message = TaskResultMessages.successMessage(output)
 
-        assertEquals("完成，权限部分未完全恢复（权限 2 项，AppOps 3 项）", message)
+        assertEquals("完成，权限部分未完全恢复（权限授予 2 项，权限撤销 1 项，AppOps 3 项）", message)
     }
 
     @Test

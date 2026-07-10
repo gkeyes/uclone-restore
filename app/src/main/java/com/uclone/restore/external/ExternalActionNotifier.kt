@@ -47,7 +47,9 @@ class ExternalActionNotifier(private val context: Context) {
     fun notifyResult(packageName: String?, operation: String?, status: String, message: String) {
         ensureChannels()
         val success = status == ExternalActionContract.STATUS_SUCCESS
-        val rejected = status == ExternalActionContract.STATUS_REJECTED || status == ExternalActionContract.STATUS_BUSY
+        val rejected = status == ExternalActionContract.STATUS_REJECTED ||
+            status == ExternalActionContract.STATUS_BUSY ||
+            status == ExternalActionContract.STATUS_ALREADY_RUNNING
         val stateText = when {
             success -> "成功"
             rejected -> "未执行"
@@ -90,6 +92,19 @@ class ExternalActionNotifier(private val context: Context) {
         ExternalActionContract.OPERATION_SWITCH_TO_CLONE -> "切换"
         ExternalActionContract.OPERATION_RESTORE_MAIN -> "还原"
         ExternalActionContract.OPERATION_SWITCH_OR_RESTORE -> "切换/还原"
+        ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST -> "分身恢复"
+        ExternalActionContract.OPERATION_RESTORE_ROLLBACK -> "恢复回滚"
+        ExternalActionContract.OPERATION_DELETE_SNAPSHOT -> "删除快照"
+        ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP -> "删除回滚"
+        ExternalActionContract.OPERATION_PROBE_CLONE_CE -> "分身检测"
+        ExternalActionContract.OPERATION_UNLOCK_CLONE -> "分身解锁"
+        ExternalActionContract.OPERATION_DEBUG_CLONE_SYSTEM -> "分身调试"
+        ExternalActionContract.OPERATION_AUDIT_RESTORE -> "恢复审计"
+        ExternalActionContract.OPERATION_CLEAR_LOGS -> "清理日志"
+        ExternalActionContract.OPERATION_RESET_WORKSPACE -> "重置"
+        ExternalActionContract.OPERATION_START_CLONE_USER -> "启动分身"
+        ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER -> "进入分身"
+        ExternalActionContract.OPERATION_STOP_CLONE_USER -> "关闭分身"
         else -> "快捷操作"
     }
 
