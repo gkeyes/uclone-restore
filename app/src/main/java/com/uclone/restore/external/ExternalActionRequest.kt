@@ -63,6 +63,7 @@ data class ExternalActionRequest(
             ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK,
             ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST,
             ExternalActionContract.OPERATION_RESTORE_ROLLBACK,
+            ExternalActionContract.OPERATION_RESET_SWITCH_STATE,
             ExternalActionContract.OPERATION_DELETE_SNAPSHOT,
             ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP,
             ExternalActionContract.OPERATION_PROBE_CLONE_CE,

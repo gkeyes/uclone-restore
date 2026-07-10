@@ -5,6 +5,7 @@ import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.root.shellQuote
 
 object ShellScripts {
+    private val androidPackageNamePattern = Regex("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)+")
     private val rollbackIdPattern = Regex("[A-Za-z0-9_.-]+")
     private enum class RestoreSourceKind {
         ACTIVE,
@@ -1354,7 +1355,7 @@ object ShellScripts {
         rollbackId: String,
         settings: UCloneSettings,
         appPackage: String,
-        clearSwitchMarker: Boolean = false,
+        rollbackReason: String = "恢复主系统备份前生成",
     ): String {
         requireSafeRollbackId(rollbackId)
         return restoreBody(
@@ -1362,10 +1363,10 @@ object ShellScripts {
             settings = settings,
             appPackage = appPackage,
             rollbackName = """rollback_${'$'}TS""",
-            rollbackReason = if (clearSwitchMarker) "还原主系统态前生成" else "恢复主系统备份前生成",
+            rollbackReason = rollbackReason,
             sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId",
             sourceRollbackId = rollbackId,
-            clearSwitchMarker = clearSwitchMarker,
+            clearSwitchMarker = true,
         )
     }
 
@@ -1391,6 +1392,30 @@ object ShellScripts {
         rollbackRootName = "clone_rollback",
         pruneOldRollbacks = false,
     )
+
+    fun resetSwitchState(packageName: String, settings: UCloneSettings, appPackage: String): String {
+        requireSafePackageName(packageName)
+        return """
+        set -u
+        ROOT=${shellQuote(settings.rootDir)}
+        PKG=${shellQuote(packageName)}
+        APP_PKG=${shellQuote(appPackage)}
+        SWITCH_MARKER="${'$'}ROOT/switches/${'$'}PKG/active"
+        [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
+        [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "ERR_BAD_ROOT:${'$'}ROOT" >&2; exit 71; }
+        case "${'$'}SWITCH_MARKER" in
+          "${'$'}ROOT"/switches/"${'$'}PKG"/active) ;;
+          *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER" >&2; exit 72 ;;
+        esac
+        if [ -f "${'$'}SWITCH_MARKER" ]; then
+          rm -f "${'$'}SWITCH_MARKER" || exit 73
+          sync
+          echo "SWITCH_STATE_RESET=${'$'}SWITCH_MARKER"
+        else
+          echo "SWITCH_STATE_ALREADY_CLEAR=${'$'}SWITCH_MARKER"
+        fi
+        """.trimIndent()
+    }
 
     fun deleteSnapshot(packageName: String, settings: UCloneSettings, appPackage: String): String = """
         set -u
@@ -2153,6 +2178,10 @@ object ShellScripts {
         require(rollbackId.isNotBlank() && rollbackId != "." && rollbackId != ".." && rollbackIdPattern.matches(rollbackId)) {
             "Unsafe rollback id: $rollbackId"
         }
+    }
+
+    private fun requireSafePackageName(packageName: String) {
+        require(androidPackageNamePattern.matches(packageName)) { "Unsafe package name: $packageName" }
     }
 
 }

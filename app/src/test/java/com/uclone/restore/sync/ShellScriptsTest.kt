@@ -246,6 +246,23 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun rollback_endsSwitchSessionOnlyAfterRestoreVerification() {
+        val script = ShellScripts.rollback("com.example.app", "20260709-010203", settings, appPackage)
+
+        assertContains(script, "SWITCH_MARKER_BEFORE_EXISTS=0")
+        assertContains(script, "restore_previous_switch_marker")
+        assertContains(script, "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER")
+        assertContains(script, "\\\"reason\\\":\\\"恢复主系统备份前生成\\\"")
+        val verifyIndex = script.indexOf("[ \"${'$'}RESTORED_PARTS\" -gt 0 ]")
+        val markerClearIndex = script.lastIndexOf("SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER")
+        assertTrue(verifyIndex >= 0)
+        assertTrue(markerClearIndex >= 0)
+        assertTrue(
+            verifyIndex < markerClearIndex,
+        )
+    }
+
+    @Test
     fun restoreOwnershipDoesNotFollowSymlinks() {
         val script = ShellScripts.rollback("com.example.app", "20260709-010203", settings, appPackage)
 
@@ -266,6 +283,27 @@ class ShellScriptsTest {
         assertFalse(script.contains("rm -rf \"${'$'}ROLLBACK_PARENT\""))
         assertFalse(script.contains("rm -rf \"${'$'}ROOT/snapshots"))
         assertFalse(script.contains("rm -rf \"${'$'}ROOT/logs"))
+    }
+
+    @Test
+    fun resetSwitchState_onlyRemovesThePackageMarker() {
+        val script = ShellScripts.resetSwitchState("com.example.app", settings, appPackage)
+
+        assertContains(script, "SWITCH_MARKER=\"${'$'}ROOT/switches/${'$'}PKG/active\"")
+        assertContains(script, "rm -f \"${'$'}SWITCH_MARKER\"")
+        assertContains(script, "SWITCH_STATE_RESET=${'$'}SWITCH_MARKER")
+        assertFalse(script.contains("rm -rf"))
+        assertFalse(script.contains("/data/user/"))
+        assertFalse(script.contains("/data/user_de/"))
+        assertFalse(script.contains("${'$'}ROOT/rollback"))
+        assertFalse(script.contains("${'$'}ROOT/snapshots"))
+    }
+
+    @Test
+    fun resetSwitchState_rejectsPackagePathTraversal() {
+        assertFailsWith<IllegalArgumentException> {
+            ShellScripts.resetSwitchState("../../data", settings, appPackage)
+        }
     }
 
     @Test

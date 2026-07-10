@@ -184,7 +184,13 @@ class SyncEngine(
         packageName = packageName,
         settings = settings,
         labels = listOf("检查 root", "读取切换前被动备份", "生成被动备份", "恢复主系统态", "清除切换标记", "完成"),
-        script = ShellScripts.rollback(packageName, rollbackId, settings, appPackage, clearSwitchMarker = true),
+        script = ShellScripts.rollback(
+            packageName,
+            rollbackId,
+            settings,
+            appPackage,
+            rollbackReason = "还原主系统态前生成",
+        ),
         report = report,
         requestId = requestId,
     )
@@ -199,8 +205,23 @@ class SyncEngine(
         type = TaskType.ROLLBACK_MAIN_DATA,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取被动备份", "停止相关进程", "恢复旧数据", "恢复权限/AppOps", "完成"),
+        labels = listOf("检查 root", "读取被动备份", "停止相关进程", "恢复旧数据", "恢复权限/AppOps", "结束切换会话", "完成"),
         script = ShellScripts.rollback(packageName, rollbackId, settings, appPackage),
+        report = report,
+        requestId = requestId,
+    )
+
+    suspend fun resetSwitchState(
+        packageName: String,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.RESET_SWITCH_STATE,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查 root", "清除切换标记", "刷新状态"),
+        script = ShellScripts.resetSwitchState(packageName, settings, appPackage),
         report = report,
         requestId = requestId,
     )

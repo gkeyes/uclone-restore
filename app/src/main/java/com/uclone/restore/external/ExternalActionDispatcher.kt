@@ -29,6 +29,8 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
         ExternalActionContract.OPERATION_SWITCH_OR_RESTORE -> switchOrRestore(request, settings, report)
         ExternalActionContract.OPERATION_RESTORE_ROLLBACK ->
             container.syncEngine.rollback(request.packageName, requireRollbackId(request), settings, report, request.requestId)
+        ExternalActionContract.OPERATION_RESET_SWITCH_STATE ->
+            container.syncEngine.resetSwitchState(request.packageName, settings, report, request.requestId)
         ExternalActionContract.OPERATION_DELETE_SNAPSHOT ->
             container.syncEngine.deleteSnapshot(request.packageName, settings, report, request.requestId)
         ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP ->

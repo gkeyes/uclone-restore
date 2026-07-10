@@ -53,12 +53,13 @@ class TaskUiStateReducerTest {
         val expected = mapOf(
             TaskType.CAPTURE_SNAPSHOT_FROM_CLONE to RefreshPolicy(environment = true, workspace = true),
             TaskType.RESTORE_SNAPSHOT_TO_MAIN to RefreshPolicy(workspace = true),
-            TaskType.ROLLBACK_MAIN_DATA to RefreshPolicy(workspace = true),
+            TaskType.ROLLBACK_MAIN_DATA to RefreshPolicy(workspace = true, shortcuts = true),
             TaskType.RESTORE_FROM_CLONE_LATEST to RefreshPolicy(environment = true, workspace = true),
             TaskType.SWITCH_TO_CLONE_STATE to RefreshPolicy(environment = true, workspace = true, shortcuts = true),
             TaskType.PUSH_MAIN_TO_CLONE to RefreshPolicy(environment = true, workspace = true),
             TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE to RefreshPolicy(environment = true, workspace = true),
             TaskType.RESTORE_SWITCH_MAIN_STATE to RefreshPolicy(environment = true, workspace = true, shortcuts = true),
+            TaskType.RESET_SWITCH_STATE to RefreshPolicy(workspace = true, shortcuts = true),
             TaskType.DELETE_SNAPSHOT to RefreshPolicy(workspace = true),
             TaskType.DELETE_RESTORE_BACKUP to RefreshPolicy(workspace = true, shortcuts = true),
             TaskType.PROBE_CLONE_CE to RefreshPolicy(environment = true),
@@ -191,6 +192,7 @@ class TaskUiStateReducerTest {
     @Test
     fun everyUiActionHasAUniqueExternalOperation() {
         assertEquals(UiTaskAction.entries.size, UiTaskAction.entries.map { it.operation }.toSet().size)
+        assertTrue(UiTaskAction.entries.any { it.operation == ExternalActionContract.OPERATION_RESET_SWITCH_STATE })
         assertTrue(UiTaskAction.entries.any { it.operation == ExternalActionContract.OPERATION_RESET_WORKSPACE })
         assertTrue(UiTaskAction.entries.any { it.operation == ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST })
     }

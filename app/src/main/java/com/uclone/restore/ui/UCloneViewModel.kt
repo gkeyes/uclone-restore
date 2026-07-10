@@ -230,6 +230,11 @@ class UCloneViewModel(
         submitTask(UiTaskAction.RESTORE_ROLLBACK, packageName, "正在恢复被动备份", rollbackId)
     }
 
+    fun resetSwitchStateSelected() {
+        val packageName = _state.value.selectedPackage ?: return
+        submitTask(UiTaskAction.RESET_SWITCH_STATE, packageName, "正在重置切换状态")
+    }
+
     fun deleteSnapshotSelected() {
         val packageName = _state.value.selectedPackage ?: return
         deleteSnapshot(packageName)

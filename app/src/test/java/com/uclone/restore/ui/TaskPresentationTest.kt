@@ -18,6 +18,7 @@ class TaskPresentationTest {
             TaskType.PUSH_MAIN_TO_CLONE to "推送主系统数据到分身",
             TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE to "恢复分身回滚备份",
             TaskType.RESTORE_SWITCH_MAIN_STATE to "还原主系统态",
+            TaskType.RESET_SWITCH_STATE to "重置切换状态",
             TaskType.DELETE_SNAPSHOT to "删除主动备份",
             TaskType.DELETE_RESTORE_BACKUP to "删除被动备份",
             TaskType.PROBE_CLONE_CE to "检测分身 CE",

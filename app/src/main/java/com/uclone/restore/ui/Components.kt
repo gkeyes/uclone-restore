@@ -52,12 +52,17 @@ import com.uclone.restore.model.RiskLevel
 import com.uclone.restore.model.StepStatus
 
 @Composable
-fun SectionCard(title: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+fun SectionCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    glass: Boolean = true,
+    content: @Composable () -> Unit,
+) {
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = IosGlass),
-        border = BorderStroke(1.dp, IosGlassBorder),
+        colors = CardDefaults.cardColors(containerColor = if (glass) IosGlass else IosGroup),
+        border = BorderStroke(1.dp, if (glass) IosGlassBorder else IosSeparator.copy(alpha = 0.35f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -266,21 +271,25 @@ fun IosCompactButton(
     enabled: Boolean = true,
     primary: Boolean = false,
     danger: Boolean = false,
+    semanticTint: Color? = null,
     icon: ImageVector? = null,
 ) {
-    val contentColor = when {
+    val accentColor = when {
         danger -> IosRed
-        primary -> Color.White
+        semanticTint != null -> semanticTint
         else -> IosBlue
     }
+    val contentColor = when {
+        primary -> Color.White
+        else -> accentColor
+    }
     val containerColor = when {
-        primary -> IosBlue
-        danger -> IosGlassControl
+        primary -> accentColor
         else -> IosGlassControl
     }
     val borderColor = when {
         primary -> Color.White.copy(alpha = 0.28f)
-        danger -> IosRed.copy(alpha = 0.20f)
+        danger || semanticTint != null -> accentColor.copy(alpha = 0.22f)
         else -> IosControlBorder
     }
     Button(
@@ -382,12 +391,14 @@ fun IosDialogButton(
     onClick: () -> Unit,
     primary: Boolean = false,
     danger: Boolean = false,
+    semanticTint: Color? = null,
 ) {
     IosCompactButton(
         text = text,
         onClick = onClick,
         primary = primary,
         danger = danger,
+        semanticTint = semanticTint,
         modifier = Modifier.widthIn(min = 72.dp),
     )
 }

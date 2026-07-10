@@ -13,6 +13,7 @@ internal fun taskTypeForOperation(operation: String): TaskType = when (operation
     ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE -> TaskType.PUSH_MAIN_TO_CLONE
     ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK -> TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE
     ExternalActionContract.OPERATION_RESTORE_ROLLBACK -> TaskType.ROLLBACK_MAIN_DATA
+    ExternalActionContract.OPERATION_RESET_SWITCH_STATE -> TaskType.RESET_SWITCH_STATE
     ExternalActionContract.OPERATION_DELETE_SNAPSHOT -> TaskType.DELETE_SNAPSHOT
     ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP -> TaskType.DELETE_RESTORE_BACKUP
     ExternalActionContract.OPERATION_PROBE_CLONE_CE -> TaskType.PROBE_CLONE_CE

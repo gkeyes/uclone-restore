@@ -82,6 +82,7 @@ class ExternalActionRequestTest {
     @Test
     fun internalOperationsMapToPersistentTaskTypes() {
         assertEquals(TaskType.RESTORE_FROM_CLONE_LATEST, taskTypeForOperation(ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST))
+        assertEquals(TaskType.RESET_SWITCH_STATE, taskTypeForOperation(ExternalActionContract.OPERATION_RESET_SWITCH_STATE))
         assertEquals(TaskType.RESET_WORKSPACE, taskTypeForOperation(ExternalActionContract.OPERATION_RESET_WORKSPACE))
         assertEquals(TaskType.STOP_CLONE_USER, taskTypeForOperation(ExternalActionContract.OPERATION_STOP_CLONE_USER))
     }

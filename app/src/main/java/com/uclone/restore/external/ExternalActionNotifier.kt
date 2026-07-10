@@ -127,6 +127,7 @@ class ExternalActionNotifier(private val context: Context) {
         ExternalActionContract.OPERATION_SWITCH_OR_RESTORE -> "切换/还原"
         ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST -> "分身恢复"
         ExternalActionContract.OPERATION_RESTORE_ROLLBACK -> "恢复回滚"
+        ExternalActionContract.OPERATION_RESET_SWITCH_STATE -> "重置切换状态"
         ExternalActionContract.OPERATION_DELETE_SNAPSHOT -> "删除快照"
         ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP -> "删除回滚"
         ExternalActionContract.OPERATION_PROBE_CLONE_CE -> "分身检测"

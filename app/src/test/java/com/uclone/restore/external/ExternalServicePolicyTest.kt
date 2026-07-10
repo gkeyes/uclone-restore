@@ -46,6 +46,7 @@ class ExternalServicePolicyTest {
         listOf(
             ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST,
             ExternalActionContract.OPERATION_RESTORE_ROLLBACK,
+            ExternalActionContract.OPERATION_RESET_SWITCH_STATE,
             ExternalActionContract.OPERATION_DELETE_SNAPSHOT,
             ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP,
             ExternalActionContract.OPERATION_PROBE_CLONE_CE,
@@ -60,6 +61,13 @@ class ExternalServicePolicyTest {
         ).forEach { operation ->
             assertEquals("模块不允许执行此操作", module.copy(operation = operation).sourceOperationRejection(), operation)
         }
+        assertEquals(
+            "模块不允许执行此操作",
+            module.copy(
+                source = ExternalActionContract.SOURCE_LAUNCHER_MODULE,
+                operation = ExternalActionContract.OPERATION_RESET_SWITCH_STATE,
+            ).sourceOperationRejection(),
+        )
         assertEquals(null, shortcut.sourceOperationRejection())
         assertEquals(
             "桌面快捷入口不允许执行此操作",

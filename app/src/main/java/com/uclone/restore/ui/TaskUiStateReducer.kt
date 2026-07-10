@@ -37,9 +37,9 @@ internal data class RefreshPolicy(
         fun forTask(type: TaskType): RefreshPolicy = when (type) {
             TaskType.CAPTURE_SNAPSHOT_FROM_CLONE -> RefreshPolicy(environment = true, workspace = true)
             TaskType.RESTORE_SNAPSHOT_TO_MAIN,
-            TaskType.ROLLBACK_MAIN_DATA,
             TaskType.DELETE_SNAPSHOT,
             -> RefreshPolicy(workspace = true)
+            TaskType.ROLLBACK_MAIN_DATA -> RefreshPolicy(workspace = true, shortcuts = true)
             TaskType.RESTORE_FROM_CLONE_LATEST,
             TaskType.PUSH_MAIN_TO_CLONE,
             TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE,
@@ -47,6 +47,7 @@ internal data class RefreshPolicy(
             TaskType.SWITCH_TO_CLONE_STATE,
             TaskType.RESTORE_SWITCH_MAIN_STATE,
             -> RefreshPolicy(environment = true, workspace = true, shortcuts = true)
+            TaskType.RESET_SWITCH_STATE -> RefreshPolicy(workspace = true, shortcuts = true)
             TaskType.DELETE_RESTORE_BACKUP -> RefreshPolicy(workspace = true, shortcuts = true)
             TaskType.PROBE_CLONE_CE,
             TaskType.UNLOCK_CLONE_WITH_CREDENTIAL,
