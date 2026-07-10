@@ -36,7 +36,7 @@ class RootTaskScriptTest {
         val portableScript = portable(androidScript)
             .replace("*uid=0*)", "*uid=*)")
 
-        val process = ProcessBuilder("/bin/sh", "-c", portableScript).start()
+        val process = ProcessBuilder("/bin/bash", "-c", portableScript).start()
         val output = process.inputStream.bufferedReader().readText()
         val error = process.errorStream.bufferedReader().readText()
         val exitCode = process.waitFor()
@@ -60,7 +60,7 @@ class RootTaskScriptTest {
             ),
         )
 
-        val process = ProcessBuilder("/bin/sh", "-c", script).start()
+        val process = ProcessBuilder("/bin/bash", "-c", script).start()
         val output = process.inputStream.bufferedReader().readText()
         val exitCode = process.waitFor()
 
