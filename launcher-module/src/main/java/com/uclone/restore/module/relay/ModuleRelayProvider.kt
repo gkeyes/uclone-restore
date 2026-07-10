@@ -9,7 +9,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Binder
 import java.util.UUID
-import kotlin.math.absoluteValue
 
 class ModuleRelayProvider : ContentProvider() {
     override fun onCreate(): Boolean = true
@@ -18,7 +17,7 @@ class ModuleRelayProvider : ContentProvider() {
         val context = requireNotNull(context)
         val callerPackages = context.packageManager.getPackagesForUid(Binder.getCallingUid()).orEmpty().toSet()
         val allowedLaunchers = ModuleSettingsStore.allowedLaunchers()
-        if (callerPackages.none { it in allowedLaunchers }) {
+        if (!isAllowedLauncherCaller(callerPackages, allowedLaunchers)) {
             return rejected("caller not allowed: ${callerPackages.joinToString()}")
         }
         return when (method) {
@@ -49,15 +48,17 @@ class ModuleRelayProvider : ContentProvider() {
 
         val requestId = extras.getString(ModuleRelayContract.EXTRA_REQUEST_ID)?.takeIf { it.isNotBlank() }
             ?: UUID.randomUUID().toString()
-        val relayIntent = Intent(context, ModuleRelayActivity::class.java)
-            .putExtra(ModuleRelayContract.EXTRA_OPERATION, ModuleRelayContract.OPERATION_SWITCH_OR_RESTORE)
-            .putExtra(ModuleRelayContract.EXTRA_PACKAGE_NAME, packageName)
-            .putExtra(ModuleRelayContract.EXTRA_COMPONENT_NAME, extras.getString(ModuleRelayContract.EXTRA_COMPONENT_NAME).orEmpty())
-            .putExtra(ModuleRelayContract.EXTRA_TARGET_USER_ID, userId)
-            .putExtra(ModuleRelayContract.EXTRA_REQUEST_ID, requestId)
+        val actionIntent = Intent(ModuleRelayContract.UCLONE_ACTION_EXECUTE)
+            .setClassName(ModuleConstants.UCLONE_PACKAGE, ModuleConstants.UCLONE_SERVICE)
+            .setData(Uri.fromParts("uclone-action", requestId, null))
+            .putExtra(ModuleRelayContract.UCLONE_EXTRA_PROTOCOL_VERSION, ModuleRelayContract.UCLONE_PROTOCOL_VERSION)
+            .putExtra(ModuleRelayContract.UCLONE_EXTRA_OPERATION, ModuleRelayContract.OPERATION_SWITCH_OR_RESTORE)
+            .putExtra(ModuleRelayContract.UCLONE_EXTRA_PACKAGE_NAME, packageName)
+            .putExtra(ModuleRelayContract.UCLONE_EXTRA_REQUEST_ID, requestId)
+            .putExtra(ModuleRelayContract.UCLONE_EXTRA_SOURCE, ModuleRelayContract.UCLONE_SOURCE)
 
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        val pendingIntent = PendingIntent.getActivity(context, requestId.hashCode().absoluteValue, relayIntent, flags)
+        val flags = PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        val pendingIntent = PendingIntent.getForegroundService(context, requestId.hashCode(), actionIntent, flags)
 
         return accepted(showMenu = true, message = "ready").apply {
             putString(ModuleRelayContract.EXTRA_MENU_LABEL, ModuleConstants.MENU_LABEL)
@@ -86,3 +87,6 @@ class ModuleRelayProvider : ContentProvider() {
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
 }
+
+internal fun isAllowedLauncherCaller(callerPackages: Set<String>, allowedLaunchers: Set<String>): Boolean =
+    callerPackages.any(allowedLaunchers::contains)

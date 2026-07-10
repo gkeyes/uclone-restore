@@ -51,7 +51,7 @@ jobs:
           echo "RELEASE_STORE_TYPE=pkcs12" >> "$GITHUB_ENV"
 
       - name: Run unit tests
-        run: gradle --no-daemon :app:testReleaseUnitTest
+        run: gradle --no-daemon :app:testReleaseUnitTest :launcher-module:testReleaseUnitTest
 
       - name: Assemble fixed-signed release APK
         if: env.HAS_RELEASE_SIGNING == 'true'

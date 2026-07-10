@@ -9,7 +9,7 @@ Important process boundary:
 - Hook code that runs inside `com.miui.home` or `com.android.launcher3` is running as the launcher process.
 - That hook code must not directly call UClone's signature-protected service.
 - Hook code must not read the module's private `DataStore`, `SharedPreferences`, or Room database directly.
-- A module-owned relay component must receive the hook request first, then call UClone from the module APK identity.
+- The module provider must create the `PendingIntent`; the launcher only sends that token and never constructs the UClone intent itself.
 
 ## Permission
 
@@ -21,7 +21,7 @@ com.uclone.restore.permission.CONTROL
 
 The permission is `signature` level. The module must be signed with the same release key and request this permission.
 
-This is only sufficient when the caller is the module APK process. It is not sufficient for code injected into the launcher process, because Android permission checks see the launcher UID as the caller.
+The `PendingIntent` is owned by the module APK. Sending it lets Android perform the operation with the creator's identity, so UClone's signature permission is checked against the same-signed module rather than the launcher UID.
 
 UClone also has an in-app setting:
 
@@ -45,34 +45,27 @@ Use this flow instead:
 Launcher Hook
   -> ModuleRelayProvider.queryMenuState(packageName, componentName, targetUserHandle)
   -> provider validates caller/config
-  -> provider returns whether to show the menu, the label, and a PendingIntent
+  -> provider returns whether to show the menu, the label, and a module-owned PendingIntent
   -> hook invokes PendingIntent.send()
-  -> ModuleRelayActivity runs in the module APK process
-  -> ModuleRelayActivity calls UClone ExternalActionActivity
-  -> ExternalActionActivity starts UClone ExternalActionService
+  -> Android directly starts UClone ExternalActionService as a foreground service
+  -> ExternalActionService validates the request and starts the task
 ```
 
-The first version must not return a PendingIntent that targets UClone directly. The PendingIntent should target a non-exported module relay activity:
+The current implementation deliberately uses `PendingIntent.getForegroundService(...)` with an explicit UClone service component:
 
 ```text
 Launcher Hook
   -> ModuleRelayProvider.call(...)
   -> provider returns a PendingIntent created by the module process
   -> hook invokes pendingIntent.send()
-  -> ModuleRelayActivity receives the request
-  -> ModuleRelayActivity starts UClone ExternalActionActivity
-  -> ExternalActionActivity starts ExternalActionService and finishes
+  -> UClone ExternalActionService starts directly
 ```
 
-`ModuleRelayService` is kept only as a legacy/fallback receiver for older PendingIntents. New hook requests should use `ModuleRelayActivity`.
+The token is immutable, one-shot, and has a request-specific data URI. This prevents reuse after the action and prevents an old launcher menu token from silently inheriting new extras after an APK update.
 
-If Android foreground-service launch restrictions block direct service startup on a target ROM, the UClone no-display activity is the trampoline:
+Do not use a no-display Activity trampoline for the launcher hook path. Android 14+ requires sender-side background-activity-launch opt-in, and an asynchronously blocked Activity can make `PendingIntent.send()` return without ever entering relay code. A foreground-service PendingIntent sent from the visible launcher is the supported user-action path.
 
-```text
-PendingIntent -> ModuleRelayActivity -> UCloneExternalActionActivity(NoDisplay) -> ExternalActionService -> finish()
-```
-
-The trampoline activity must do no business logic; it should only start the foreground service and finish.
+`ModuleRelayActivity` and `ModuleRelayService` remain non-exported legacy components for compatibility with already-issued tokens; the provider no longer issues new tokens for them.
 
 All hook-side logic must be wrapped in `try/catch`. Missing classes, fields, methods, or menu containers should skip injection and write `HookEventLog`; they must never crash the launcher process.
 
@@ -95,7 +88,7 @@ PackageManager.getPackagesForUid(callingUid)
 allowed launcher package list, for example com.miui.home
 ```
 
-The module relay activity and legacy relay service should not be exported:
+The legacy module relay activity and service must not be exported:
 
 ```xml
 <activity
@@ -111,11 +104,11 @@ The module relay activity and legacy relay service should not be exported:
     android:exported="false" />
 ```
 
-The launcher hook can only trigger the relay through a `PendingIntent` created by the module provider. The relay then calls UClone from the module APK UID.
+The launcher hook can only trigger UClone through a `PendingIntent` created by the module provider. The PendingIntent creator remains the module APK UID for permission purposes.
 
 ## UClone Components
 
-UClone exposes a no-display trampoline activity and the underlying foreground service:
+UClone exposes a protected no-display activity for explicit compatibility flows and the foreground service used by the launcher module:
 
 ```text
 com.uclone.restore/.external.ExternalActionActivity
@@ -316,8 +309,8 @@ val intent = Intent("com.uclone.restore.action.EXECUTE")
     .putExtra("com.uclone.restore.extra.REQUEST_ID", UUID.randomUUID().toString())
     .putExtra("com.uclone.restore.extra.SOURCE", "module")
 
-// ModuleRelayActivity should start ExternalActionActivity.
-// ExternalActionActivity starts ExternalActionService and immediately finishes.
+// ModuleRelayProvider wraps this explicit intent with
+// PendingIntent.getForegroundService(..., FLAG_ONE_SHOT | FLAG_IMMUTABLE).
 ```
 
 Launcher hook code should call the module relay instead:
@@ -339,4 +332,4 @@ val result = context.contentResolver.call(
 result?.getParcelable<PendingIntent>("pendingIntent")?.send()
 ```
 
-The returned PendingIntent should target `ModuleRelayActivity`, not UClone directly. `ModuleRelayService` is a legacy/fallback path only.
+The returned PendingIntent targets `ExternalActionService` directly. It must be created by the module provider, remain immutable and one-shot, and carry a unique request ID in both its extras and data URI.

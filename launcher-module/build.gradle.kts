@@ -54,6 +54,10 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -66,4 +70,7 @@ android {
 
 dependencies {
     compileOnly("io.github.libxposed:api:102.0.0")
+    testImplementation(kotlin("test"))
+    testImplementation("androidx.test:core:1.7.0")
+    testImplementation("org.robolectric:robolectric:4.16.1")
 }
