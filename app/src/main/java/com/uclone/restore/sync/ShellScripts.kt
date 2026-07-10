@@ -120,7 +120,8 @@ object ShellScripts {
         val credential = settings.cloneUnlockCredential.trim()
         return """
             CLONE_USER=${settings.cloneUserId}
-            CLONE_UNLOCK_CREDENTIAL=${shellQuote(credential)}
+            CLONE_UNLOCK_CREDENTIAL=""
+            CLONE_CREDENTIAL_CONFIGURED=${if (credential.isBlank()) "0" else "1"}
             CLONE_AUTO_UNLOCK=${if (autoUnlockAllowed) "1" else "0"}
             STOP_CLONE_AFTER_TASK=${if (stopAfterTask) "1" else "0"}
             CLONE_STARTED_BY_TASK=0
@@ -154,7 +155,7 @@ object ShellScripts {
             echo "ENSURE_CLONE_CE_BEGIN"
             echo "ENSURE_CLONE_USER=${'$'}CLONE_USER"
             echo "ENSURE_CLONE_AUTO_UNLOCK=${'$'}CLONE_AUTO_UNLOCK"
-            echo "CREDENTIAL_CONFIGURED=${if (credential.isBlank()) "0" else "1"}"
+            echo "CREDENTIAL_CONFIGURED=${'$'}CLONE_CREDENTIAL_CONFIGURED"
             echo "CREDENTIAL_LENGTH=${credential.length}"
             STATE_BEFORE_UNLOCK=${'$'}(clone_state)
             echo "STATE_BEFORE_UNLOCK=${'$'}STATE_BEFORE_UNLOCK"
@@ -188,6 +189,9 @@ object ShellScripts {
                     echo "ENSURE_CLONE_UNLOCK_RESULT=READY_AFTER_START"
                     ;;
                   *)
+                    if [ "${'$'}CLONE_CREDENTIAL_CONFIGURED" = "1" ]; then
+                      IFS= read -r CLONE_UNLOCK_CREDENTIAL || CLONE_UNLOCK_CREDENTIAL=""
+                    fi
                     if [ -z "${'$'}CLONE_UNLOCK_CREDENTIAL" ]; then
                       echo "ERR_CLONE_PIN_MISSING" >&2
                       exit 83

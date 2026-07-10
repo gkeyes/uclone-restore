@@ -26,5 +26,6 @@ internal object TaskOutcome {
         "WARN_REVOKE_FAILED:",
         "WARN_GRANT_FAILED:",
         "WARN_APPOPS_",
+        "WARN_STOP_CLONE_",
     )
 }

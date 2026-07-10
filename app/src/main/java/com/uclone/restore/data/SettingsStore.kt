@@ -3,9 +3,14 @@ package com.uclone.restore.data
 import android.content.Context
 import com.uclone.restore.model.UCloneSettings
 
-class SettingsStore(context: Context) {
+class SettingsStore private constructor(
+    context: Context,
+    private val credentialCipher: CredentialCipher,
+) {
+    constructor(context: Context) : this(context, AndroidKeystoreCredentialCipher())
+
     private val prefs = context.getSharedPreferences("uclone_settings", Context.MODE_PRIVATE)
-    private val schemaVersion = 8
+    private val schemaVersion = 9
 
     fun load(): UCloneSettings = UCloneSettings(
         mainUserId = prefs.getInt("mainUserId", 0),
@@ -22,7 +27,7 @@ class SettingsStore(context: Context) {
         autoUnlockClone = prefs.getBoolean("autoUnlockClone", false),
         allowModuleControl = prefs.getBoolean("allowModuleControl", false),
         favoritePackages = prefs.getStringSet("favoritePackages", emptySet()).orEmpty().toSet(),
-        cloneUnlockCredential = prefs.getString("cloneUnlockCredential", "") ?: "",
+        cloneUnlockCredential = loadCredential(),
     )
 
     fun save(settings: UCloneSettings) {
@@ -41,8 +46,34 @@ class SettingsStore(context: Context) {
             .putBoolean("autoUnlockClone", settings.autoUnlockClone)
             .putBoolean("allowModuleControl", settings.allowModuleControl)
             .putStringSet("favoritePackages", settings.favoritePackages.toMutableSet())
-            .putString("cloneUnlockCredential", settings.cloneUnlockCredential.trim())
+            .putString(ENCRYPTED_CREDENTIAL_KEY, encryptCredential(settings.cloneUnlockCredential.trim()))
+            .remove(LEGACY_CREDENTIAL_KEY)
             .putInt("settingsSchemaVersion", schemaVersion)
             .apply()
+    }
+
+    private fun loadCredential(): String {
+        val encrypted = prefs.getString(ENCRYPTED_CREDENTIAL_KEY, null)
+        if (!encrypted.isNullOrBlank()) {
+            return runCatching { credentialCipher.decrypt(encrypted) }.getOrDefault("")
+        }
+        val legacy = prefs.getString(LEGACY_CREDENTIAL_KEY, null)?.trim().orEmpty()
+        if (legacy.isEmpty()) return ""
+        val migrated = runCatching { credentialCipher.encrypt(legacy) }.getOrNull()
+        prefs.edit()
+            .remove(LEGACY_CREDENTIAL_KEY)
+            .apply {
+                if (migrated != null) putString(ENCRYPTED_CREDENTIAL_KEY, migrated)
+            }
+            .commit()
+        return if (migrated == null) "" else legacy
+    }
+
+    private fun encryptCredential(credential: String): String =
+        credential.takeIf(String::isNotEmpty)?.let(credentialCipher::encrypt).orEmpty()
+
+    private companion object {
+        const val LEGACY_CREDENTIAL_KEY = "cloneUnlockCredential"
+        const val ENCRYPTED_CREDENTIAL_KEY = "cloneUnlockCredentialEncrypted"
     }
 }

@@ -39,4 +39,11 @@ class TaskResultMessagesTest {
 
         assertEquals("完成", message)
     }
+
+    @Test
+    fun successMessageReportsCloneAutoStopFailure() {
+        val message = TaskResultMessages.successMessage("WARN_STOP_CLONE_PENDING:RUNNING_UNLOCKED")
+
+        assertEquals("完成，但分身自动关闭失败，分身可能仍在运行", message)
+    }
 }

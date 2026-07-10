@@ -12,6 +12,7 @@ import com.uclone.restore.model.TaskType
 import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.root.RootEnvironmentChecker
 import com.uclone.restore.root.RootShellExecutor
+import com.uclone.restore.root.ShellOutput
 import com.uclone.restore.root.ShellResult
 import com.uclone.restore.root.ShellStream
 import com.uclone.restore.root.shellQuote
@@ -491,7 +492,7 @@ class SyncEngine(
             body = script,
             startedAt = timestamp,
         )
-        val result = shell.execStreaming(command, timeoutSeconds = taskHostTimeoutSeconds(type)) { output ->
+        val handleOutput: (ShellOutput) -> Unit = { output ->
             val line = if (output.stream == ShellStream.STDERR) "STDERR: ${output.line}" else output.line
             liveTail.append(line)
             var force = false
@@ -511,6 +512,13 @@ class SyncEngine(
                     report(TaskProgress(progressTask, steps, liveTail.value()))
                 }
             }
+        }
+        val protectedInput = settings.cloneUnlockCredential.trim().takeIf(String::isNotEmpty)?.plus("\n")
+        val timeoutSeconds = taskHostTimeoutSeconds(type)
+        val result = if (protectedInput == null) {
+            shell.execStreaming(command, timeoutSeconds, handleOutput)
+        } else {
+            shell.execStreamingWithInput(command, protectedInput, timeoutSeconds, handleOutput)
         }
         val endedAt = System.currentTimeMillis()
         val liveLog = "OUTPUT:\n${result.stdout}\nSTDERR:\n${result.stderr}\nOUTPUT_TRUNCATED=${if (result.outputTruncated) 1 else 0}\nEXIT=${result.exitCode}\nEND=$endedAt\nEND_LOCAL=${formatLocalTime(endedAt)}\nDURATION_MS=${endedAt - timestamp}\n"
@@ -561,6 +569,7 @@ class SyncEngine(
             "ERR_PACKAGE_NOT_LISTED_SOURCE" in output -> "主系统未安装此 App，无法推送"
             "ERR_PACKAGE_NOT_LISTED" in output -> "分身系统未安装此 App，未执行备份或切换"
             "ERR_PUSH_CE_MISSING" in output -> "主系统 CE 数据缺失，未执行推送"
+            "ERR_FORCE_STOP_FAILED" in output -> "无法停止分身 App，未读取或写入数据"
             "ERR_NOTHING_PUSHED" in output || "ERR_NOTHING_COPIED" in output -> "没有找到可推送的数据"
             else -> result.stderr.ifBlank { "命令失败：${result.exitCode}" }
         }

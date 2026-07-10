@@ -33,6 +33,31 @@ class ExternalActionRequestTest {
     }
 
     @Test
+    fun parseRejectsPackageNamesThatCanEscapeRootPaths() {
+        val invalidPackageNames = listOf(
+            "../com.example.app",
+            "com/example/app",
+            "com.example app",
+            "com.example.app\nnext",
+            ".",
+            "..",
+        )
+
+        invalidPackageNames.forEach { packageName ->
+            assertNull(
+                ExternalActionRequest.parse(
+                    protocolVersion = ExternalActionContract.PROTOCOL_VERSION,
+                    operation = ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
+                    packageName = packageName,
+                    requestId = "request-42",
+                    source = ExternalActionContract.SOURCE_MODULE,
+                ),
+                packageName,
+            )
+        }
+    }
+
+    @Test
     fun rollbackOperationRequiresRollbackId() {
         val missing = ExternalActionRequest.parse(
             ExternalActionContract.PROTOCOL_VERSION,

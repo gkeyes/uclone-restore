@@ -36,6 +36,8 @@ data class ExternalActionRequest(
             val normalizedOperation = operation?.trim()?.takeIf(String::isNotEmpty) ?: return null
             if (normalizedOperation !in allowedOperations) return null
             val normalizedPackage = packageName?.trim()?.takeIf(String::isNotEmpty) ?: return null
+            if (!safePackageToken.matches(normalizedPackage)) return null
+            if (normalizedOperation in operationsRequiringAppPackage && !androidPackageName.matches(normalizedPackage)) return null
             val normalizedRequestId = requestId?.trim()?.takeIf(String::isNotEmpty) ?: return null
             val normalizedSource = source?.trim()?.takeIf(String::isNotEmpty)
                 ?: ExternalActionContract.SOURCE_MODULE
@@ -77,5 +79,17 @@ data class ExternalActionRequest(
             ExternalActionContract.OPERATION_RESTORE_ROLLBACK,
             ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP,
         )
+        private val operationsRequiringAppPackage = allowedOperations - setOf(
+            ExternalActionContract.OPERATION_PROBE_CLONE_CE,
+            ExternalActionContract.OPERATION_UNLOCK_CLONE,
+            ExternalActionContract.OPERATION_DEBUG_CLONE_SYSTEM,
+            ExternalActionContract.OPERATION_CLEAR_LOGS,
+            ExternalActionContract.OPERATION_RESET_WORKSPACE,
+            ExternalActionContract.OPERATION_START_CLONE_USER,
+            ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER,
+            ExternalActionContract.OPERATION_STOP_CLONE_USER,
+        )
+        private val safePackageToken = Regex("[A-Za-z0-9_.]+")
+        private val androidPackageName = Regex("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)+")
     }
 }

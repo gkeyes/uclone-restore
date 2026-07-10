@@ -10,7 +10,7 @@
 4. 默认数据范围中确认 `external` 已开启。小红书这类 App 的 `Android/data` 数据量较大，建议保留开启。
 5. 「自动关闭本次启动的分身系统」默认开启。
 
-PIN 只保存在 user0 的 App 私有设置中，任务日志只记录是否配置和长度，不记录明文。
+PIN 使用 Android Keystore 密钥加密保存在 user0，并通过 stdin 传入 root shell；任务日志和 `su -c` 参数都不记录明文。
 
 ## 2. 诊断无感启动
 
@@ -25,9 +25,10 @@ VERIFY_BEGIN
 VERIFY_RESULT=SUCCESS
 WAIT_AFTER_VERIFY_...
 USER10_CE_READY=1
-STOP_CLONE_AFTER_TASK=1
-STOP_USER_OUTPUT=...
+STOP_CLONE_AFTER_TASK=0 reason=persistent_lifecycle_action startedByTask=1
 ```
+
+「无感启动分身」是持续生命周期操作：即使本次操作启动了 user10，也应保持 `RUNNING_UNLOCKED`，不会自动关闭。只有需要临时读取分身数据的备份、切换或推送任务，才按「自动关闭本次启动的分身系统」设置在任务结束后尝试关闭。
 
 如果 user10 本来就是 `RUNNING_UNLOCKED`，日志应显示：
 

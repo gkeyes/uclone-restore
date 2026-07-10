@@ -94,7 +94,7 @@ UClone Restore 应安装在主系统 `user0`。打开后先进入首页，点击
 2. 填入分身系统的 PIN / 密码。
 3. 保存设置。
 
-密码只用于 root shell 调用：
+密码使用 Android Keystore 的 AES-GCM 密钥加密保存在 user0，并通过标准输入传给 root shell，不会写入 `su -c` 命令参数：
 
 ```text
 cmd lock_settings verify --old <PIN> --user 10

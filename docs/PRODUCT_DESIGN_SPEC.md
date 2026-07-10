@@ -126,7 +126,7 @@ Android 多用户下，同一包名在不同 user 中拥有独立的数据目录
 设置项:
 
 - `分身自动解锁`: 默认关闭。
-- `分身锁屏 PIN/密码`: 保存在 user0 的 App 私有设置中，日志只记录长度，不记录明文。
+- `分身锁屏 PIN/密码`: 使用 Android Keystore AES-GCM 密钥加密保存在 user0；执行时通过 stdin 传入 root shell，不进入 `su -c` 参数；日志只记录长度，不记录明文。
 
 执行逻辑:
 
@@ -569,12 +569,13 @@ UClone Restore 负责实际执行:
 
 当前策略:
 
-- PIN/密码仅保存在 user0 App 私有 SharedPreferences。
+- PIN/密码密文保存在 user0 App 私有 SharedPreferences，密钥由 Android Keystore 管理。
+- 旧版明文设置在首次读取时迁移为密文；迁移失败时清除旧明文并要求重新输入。
+- root 命令通过 stdin 读取凭据，`su -c` 参数和任务日志都不包含明文。
 - 任务日志只记录是否配置、长度，不记录明文。
 
 后续增强:
 
-- 使用 Android Keystore 加密保存。
 - 增加“仅本次输入，不落盘”模式。
 - 增加凭据清除按钮。
 
@@ -779,7 +780,7 @@ Android 版本差异、Scoped Storage、OEM 文件访问策略会影响 external
 - Keystore 风险提示。
 - 权限/AppOps 更细粒度审计。
 - 真机 Neo Backup 对比审计报告。
-- PIN/密码加密保存或一次性输入模式。
+- PIN/密码一次性输入模式。
 
 ## 14. 工程边界总结
 

@@ -60,6 +60,8 @@ UClone can attempt a silent unlock flow when configured:
 4. Run the requested data operation.
 5. Stop clone user after the task when that setting is enabled.
 
+The credential is encrypted at rest with an Android Keystore AES-GCM key and is sent to the root shell over standard input, not embedded in `su -c` arguments or logs.
+
 If the clone user cannot be unlocked, CE snapshot or restore operations are blocked rather than silently using incomplete data.
 
 ## Storage Layout

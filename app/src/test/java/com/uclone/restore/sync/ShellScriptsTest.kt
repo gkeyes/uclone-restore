@@ -516,6 +516,8 @@ class ShellScriptsTest {
         assertContains(script, "start-user \"${'$'}CLONE_USER\"")
         assertFalse(script.contains("start-user -w"))
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
+        assertContains(script, "IFS= read -r CLONE_UNLOCK_CREDENTIAL")
+        assertFalse(script.contains("123456"))
         assertContains(script, "VERIFY_RESULT=")
         assertContains(script, "wait_for_clone_state \"WAIT_AFTER_VERIFY\" 120")
         assertContains(script, "STOP_CLONE_AFTER_TASK=0")

@@ -43,4 +43,13 @@ class TaskOutcomeTest {
             assertEquals(TaskStatus.SUCCESS_WITH_WARNINGS, TaskOutcome.status(result))
         }
     }
+
+    @Test
+    fun cloneAutoStopWarningsHaveExplicitPartialSuccessStatus() {
+        listOf("WARN_STOP_CLONE_REQUEST_FAILED", "WARN_STOP_CLONE_PENDING").forEach { warning ->
+            val result = ShellResult(0, warning, "")
+
+            assertEquals(TaskStatus.SUCCESS_WITH_WARNINGS, TaskOutcome.status(result))
+        }
+    }
 }

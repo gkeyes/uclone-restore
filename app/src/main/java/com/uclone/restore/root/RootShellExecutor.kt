@@ -17,6 +17,13 @@ interface RootShellExecutor {
         result.stderr.lineSequence().forEach { onOutput(ShellOutput(ShellStream.STDERR, it)) }
         return result
     }
+
+    suspend fun execStreamingWithInput(
+        command: String,
+        standardInput: String,
+        timeoutSeconds: Long = 120,
+        onOutput: (ShellOutput) -> Unit,
+    ): ShellResult = execStreaming(command, timeoutSeconds, onOutput)
 }
 
 class ProcessRootShellExecutor internal constructor(
@@ -34,18 +41,32 @@ class ProcessRootShellExecutor internal constructor(
         command: String,
         timeoutSeconds: Long,
         onOutput: (ShellOutput) -> Unit,
+    ): ShellResult = execStreamingInternal(command, null, timeoutSeconds, onOutput)
+
+    override suspend fun execStreamingWithInput(
+        command: String,
+        standardInput: String,
+        timeoutSeconds: Long,
+        onOutput: (ShellOutput) -> Unit,
+    ): ShellResult = execStreamingInternal(command, standardInput, timeoutSeconds, onOutput)
+
+    private suspend fun execStreamingInternal(
+        command: String,
+        standardInput: String?,
+        timeoutSeconds: Long,
+        onOutput: (ShellOutput) -> Unit,
     ): ShellResult =
         withContext(Dispatchers.IO) {
             val knownMode = invocationMode
             if (knownMode != null) {
-                return@withContext runner.run(knownMode.args(command), timeoutSeconds, onOutput)
+                return@withContext runner.run(knownMode.args(command), standardInput, timeoutSeconds, onOutput)
             }
             val resolution = synchronized(modeLock) {
                 val resolvedMode = invocationMode
                 if (resolvedMode != null) {
                     return@synchronized ModeResolution(resolvedMode, null)
                 }
-                val probe = runner.run(SuInvocationMode.MOUNT_MASTER.args("exit 0"), 15, {})
+                val probe = runner.run(SuInvocationMode.MOUNT_MASTER.args("exit 0"), null, 15, {})
                 val selectedMode = if (probe.isMountMasterUnsupported()) {
                     SuInvocationMode.PLAIN
                 } else {
@@ -54,7 +75,7 @@ class ProcessRootShellExecutor internal constructor(
                 invocationMode = selectedMode
                 ModeResolution(selectedMode, probe)
             }
-            val result = runner.run(resolution.mode.args(command), timeoutSeconds, onOutput)
+            val result = runner.run(resolution.mode.args(command), standardInput, timeoutSeconds, onOutput)
             resolution.probe?.let { probe ->
                 result.copy(
                     processStarts = probe.processStarts + result.processStarts,
@@ -81,7 +102,12 @@ class ProcessRootShellExecutor internal constructor(
 }
 
 internal fun interface SuProcessRunner {
-    fun run(args: List<String>, timeoutSeconds: Long, onOutput: (ShellOutput) -> Unit): ShellResult
+    fun run(
+        args: List<String>,
+        standardInput: String?,
+        timeoutSeconds: Long,
+        onOutput: (ShellOutput) -> Unit,
+    ): ShellResult
 }
 
 private val SystemSuProcessRunner: SuProcessRunner = ProcessCommandRunner(listOf("su"))
@@ -92,6 +118,7 @@ internal class ProcessCommandRunner(
 ) : SuProcessRunner {
     override fun run(
         args: List<String>,
+        standardInput: String?,
         timeoutSeconds: Long,
         onOutput: (ShellOutput) -> Unit,
     ): ShellResult {
@@ -109,6 +136,19 @@ internal class ProcessCommandRunner(
         }
         val stdoutCapture = streamReader(process.inputStream, ShellStream.STDOUT, onOutput)
         val stderrCapture = streamReader(process.errorStream, ShellStream.STDERR, onOutput)
+        runCatching {
+            process.outputStream.bufferedWriter().use { writer ->
+                if (standardInput != null) writer.write(standardInput)
+            }
+        }.onFailure {
+            process.destroyForcibly()
+            return ShellResult(
+                exitCode = 74,
+                stdout = stdoutCapture.result(),
+                stderr = "Unable to send protected standard input",
+                durationMs = elapsedMs(startedAt),
+            )
+        }
         val finished = if (timeoutSeconds <= 0) {
             process.waitFor()
             true

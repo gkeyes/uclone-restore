@@ -15,7 +15,7 @@ class ProcessRootShellExecutorTest {
     @Test
     fun unsupportedMountMasterIsProbedOnceThenPlainModeIsCached() = runBlocking {
         val calls = mutableListOf<List<String>>()
-        val runner = SuProcessRunner { args, _, onOutput ->
+        val runner = SuProcessRunner { args, _, _, onOutput ->
             calls += args
             when {
                 args.take(2) == listOf("-mm", "-c") -> ShellResult(
@@ -51,7 +51,7 @@ class ProcessRootShellExecutorTest {
     @Test
     fun supportedMountMasterModeIsCached() = runBlocking {
         val calls = mutableListOf<List<String>>()
-        val runner = SuProcessRunner { args, _, _ ->
+        val runner = SuProcessRunner { args, _, _, _ ->
             calls += args
             ShellResult(0, "", "")
         }
@@ -75,7 +75,7 @@ class ProcessRootShellExecutorTest {
         val firstStarted = CountDownLatch(1)
         val releaseFirst = CountDownLatch(1)
         val secondStarted = CountDownLatch(1)
-        val runner = SuProcessRunner { args, _, _ ->
+        val runner = SuProcessRunner { args, _, _, _ ->
             when (args.last()) {
                 "first" -> {
                     firstStarted.countDown()
@@ -114,6 +114,7 @@ class ProcessRootShellExecutorTest {
 
         val result = runner.run(
             listOf("-c", "echo before-timeout >&2; sleep 2"),
+            standardInput = null,
             timeoutSeconds = 1,
             onOutput = {},
         )
@@ -123,6 +124,22 @@ class ProcessRootShellExecutorTest {
         assertTrue("timed out" in result.stderr)
         assertTrue("rollback grace period" in result.stderr)
         assertFalse(result.isSuccess)
+    }
+
+    @Test
+    fun protectedInputIsWrittenToStdinAndNeverAddedToCommandArguments() = runBlocking {
+        val calls = mutableListOf<Pair<List<String>, String?>>()
+        val runner = SuProcessRunner { args, standardInput, _, _ ->
+            calls += args to standardInput
+            ShellResult(0, "", "")
+        }
+        val executor = ProcessRootShellExecutor(runner)
+
+        executor.execStreamingWithInput("read secret", "123456\n", 10) {}
+
+        val commandCall = calls.last()
+        assertEquals("123456\n", commandCall.second)
+        assertFalse(commandCall.first.any { "123456" in it })
     }
 
 }

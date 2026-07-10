@@ -13,6 +13,7 @@ import com.uclone.restore.root.ShellStream
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SyncEngineTest {
@@ -185,6 +186,46 @@ class SyncEngineTest {
         assertTrue("完整内容请查看任务日志" in result.message)
     }
 
+    @Test
+    fun cloneCredentialUsesProtectedStdinInsteadOfRootCommandArguments() = runBlocking {
+        val shell = ProtectedInputShell()
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+        )
+
+        engine.unlockCloneWithCredential(
+            settings = UCloneSettings(cloneUnlockCredential = "654321"),
+            report = {},
+        )
+
+        assertEquals("654321\n", shell.standardInput)
+        assertFalse(shell.command.orEmpty().contains("654321"))
+    }
+
+    @Test
+    fun forceStopFailureTakesPriorityOverNothingCopied() = runBlocking {
+        val shell = ForceStopFailureShell()
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+        )
+
+        val result = engine.captureSnapshot(
+            packageName = "com.example.app",
+            rule = AppRule(packageName = "com.example.app"),
+            settings = UCloneSettings(rootDir = "/data/adb/uclone"),
+            report = {},
+        )
+
+        assertEquals(TaskStatus.FAILED, result.status)
+        assertEquals("无法停止分身 App，未读取或写入数据", result.message)
+    }
+
     private class FakeRootShell : RootShellExecutor {
         val commands = mutableListOf<String>()
 
@@ -269,5 +310,34 @@ class SyncEngineTest {
             stderr = "",
             outputTruncated = true,
         )
+    }
+
+    private class ProtectedInputShell : RootShellExecutor {
+        var command: String? = null
+        var standardInput: String? = null
+
+        override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult = ShellResult(0, "", "")
+
+        override suspend fun execStreamingWithInput(
+            command: String,
+            standardInput: String,
+            timeoutSeconds: Long,
+            onOutput: (ShellOutput) -> Unit,
+        ): ShellResult {
+            this.command = command
+            this.standardInput = standardInput
+            return ShellResult(0, "USER10_CE_READY=1", "")
+        }
+    }
+
+    private class ForceStopFailureShell : RootShellExecutor {
+        override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult = when (command) {
+            "id" -> ShellResult(0, "uid=0(root)", "")
+            else -> ShellResult(
+                exitCode = 44,
+                stdout = "",
+                stderr = "ERR_FORCE_STOP_FAILED:10:com.example.app\nERR_NOTHING_COPIED: no source data",
+            )
+        }
     }
 }
