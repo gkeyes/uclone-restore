@@ -951,11 +951,23 @@ object ShellScripts {
         echo "UNLOCK_CLONE_WITH_CREDENTIAL_DONE"
     """.trimIndent()
 
-    fun stopCloneUser(settings: UCloneSettings): String = """
+    internal fun stopCloneUser(
+        settings: UCloneSettings,
+        amCommand: String = "/system/bin/am",
+        sleepCommand: String = "sleep",
+        stopPollLimit: Int = 20,
+        stopPollIntervalSeconds: Double = 0.25,
+    ): String {
+        require(stopPollLimit in 1..100)
+        require(stopPollIntervalSeconds > 0.0 && stopPollIntervalSeconds <= 5.0)
+        return """
         set -u
         CLONE_USER=${settings.cloneUserId}
+        AM_COMMAND=${shellQuote(amCommand)}
+        SLEEP_COMMAND=${shellQuote(sleepCommand)}
+        STOP_POLL_INTERVAL=${shellQuote(stopPollIntervalSeconds.toString())}
         clone_state() {
-          /system/bin/am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
+          "${'$'}AM_COMMAND" get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
         }
         echo "EXPLICIT_STOP_CLONE_USER=${'$'}CLONE_USER"
         STATE_BEFORE_STOP=${'$'}(clone_state)
@@ -964,28 +976,29 @@ object ShellScripts {
           *"User is not started"*|*"not started"*|*SHUTDOWN*) echo "STOP_CLONE_ALREADY_STOPPED=1"; exit 0 ;;
         esac
         STOP_USER_EXIT=0
-        STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user "${'$'}CLONE_USER" 2>&1) || STOP_USER_EXIT=${'$'}?
+        STOP_USER_OUTPUT=${'$'}("${'$'}AM_COMMAND" stop-user "${'$'}CLONE_USER" 2>&1) || STOP_USER_EXIT=${'$'}?
         echo "STOP_USER_EXIT=${'$'}STOP_USER_EXIT"
         echo "STOP_USER_OUTPUT=${'$'}STOP_USER_OUTPUT"
+        if [ "${'$'}STOP_USER_EXIT" -ne 0 ]; then
+          echo "ERR_STOP_CLONE_REQUEST_FAILED:${'$'}STOP_USER_EXIT:${'$'}(clone_state)" >&2
+          exit 86
+        fi
         STOP_WAIT_INDEX=0
-        while [ "${'$'}STOP_WAIT_INDEX" -lt 20 ]; do
+        while [ "${'$'}STOP_WAIT_INDEX" -lt $stopPollLimit ]; do
           STOP_WAIT_STATE=${'$'}(clone_state)
           echo "WAIT_AFTER_STOP_${'$'}STOP_WAIT_INDEX=${'$'}STOP_WAIT_STATE"
           case "${'$'}STOP_WAIT_STATE" in
             *"User is not started"*|*"not started"*|*SHUTDOWN*) echo "STOP_CLONE_CONFIRMED=1"; exit 0 ;;
           esac
-          sleep 0.25
+          "${'$'}SLEEP_COMMAND" "${'$'}STOP_POLL_INTERVAL"
           STOP_WAIT_INDEX=${'$'}((STOP_WAIT_INDEX + 1))
         done
         STATE_AFTER_STOP_TIMEOUT=${'$'}(clone_state)
         echo "STATE_AFTER_STOP_TIMEOUT=${'$'}STATE_AFTER_STOP_TIMEOUT"
-        if [ "${'$'}STOP_USER_EXIT" -ne 0 ]; then
-          echo "ERR_STOP_CLONE_REQUEST_FAILED:${'$'}STOP_USER_EXIT:${'$'}STATE_AFTER_STOP_TIMEOUT" >&2
-          exit 86
-        fi
         echo "ERR_STOP_CLONE_PENDING:${'$'}STATE_AFTER_STOP_TIMEOUT" >&2
         exit 87
-    """.trimIndent()
+        """.trimIndent()
+    }
 
     fun debugCloneSystem(settings: UCloneSettings, appPackage: String): String = """
         set -u

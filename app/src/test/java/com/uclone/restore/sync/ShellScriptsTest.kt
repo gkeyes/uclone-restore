@@ -2,6 +2,7 @@ package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.UCloneSettings
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -479,7 +480,7 @@ class ShellScriptsTest {
     fun explicitStopRequestsStopWithoutWaitingInsideActivityManager() {
         val script = ShellScripts.stopCloneUser(settings)
 
-        assertContains(script, "/system/bin/am stop-user \"${'$'}CLONE_USER\"")
+        assertContains(script, "\"${'$'}AM_COMMAND\" stop-user \"${'$'}CLONE_USER\"")
         assertFalse(script.contains("stop-user -w"))
         assertContains(script, "STOP_CLONE_CONFIRMED=1")
         assertContains(script, "STOP_USER_EXIT=0")
@@ -487,7 +488,38 @@ class ShellScriptsTest {
         assertContains(script, "ERR_STOP_CLONE_PENDING")
         assertContains(script, "exit 86")
         assertContains(script, "exit 87")
-        assertFalse(script.contains("STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user \"${'$'}CLONE_USER\" 2>&1 || true)"))
+        assertTrue(script.indexOf("ERR_STOP_CLONE_REQUEST_FAILED") < script.indexOf("STOP_WAIT_INDEX=0"))
+    }
+
+    @Test
+    fun explicitStopFailsImmediatelyWhenActivityManagerRejectsRequest() {
+        val result = runExplicitStopScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state) echo RUNNING_UNLOCKED; exit 0 ;;
+                  stop-user) echo permission-denied; exit 9 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(86, result.exitCode, result.output)
+        assertContains(result.output, "STOP_USER_EXIT=9")
+        assertContains(result.output, "ERR_STOP_CLONE_REQUEST_FAILED:9")
+    }
+
+    @Test
+    fun explicitStopFailsWhenUserRemainsRunningAfterAcceptedRequest() {
+        val result = runExplicitStopScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state) echo RUNNING_UNLOCKED; exit 0 ;;
+                  stop-user) exit 0 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(87, result.exitCode, result.output)
+        assertContains(result.output, "ERR_STOP_CLONE_PENDING:RUNNING_UNLOCKED")
     }
 
     @Test
@@ -506,4 +538,26 @@ class ShellScriptsTest {
         assertFalse(script.contains("restorecon -"))
         assertFalse(script.contains("am switch-user"))
     }
+
+    private fun runExplicitStopScript(amBody: String): StopScriptResult {
+        val directory = Files.createTempDirectory("uclone-stop-test")
+        val fakeAm = directory.resolve("am").toFile().apply {
+            writeText("#!/bin/sh\n$amBody\n")
+            check(setExecutable(true))
+        }
+        val script = ShellScripts.stopCloneUser(
+            settings = settings,
+            amCommand = fakeAm.absolutePath,
+            sleepCommand = "/bin/sleep",
+            stopPollLimit = 2,
+            stopPollIntervalSeconds = 0.01,
+        )
+        val process = ProcessBuilder("/bin/bash", "-c", script)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+        return StopScriptResult(process.waitFor(), output)
+    }
+
+    private data class StopScriptResult(val exitCode: Int, val output: String)
 }
