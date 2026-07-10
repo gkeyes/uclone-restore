@@ -446,8 +446,9 @@ class ShellScriptsTest {
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "VERIFY_RESULT=")
         assertContains(script, "WAIT_AFTER_VERIFY")
-        assertContains(script, "STOP_CLONE_AFTER_TASK=1")
-        assertContains(script, "STOP_USER_OUTPUT=")
+        assertContains(script, "STOP_CLONE_AFTER_TASK=0")
+        assertContains(script, "reason=persistent_lifecycle_action")
+        assertFalse(script.contains("am stop-user"))
         assertContains(script, "USER10_CE_READY=1")
         assertFalse(script.contains("am unlock-user"))
         assertFalse(script.contains("am switch-user"))
@@ -456,6 +457,37 @@ class ShellScriptsTest {
         assertFalse(script.contains("PIN_PAD_TAPS"))
         assertFalse(script.contains("VERIFY_OUTPUT=${'$'}VERIFY_OUTPUT"))
         assertFalse(script.contains("UNLOCK_OUTPUT="))
+    }
+
+    @Test
+    fun dataTasksOnlyRequestNonBlockingStopWhenTheyStartedCloneUser() {
+        val script = ShellScripts.capture(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            settings.copy(cloneUnlockCredential = "123456", autoUnlockClone = true, stopCloneAfterTask = true),
+            appPackage,
+        )
+
+        assertContains(script, "[ \"${'$'}CLONE_STARTED_BY_TASK\" != \"1\" ]")
+        assertContains(script, "/system/bin/am stop-user \"${'$'}CLONE_USER\"")
+        assertFalse(script.contains("stop-user -w"))
+        assertContains(script, "WAIT_AFTER_STOP_${'$'}STOP_WAIT_INDEX")
+        assertContains(script, "sleep 0.25")
+    }
+
+    @Test
+    fun explicitStopRequestsStopWithoutWaitingInsideActivityManager() {
+        val script = ShellScripts.stopCloneUser(settings)
+
+        assertContains(script, "/system/bin/am stop-user \"${'$'}CLONE_USER\"")
+        assertFalse(script.contains("stop-user -w"))
+        assertContains(script, "STOP_CLONE_CONFIRMED=1")
+        assertContains(script, "STOP_USER_EXIT=0")
+        assertContains(script, "ERR_STOP_CLONE_REQUEST_FAILED")
+        assertContains(script, "ERR_STOP_CLONE_PENDING")
+        assertContains(script, "exit 86")
+        assertContains(script, "exit 87")
+        assertFalse(script.contains("STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user \"${'$'}CLONE_USER\" 2>&1 || true)"))
     }
 
     @Test

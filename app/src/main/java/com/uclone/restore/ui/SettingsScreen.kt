@@ -84,11 +84,11 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             )
         }
         SectionCard("任务结束") {
-            ToggleRow("任务完成后关闭分身系统", draft.stopCloneAfterTask) {
+            ToggleRow("数据任务后关闭临时分身", draft.stopCloneAfterTask) {
                 draft = draft.copy(stopCloneAfterTask = it)
             }
             Text(
-                "建立备份只关闭本次后台启动的分身；切换和还原会在任务结束后按此开关关闭 user10。",
+                "仅对备份、切换、推送和分身回滚等数据任务生效，而且只关闭本次任务启动的 user10。无感启动分身不会自动关闭。",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

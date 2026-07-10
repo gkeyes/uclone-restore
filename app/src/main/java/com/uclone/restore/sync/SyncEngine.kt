@@ -253,7 +253,7 @@ class SyncEngine(
         type = TaskType.UNLOCK_CLONE_WITH_CREDENTIAL,
         packageName = "user${settings.cloneUserId}",
         settings = settings,
-        labels = listOf("检查 root", "后台启动分身", "验证 PIN", "等待 CE 解锁", "按需关闭分身", "完成"),
+        labels = listOf("检查 root", "后台启动分身", "验证 PIN", "等待 CE 解锁", "保持分身运行", "完成"),
         script = ShellScripts.unlockCloneWithCredential(settings),
         report = report,
         requestId = requestId,
@@ -463,7 +463,7 @@ class SyncEngine(
         shell.exec("am switch-user ${settings.cloneUserId}", timeoutSeconds = 30)
 
     suspend fun stopCloneUserByExplicitUserRequest(settings: UCloneSettings) =
-        shell.exec("am stop-user -w ${settings.cloneUserId}", timeoutSeconds = 60)
+        shell.exec(ShellScripts.stopCloneUser(settings), timeoutSeconds = 15)
 
     private suspend fun runScriptTask(
         type: TaskType,

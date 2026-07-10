@@ -97,6 +97,7 @@ object ShellScripts {
         settings: UCloneSettings,
         required: Boolean,
         autoUnlockAllowed: Boolean,
+        stopAfterTask: Boolean,
     ): String {
         if (!required) return """
             echo "ENSURE_CE_SKIPPED=not_required"
@@ -106,7 +107,7 @@ object ShellScripts {
             CLONE_USER=${settings.cloneUserId}
             CLONE_UNLOCK_CREDENTIAL=${shellQuote(credential)}
             CLONE_AUTO_UNLOCK=${if (autoUnlockAllowed) "1" else "0"}
-            STOP_CLONE_AFTER_TASK=${if (settings.stopCloneAfterTask) "1" else "0"}
+            STOP_CLONE_AFTER_TASK=${if (stopAfterTask) "1" else "0"}
             CLONE_STARTED_BY_TASK=0
             CLONE_STOPPED_AFTER_TASK=0
             clone_state() {
@@ -128,20 +129,7 @@ object ShellScripts {
               done
               return 1
             }
-            cleanup_clone_user() {
-              if [ "${'$'}CLONE_STOPPED_AFTER_TASK" = "1" ]; then
-                echo "STOP_CLONE_AFTER_TASK=already_stopped"
-                return 0
-              fi
-              if [ "${'$'}STOP_CLONE_AFTER_TASK" = "1" ] && [ "${'$'}CLONE_STARTED_BY_TASK" = "1" ]; then
-                echo "STOP_CLONE_AFTER_TASK=1"
-                STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user -w "${'$'}CLONE_USER" 2>&1 || true)
-                echo "STOP_USER_OUTPUT=${'$'}STOP_USER_OUTPUT"
-                echo "STATE_AFTER_STOP=${'$'}(clone_state)"
-              else
-                echo "STOP_CLONE_AFTER_TASK=0 startedByTask=${'$'}CLONE_STARTED_BY_TASK"
-              fi
-            }
+            ${cloneCleanupFunction(stopAfterTask)}
             cleanup_on_exit() {
               if command -v cleanup_switch_temp >/dev/null 2>&1; then
                 cleanup_switch_temp
@@ -230,6 +218,42 @@ object ShellScripts {
         """.trimIndent()
     }
 
+    private fun cloneCleanupFunction(stopAfterTask: Boolean): String {
+        if (!stopAfterTask) return """
+            cleanup_clone_user() {
+              echo "STOP_CLONE_AFTER_TASK=0 reason=persistent_lifecycle_action startedByTask=${'$'}CLONE_STARTED_BY_TASK"
+            }
+        """.trimIndent()
+        return """
+            cleanup_clone_user() {
+              if [ "${'$'}CLONE_STOPPED_AFTER_TASK" = "1" ]; then
+                echo "STOP_CLONE_AFTER_TASK=already_requested"
+                return 0
+              fi
+              if [ "${'$'}CLONE_STARTED_BY_TASK" != "1" ]; then
+                echo "STOP_CLONE_AFTER_TASK=0 startedByTask=${'$'}CLONE_STARTED_BY_TASK"
+                return 0
+              fi
+              echo "STOP_CLONE_AFTER_TASK=1 startedByTask=1"
+              echo "STATE_BEFORE_STOP=${'$'}(clone_state)"
+              STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user "${'$'}CLONE_USER" 2>&1 || true)
+              CLONE_STOPPED_AFTER_TASK=1
+              echo "STOP_USER_OUTPUT=${'$'}STOP_USER_OUTPUT"
+              STOP_WAIT_INDEX=0
+              while [ "${'$'}STOP_WAIT_INDEX" -lt 20 ]; do
+                STOP_WAIT_STATE=${'$'}(clone_state)
+                echo "WAIT_AFTER_STOP_${'$'}STOP_WAIT_INDEX=${'$'}STOP_WAIT_STATE"
+                case "${'$'}STOP_WAIT_STATE" in
+                  *"User is not started"*|*"not started"*|*SHUTDOWN*) echo "STOP_CLONE_CONFIRMED=1"; return 0 ;;
+                esac
+                sleep 0.25
+                STOP_WAIT_INDEX=${'$'}((STOP_WAIT_INDEX + 1))
+              done
+              echo "WARN_STOP_CLONE_PENDING:${'$'}(clone_state)"
+            }
+        """.trimIndent()
+    }
+
     fun capture(packageName: String, rule: AppRule, settings: UCloneSettings, appPackage: String): String = """
         set -u
         ROOT=${shellQuote(settings.rootDir)}
@@ -248,7 +272,7 @@ object ShellScripts {
         uclone_stage_end
         uclone_stage_begin SOURCE_PREPARE
         CAPTURE_REQUIRE_CE=${if (rule.includeCe) "1" else "0"}
-        ${ensureCloneCeReadyScript(settings, rule.includeCe, settings.autoUnlockClone)}
+        ${ensureCloneCeReadyScript(settings, rule.includeCe, settings.autoUnlockClone, settings.stopCloneAfterTask)}
         CANDIDATE_USERS="${'$'}CONFIG_SRC_USER"
         echo "CANDIDATE_USERS=${'$'}CANDIDATE_USERS"
         [ -n "${'$'}CANDIDATE_USERS" ] || { echo "ERR_NO_CLONE_USER_CANDIDATES" >&2; exit 42; }
@@ -493,7 +517,7 @@ object ShellScripts {
           echo "CLONE_ROLLBACK_RECOVERED=${'$'}ROLLBACK_LATEST"
         fi
         rm -rf "${'$'}PUSH_TEMP" "${'$'}ROLLBACK_TMP"
-        ${ensureCloneCeReadyScript(settings, rule.includeCe, settings.autoUnlockClone)}
+        ${ensureCloneCeReadyScript(settings, rule.includeCe, settings.autoUnlockClone, settings.stopCloneAfterTask)}
         if cmd package list packages --user "${'$'}SRC_USER" 2>/dev/null | grep -qx "package:${'$'}PKG"; then
           echo "PACKAGE_LISTED_SOURCE:${'$'}SRC_USER"
         else
@@ -921,10 +945,46 @@ object ShellScripts {
         set -u
         echo "UNLOCK_CLONE_USER=${settings.cloneUserId}"
         echo "ROOT_ID=${'$'}(id 2>&1)"
-        ${ensureCloneCeReadyScript(settings, required = true, autoUnlockAllowed = true)}
+        ${ensureCloneCeReadyScript(settings, required = true, autoUnlockAllowed = true, stopAfterTask = false)}
         echo "USER10_CE_STATE=RUNNING_UNLOCKED"
         echo "USER10_CE_READY=1"
         echo "UNLOCK_CLONE_WITH_CREDENTIAL_DONE"
+    """.trimIndent()
+
+    fun stopCloneUser(settings: UCloneSettings): String = """
+        set -u
+        CLONE_USER=${settings.cloneUserId}
+        clone_state() {
+          /system/bin/am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
+        }
+        echo "EXPLICIT_STOP_CLONE_USER=${'$'}CLONE_USER"
+        STATE_BEFORE_STOP=${'$'}(clone_state)
+        echo "STATE_BEFORE_STOP=${'$'}STATE_BEFORE_STOP"
+        case "${'$'}STATE_BEFORE_STOP" in
+          *"User is not started"*|*"not started"*|*SHUTDOWN*) echo "STOP_CLONE_ALREADY_STOPPED=1"; exit 0 ;;
+        esac
+        STOP_USER_EXIT=0
+        STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user "${'$'}CLONE_USER" 2>&1) || STOP_USER_EXIT=${'$'}?
+        echo "STOP_USER_EXIT=${'$'}STOP_USER_EXIT"
+        echo "STOP_USER_OUTPUT=${'$'}STOP_USER_OUTPUT"
+        STOP_WAIT_INDEX=0
+        while [ "${'$'}STOP_WAIT_INDEX" -lt 20 ]; do
+          STOP_WAIT_STATE=${'$'}(clone_state)
+          echo "WAIT_AFTER_STOP_${'$'}STOP_WAIT_INDEX=${'$'}STOP_WAIT_STATE"
+          case "${'$'}STOP_WAIT_STATE" in
+            *"User is not started"*|*"not started"*|*SHUTDOWN*) echo "STOP_CLONE_CONFIRMED=1"; exit 0 ;;
+          esac
+          sleep 0.25
+          STOP_WAIT_INDEX=${'$'}((STOP_WAIT_INDEX + 1))
+        done
+        STATE_AFTER_STOP_TIMEOUT=${'$'}(clone_state)
+        echo "STATE_AFTER_STOP_TIMEOUT=${'$'}STATE_AFTER_STOP_TIMEOUT"
+        if [ "${'$'}STOP_USER_EXIT" -ne 0 ]; then
+          echo "ERR_STOP_CLONE_REQUEST_FAILED:${'$'}STOP_USER_EXIT:${'$'}STATE_AFTER_STOP_TIMEOUT" >&2
+          exit 86
+        fi
+        echo "ERR_STOP_CLONE_PENDING:${'$'}STATE_AFTER_STOP_TIMEOUT" >&2
+        exit 87
     """.trimIndent()
 
     fun debugCloneSystem(settings: UCloneSettings, appPackage: String): String = """
@@ -1195,7 +1255,12 @@ object ShellScripts {
         rollbackReason = "恢复分身回滚前生成",
         sourcePrefix = "${settings.rootDir}/clone_rollback/$packageName/latest",
         sourceKind = RestoreSourceKind.CLONE_ROLLBACK,
-        prepareSourceScript = ensureCloneCeReadyScript(settings, required = true, autoUnlockAllowed = settings.autoUnlockClone),
+        prepareSourceScript = ensureCloneCeReadyScript(
+            settings,
+            required = true,
+            autoUnlockAllowed = settings.autoUnlockClone,
+            stopAfterTask = settings.stopCloneAfterTask,
+        ),
         targetUserId = settings.cloneUserId,
         rollbackRootName = "clone_rollback",
         pruneOldRollbacks = false,
@@ -1323,7 +1388,7 @@ object ShellScripts {
         mkdir -p "${'$'}ROOT/tmp" || exit 10
         rm -rf "${'$'}SWITCH_TEMP" "${'$'}SWITCH_TEMP".try_*
         SWITCH_REQUIRE_CE=${if (rule.includeCe) "1" else "0"}
-        ${ensureCloneCeReadyScript(settings, rule.includeCe, settings.autoUnlockClone)}
+        ${ensureCloneCeReadyScript(settings, rule.includeCe, settings.autoUnlockClone, settings.stopCloneAfterTask)}
         CANDIDATE_USERS="${settings.cloneUserId}"
         echo "CANDIDATE_USERS=${'$'}CANDIDATE_USERS"
         [ -n "${'$'}CANDIDATE_USERS" ] || { echo "ERR_NO_CLONE_USER_CANDIDATES" >&2; exit 42; }
@@ -1887,17 +1952,12 @@ object ShellScripts {
             }
             stop_clone_user_after_switch_restore() {
               ${if (settings.stopCloneAfterTask && (writeSwitchMarker || clearSwitchMarker)) """
-              if [ "${'$'}{CLONE_STOPPED_AFTER_TASK:-0}" = "1" ]; then
-                echo "STOP_CLONE_AFTER_TASK=already_stopped reason=switch_restore"
-                return 0
-              fi
               if [ "${'$'}{CLONE_STARTED_BY_TASK:-0}" = "1" ]; then
-                echo "STOP_CLONE_AFTER_TASK=1 reason=switch_restore startedByTask=1"
-                echo "STATE_BEFORE_STOP=${'$'}(/system/bin/am get-started-user-state ${settings.cloneUserId} 2>&1 || true)"
-                STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user -w ${settings.cloneUserId} 2>&1 || true)
-                echo "STOP_USER_OUTPUT=${'$'}STOP_USER_OUTPUT"
-                echo "STATE_AFTER_STOP=${'$'}(/system/bin/am get-started-user-state ${settings.cloneUserId} 2>&1 || true)"
-                CLONE_STOPPED_AFTER_TASK=1
+                if command -v cleanup_clone_user >/dev/null 2>&1; then
+                  cleanup_clone_user
+                else
+                  echo "WARN_STOP_CLONE_HELPER_MISSING:reason=switch_restore"
+                fi
               else
                 echo "STOP_CLONE_AFTER_TASK=0 reason=switch_restore startedByTask=${'$'}{CLONE_STARTED_BY_TASK:-0}"
               fi
