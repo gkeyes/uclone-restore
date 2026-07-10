@@ -21,11 +21,6 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
-data class SnapshotMetadata(
-    val updatedAt: Long,
-    val sizeKb: Long?,
-)
-
 class SyncEngine(
     private val shell: RootShellExecutor,
     private val environmentChecker: RootEnvironmentChecker,
@@ -33,6 +28,15 @@ class SyncEngine(
     private val appPackage: String,
 ) {
     suspend fun checkEnvironment(settings: UCloneSettings) = environmentChecker.check(settings)
+
+    suspend fun loadWorkspaceIndex(settings: UCloneSettings): WorkspaceIndex {
+        val result = shell.exec(workspaceIndexScript(settings.rootDir), 60)
+        check(result.isSuccess) {
+            result.stderr.lineSequence().firstOrNull(String::isNotBlank)
+                ?: "无法读取 UClone 工作区索引（exit=${result.exitCode}）"
+        }
+        return WorkspaceIndexParser.parse(result.stdout)
+    }
 
     suspend fun captureSnapshot(
         packageName: String,

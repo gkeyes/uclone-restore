@@ -8,10 +8,10 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import com.uclone.restore.UCloneApplication
-import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,30 +20,36 @@ import kotlinx.coroutines.launch
 
 class ExternalActionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val lifecycleLock = Any()
+    private val lifecyclePolicy = ExternalServiceLifecyclePolicy()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        synchronized(lifecycleLock) {
+            lifecyclePolicy.onStart(startId)
+        }
         val container = (application as UCloneApplication).container
         if (intent?.action != ExternalActionContract.ACTION_EXECUTE) {
-            stopIfIdle(startId)
+            finishRejectedStart(startId)
             return START_NOT_STICKY
         }
         val request = ExternalActionRequest.from(intent)
         if (request == null) {
             reject(intent, ExternalActionContract.STATUS_REJECTED, "请求参数无效")
-            stopIfIdle(startId)
+            finishRejectedStart(startId)
             return START_NOT_STICKY
         }
         val settings = container.settingsStore.load()
         ExternalRequestPolicy.rejection(this, request, settings, container.internalRequestToken)?.let { reason ->
             reject(request, ExternalActionContract.STATUS_REJECTED, reason)
-            stopIfIdle(startId)
+            finishRejectedStart(startId)
             return START_NOT_STICKY
         }
         return when (val admission = admitExternalTask(container.taskCoordinator, request)) {
             is ExternalTaskAdmission.Rejected -> {
                 reject(request, admission.status, admission.message)
+                finishRejectedStart(startId)
                 START_NOT_STICKY
             }
             is ExternalTaskAdmission.Accepted -> {
@@ -66,61 +72,95 @@ class ExternalActionService : Service() {
         val container = (application as UCloneApplication).container
         val notifier = ExternalActionNotifier(this)
         try {
-            notifier.clearResult()
-            startForeground(
-                NOTIFICATION_ID,
-                notifier.running(request.packageName, request.operation, "任务已接收"),
-            )
+            synchronized(lifecycleLock) {
+                lifecyclePolicy.onAccepted(startId)
+                notifier.clearResult()
+                startForeground(
+                    NOTIFICATION_ID,
+                    notifier.running(request.packageName, request.operation, "任务已接收"),
+                )
+            }
         } catch (error: Exception) {
             val message = error.message ?: "无法启动任务服务"
-            container.taskCoordinator.failAndComplete(request.requestId, message)
-            reject(request, ExternalActionContract.STATUS_FAILED, message)
-            stopSelf(startId)
+            try {
+                container.taskCoordinator.failAndComplete(request.requestId, message)
+                reject(request, ExternalActionContract.STATUS_FAILED, message)
+            } finally {
+                finishAcceptedStart(startId, notifier)
+            }
             return
         }
         scope.launch {
             try {
-                executeAccepted(request, settings)
+                executeAccepted(request, settings, notifier)
             } finally {
-                container.taskCoordinator.complete(request.requestId)
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                notifier.clearRunning()
-                stopSelf()
+                try {
+                    container.taskCoordinator.complete(request.requestId)
+                } finally {
+                    finishAcceptedStart(startId, notifier)
+                }
             }
         }
     }
 
-    private fun stopIfIdle(startId: Int) {
-        if (shouldStopRejectedService((application as UCloneApplication).container.taskCoordinator.isBusy())) {
-            stopSelf(startId)
+    private fun finishRejectedStart(startId: Int) {
+        synchronized(lifecycleLock) {
+            applyFinalization(lifecyclePolicy.onRejected(startId), notifier = null)
         }
+    }
+
+    private fun finishAcceptedStart(startId: Int, notifier: ExternalActionNotifier) {
+        synchronized(lifecycleLock) {
+            applyFinalization(lifecyclePolicy.onAcceptedFinished(startId), notifier)
+        }
+    }
+
+    private fun applyFinalization(
+        finalization: ExternalServiceFinalization,
+        notifier: ExternalActionNotifier?,
+    ) {
+        if (finalization.removeForeground) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            requireNotNull(notifier).clearRunning()
+        }
+        finalization.stopStartId?.let(::stopSelfResult)
     }
 
     private suspend fun executeAccepted(
         request: ExternalActionRequest,
         settings: com.uclone.restore.model.UCloneSettings,
+        notifier: ExternalActionNotifier,
     ) {
         val container = (application as UCloneApplication).container
-        val notifier = ExternalActionNotifier(this)
         broadcastStatus(request, ExternalActionContract.STATUS_ACCEPTED, "任务已接收")
         notifier.notifyAccepted(request.packageName, request.operation, "任务已接收")
         Log.i(TAG, "accepted operation=${request.operation} package=${request.packageName} request=${request.requestId}")
         val report: (TaskProgress) -> Unit = { progress ->
             container.taskRepository.publish(progress)
-            notifier.updateRunning(request.packageName, request.operation, progress.externalMessage())
+            val update = progress.toRunningNotificationUpdate()
+            notifier.updateRunning(
+                request.packageName,
+                request.operation,
+                update.message,
+                update.stageKey,
+                update.isTerminal,
+            )
         }
-        runCatching {
-            ExternalActionDispatcher(container).execute(request, settings, report)
-        }.fold(
-            onSuccess = { finishSuccess(request, it, notifier) },
-            onFailure = { error ->
-                val message = error.message ?: "任务执行失败"
-                val failed = container.taskCoordinator.fail(request.requestId, message)
-                Log.e(TAG, "failed operation=${request.operation} package=${request.packageName}", error)
-                broadcastStatus(request, ExternalActionContract.STATUS_FAILED, message, failed)
-                notifier.notifyResult(request.packageName, request.operation, ExternalActionContract.STATUS_FAILED, message)
-            },
-        )
+        try {
+            finishSuccess(request, ExternalActionDispatcher(container).execute(request, settings, report), notifier)
+        } catch (cancelled: CancellationException) {
+            val message = "任务已中断"
+            val interrupted = container.taskCoordinator.interrupt(request.requestId, message)
+            broadcastStatus(request, ExternalActionContract.STATUS_FAILED, message, interrupted)
+            notifier.notifyResult(request.packageName, request.operation, ExternalActionContract.STATUS_FAILED, message)
+            throw cancelled
+        } catch (error: Exception) {
+            val message = error.message ?: "任务执行失败"
+            val failed = container.taskCoordinator.fail(request.requestId, message)
+            Log.e(TAG, "failed operation=${request.operation} package=${request.packageName}", error)
+            broadcastStatus(request, ExternalActionContract.STATUS_FAILED, message, failed)
+            notifier.notifyResult(request.packageName, request.operation, ExternalActionContract.STATUS_FAILED, message)
+        }
     }
 
     private fun finishSuccess(
@@ -135,14 +175,6 @@ class ExternalActionService : Service() {
         if (record.status.isSuccessful && request.operation in OPERATIONS_CLEARING_HISTORY) {
             (application as UCloneApplication).container.taskRepository.clearHistoryPreservingProgress()
         }
-    }
-
-    private fun TaskProgress.externalMessage(): String {
-        if (task?.status?.isTerminal == true) return task.message
-        return task?.currentStage?.displayLabel
-            ?: steps.firstOrNull { it.status == StepStatus.RUNNING }?.label
-            ?: liveLog.lineSequence().map(String::trim).firstOrNull(String::isNotBlank)
-            ?: "执行中"
     }
 
     private fun reject(request: ExternalActionRequest, status: String, message: String) {
@@ -230,5 +262,3 @@ class ExternalActionService : Service() {
         }
     }
 }
-
-internal fun shouldStopRejectedService(taskActive: Boolean): Boolean = !taskActive

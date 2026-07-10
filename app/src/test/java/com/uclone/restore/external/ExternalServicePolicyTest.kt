@@ -4,19 +4,12 @@ import com.uclone.restore.sync.TaskCoordinator
 import com.uclone.restore.sync.TaskLogStore
 import com.uclone.restore.root.RootShellExecutor
 import com.uclone.restore.root.ShellResult
+import com.uclone.restore.model.TaskStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertTrue
 
 class ExternalServicePolicyTest {
-    @Test
-    fun rejectedStartDoesNotStopServiceWhileAnotherTaskIsActive() {
-        assertFalse(shouldStopRejectedService(taskActive = true))
-        assertTrue(shouldStopRejectedService(taskActive = false))
-    }
-
     @Test
     fun onlyValidInProcessTokenCanClaimInternalSources() {
         val validApp = request(ExternalActionContract.SOURCE_APP, "secret")
@@ -89,6 +82,19 @@ class ExternalServicePolicyTest {
         assertEquals(ExternalActionContract.STATUS_ALREADY_RUNNING, duplicateResult.status)
         assertEquals(ExternalActionContract.STATUS_BUSY, busyResult.status)
         assertEquals(1, repository.all().size)
+    }
+
+    @Test
+    fun cancellationHasDedicatedInterruptedTaskState() {
+        val repository = TaskLogStore(NoopShell)
+        val coordinator = TaskCoordinator(repository)
+        val request = request(ExternalActionContract.SOURCE_MODULE, null, requestId = "cancelled-request")
+        assertIs<ExternalTaskAdmission.Accepted>(admitExternalTask(coordinator, request))
+
+        val interrupted = coordinator.interrupt(request.requestId)
+
+        assertEquals(TaskStatus.INTERRUPTED, interrupted?.status)
+        assertEquals(TaskStatus.INTERRUPTED, repository.find(request.requestId)?.status)
     }
 
     private fun request(source: String, token: String?, requestId: String = "request-1") = ExternalActionRequest(

@@ -1,11 +1,15 @@
 package com.uclone.restore.root
 
 import java.io.ByteArrayInputStream
+import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -127,6 +131,169 @@ class ProcessRootShellExecutorTest {
     }
 
     @Test
+    fun cancellingCoroutineTerminatesRealProcessPromptly() = runBlocking {
+        val processStarted = CountDownLatch(1)
+        val processId = AtomicLong(-1)
+        val processRunner = ProcessCommandRunner(listOf("/bin/sh"), timeoutGraceSeconds = 0)
+        val runner = SuProcessRunner { args, standardInput, timeoutSeconds, onOutput ->
+            if (args.take(2) == listOf("-mm", "-c")) {
+                ShellResult(1, "", "su: invalid option -- m")
+            } else {
+                processRunner.run(args, standardInput, timeoutSeconds) { output ->
+                    output.line.toLongOrNull()?.let { pid ->
+                        processId.set(pid)
+                        processStarted.countDown()
+                    }
+                    onOutput(output)
+                }
+            }
+        }
+        val executor = ProcessRootShellExecutor(runner)
+        val command = "echo \$\$; trap '' TERM; while :; do :; done"
+        val execution = async(Dispatchers.Default) {
+            executor.execStreaming(command, timeoutSeconds = 3) {}
+        }
+
+        try {
+            assertTrue(processStarted.await(2, TimeUnit.SECONDS))
+            execution.cancel()
+
+            val completedPromptly = withTimeoutOrNull(2_000) {
+                execution.join()
+                true
+            } ?: false
+
+            assertTrue(completedPromptly, "Cancelled execution did not return promptly")
+            assertFalse(isProcessAlive(processId.get()))
+        } finally {
+            val pid = processId.get()
+            if (isProcessAlive(pid)) {
+                ProcessBuilder("/bin/kill", "-KILL", pid.toString()).start().waitFor()
+            }
+            execution.cancel()
+            withTimeoutOrNull(5_000) { execution.join() }
+        }
+    }
+
+    @Test
+    fun cancellingRootRunnerTerminatesShellAndItsChildProcess() = runBlocking {
+        val fakeSu = createFakeSu()
+        val rootPid = AtomicLong(-1)
+        val childPid = AtomicLong(-1)
+        val childReady = CountDownLatch(1)
+        val executor = ProcessRootShellExecutor(
+            RootSuProcessRunner(
+                executablePrefix = listOf(fakeSu.absolutePath),
+                shellPath = "/bin/sh",
+                timeoutGraceSeconds = 1,
+            ),
+        )
+        val execution = async(Dispatchers.Default) {
+            executor.execStreaming(
+                "echo root=${'$'}${'$'}; /bin/sh -c 'trap \"\" TERM; while :; do sleep 1; done' & CHILD=${'$'}!; echo child=${'$'}CHILD; wait \"${'$'}CHILD\"",
+                timeoutSeconds = 60,
+            ) { output ->
+                when {
+                    output.line.startsWith("root=") -> rootPid.set(output.line.substringAfter('=').toLong())
+                    output.line.startsWith("child=") -> {
+                        childPid.set(output.line.substringAfter('=').toLong())
+                        childReady.countDown()
+                    }
+                }
+            }
+        }
+
+        try {
+            assertTrue(childReady.await(3, TimeUnit.SECONDS))
+            execution.cancel()
+            assertTrue(withTimeoutOrNull(4_000) { execution.join(); true } == true)
+            assertTrue(waitUntilProcessExits(rootPid.get()), "Root shell survived cancellation")
+            assertTrue(waitUntilProcessExits(childPid.get()), "Root shell child survived cancellation")
+        } finally {
+            listOf(childPid.get(), rootPid.get()).filter(::isProcessAlive).forEach { pid ->
+                ProcessBuilder("/bin/kill", "-KILL", pid.toString()).start().waitFor()
+            }
+            execution.cancel()
+            withTimeoutOrNull(5_000) { execution.join() }
+            fakeSu.delete()
+        }
+    }
+
+    @Test
+    fun rootRunnerTimeoutTerminatesShellAndItsChildProcess() = runBlocking {
+        val fakeSu = createFakeSu()
+        val rootPid = AtomicLong(-1)
+        val childPid = AtomicLong(-1)
+        val executor = ProcessRootShellExecutor(
+            RootSuProcessRunner(
+                executablePrefix = listOf(fakeSu.absolutePath),
+                shellPath = "/bin/sh",
+                timeoutGraceSeconds = 1,
+            ),
+        )
+
+        try {
+            val result = executor.execStreaming(
+                "echo root=${'$'}${'$'}; /bin/sh -c 'trap \"\" TERM; while :; do sleep 1; done' & CHILD=${'$'}!; echo child=${'$'}CHILD; wait \"${'$'}CHILD\"",
+                timeoutSeconds = 1,
+            ) { output ->
+                if (output.line.startsWith("root=")) rootPid.set(output.line.substringAfter('=').toLong())
+                if (output.line.startsWith("child=")) childPid.set(output.line.substringAfter('=').toLong())
+            }
+
+            assertEquals(124, result.exitCode)
+            assertTrue(waitUntilProcessExits(rootPid.get()), "Timed-out root shell survived")
+            assertTrue(waitUntilProcessExits(childPid.get()), "Timed-out root child survived: ${result.stderr}")
+        } finally {
+            listOf(childPid.get(), rootPid.get()).filter(::isProcessAlive).forEach { pid ->
+                ProcessBuilder("/bin/kill", "-KILL", pid.toString()).start().waitFor()
+            }
+            fakeSu.delete()
+        }
+    }
+
+    @Test
+    fun interruptedRunnerReturnsNonSuccessAndTerminatesRealProcess() {
+        val processReady = CountDownLatch(1)
+        val processId = AtomicLong(-1)
+        val result = AtomicReference<ShellResult?>()
+        val runner = ProcessCommandRunner(listOf("/bin/sh"), timeoutGraceSeconds = 0)
+        val worker = Thread {
+            result.set(
+                runner.run(
+                    listOf("-c", "echo \$\$; echo before-interrupt >&2; echo ready; trap '' TERM; while :; do :; done"),
+                    standardInput = null,
+                    timeoutSeconds = 0,
+                ) { output ->
+                    output.line.toLongOrNull()?.let(processId::set)
+                    if (output.line == "ready") processReady.countDown()
+                },
+            )
+        }.apply { isDaemon = true }
+        worker.start()
+
+        try {
+            assertTrue(processReady.await(2, TimeUnit.SECONDS))
+            worker.interrupt()
+            worker.join(2_000)
+
+            assertFalse(worker.isAlive)
+            val interruptedResult = result.get()
+            assertEquals(130, interruptedResult?.exitCode)
+            assertTrue("before-interrupt" in interruptedResult?.stderr.orEmpty())
+            assertTrue("Command interrupted" in interruptedResult?.stderr.orEmpty())
+            assertFalse(isProcessAlive(processId.get()))
+        } finally {
+            val pid = processId.get()
+            if (isProcessAlive(pid)) {
+                ProcessBuilder("/bin/kill", "-KILL", pid.toString()).start().waitFor()
+            }
+            worker.interrupt()
+            worker.join(5_000)
+        }
+    }
+
+    @Test
     fun protectedInputIsWrittenToStdinAndNeverAddedToCommandArguments() = runBlocking {
         val calls = mutableListOf<Pair<List<String>, String?>>()
         val runner = SuProcessRunner { args, standardInput, _, _ ->
@@ -142,4 +309,33 @@ class ProcessRootShellExecutorTest {
         assertFalse(commandCall.first.any { "123456" in it })
     }
 
+    private fun isProcessAlive(pid: Long): Boolean {
+        if (pid <= 0 || ProcessBuilder("/bin/kill", "-0", pid.toString()).start().waitFor() != 0) return false
+        val stateProcess = ProcessBuilder("/bin/ps", "-o", "stat=", "-p", pid.toString()).start()
+        val state = stateProcess.inputStream.bufferedReader().readText().trim()
+        stateProcess.waitFor()
+        return !state.startsWith("Z")
+    }
+
+    private fun createFakeSu() = Files.createTempFile("uclone-fake-su-", ".sh").toFile().apply {
+        writeText(
+            """
+                #!/bin/sh
+                if [ "${'$'}1" = "-mm" ]; then shift; fi
+                [ "${'$'}1" = "-c" ] || exit 64
+                shift
+                exec /bin/sh -c "${'$'}1"
+            """.trimIndent(),
+        )
+        check(setExecutable(true))
+        deleteOnExit()
+    }
+
+    private fun waitUntilProcessExits(pid: Long): Boolean {
+        repeat(20) {
+            if (!isProcessAlive(pid)) return true
+            Thread.sleep(50)
+        }
+        return !isProcessAlive(pid)
+    }
 }

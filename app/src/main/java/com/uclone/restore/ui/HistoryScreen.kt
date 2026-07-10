@@ -29,7 +29,7 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.history, key = { it.id }) { task ->
                 SectionCard(task.packageName) {
-                    InfoRow("类型", task.type.name)
+                    InfoRow("类型", task.type.userFacingLabel)
                     InfoRow("开始", Formatters.time(task.startedAt))
                     InfoRow("结束", Formatters.time(task.finishedAt))
                     val statusColor = when (task.status) {
@@ -48,7 +48,7 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                         TaskStatus.SUCCESS,
                         -> MaterialTheme.colorScheme.primary
                     }
-                    InfoRow("状态", task.status.name, statusColor)
+                    InfoRow("状态", task.status.userFacingLabel, statusColor)
                     InfoRow("结果", task.message)
                     Text("日志", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SingleLinePathText(task.logPath)

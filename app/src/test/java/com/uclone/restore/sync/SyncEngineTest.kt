@@ -18,6 +18,53 @@ import kotlin.test.assertTrue
 
 class SyncEngineTest {
     @Test
+    fun loadWorkspaceIndex_readsEveryWorkspaceSectionWithOneRootCall() = runBlocking {
+        val shell = WorkspaceIndexShell()
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+        )
+
+        val index = engine.loadWorkspaceIndex(UCloneSettings(rootDir = "/data/adb/uclone"))
+
+        assertEquals(1, shell.commands.size)
+        assertTrue("ROOT='/data/adb/uclone'" in shell.commands.single())
+        assertTrue("SNAPSHOT_ROOT=" in shell.commands.single())
+        assertTrue("SWITCH_ROOT=" in shell.commands.single())
+        assertTrue("ROLLBACK_ROOT=" in shell.commands.single())
+        assertTrue("CLONE_ROLLBACK_ROOT=" in shell.commands.single())
+        assertEquals(1_700_000_000_000, index.snapshots.getValue("com.example.app").updatedAt)
+        assertEquals(2048L, index.snapshots.getValue("com.example.app").sizeKb)
+        assertEquals("rollback-2", index.switchMarkers["com.example.app"])
+        assertEquals(listOf("rollback-1", "rollback-2"), index.rollbackIds("com.example.app"))
+        assertEquals("rollback-2", index.restoreBackups.single().rollbackId)
+        assertTrue(index.restoreBackups.single().isActiveSwitchBackup)
+        assertEquals("latest", index.cloneRollbackBackups.single().rollbackId)
+        assertTrue(index.cloneRollbackBackups.single().isCloneRollback)
+    }
+
+    @Test
+    fun loadWorkspaceIndex_doesNotReplaceStateWithAnEmptyIndexWhenRootScanFails() = runBlocking {
+        val shell = object : RootShellExecutor {
+            override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult =
+                ShellResult(exitCode = 74, stdout = "", stderr = "workspace scan failed")
+        }
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+        )
+
+        val error = runCatching { engine.loadWorkspaceIndex(UCloneSettings()) }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertTrue("workspace scan failed" in error?.message.orEmpty())
+    }
+
+    @Test
     fun hostTimeoutIsDisabledForEveryTransactionalMutationTask() {
         val transactional = setOf(
             TaskType.RESTORE_SNAPSHOT_TO_MAIN,
@@ -240,6 +287,25 @@ class SyncEngineTest {
                 )
                 else -> ShellResult(0, "", "")
             }
+        }
+    }
+
+    private class WorkspaceIndexShell : RootShellExecutor {
+        val commands = mutableListOf<String>()
+
+        override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult {
+            commands += command
+            return ShellResult(
+                exitCode = 0,
+                stdout = listOf(
+                    "SNAPSHOT\tcom.example.app\t1700000000\t2048",
+                    "MAIN_ROLLBACK\tcom.example.app\trollback-1\t1699999900\t1024\tolder",
+                    "MAIN_ROLLBACK\tcom.example.app\trollback-2\t1700000100\t4096\tnewer",
+                    "SWITCH\tcom.example.app\trollback-2",
+                    "CLONE_ROLLBACK\tcom.example.app\tlatest\t1700000200\t8192\tclone backup",
+                ).joinToString("\n"),
+                stderr = "",
+            )
         }
     }
 

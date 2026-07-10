@@ -10,10 +10,13 @@ import com.uclone.restore.external.ExternalActionService
 import com.uclone.restore.launcher.FavoriteShortcutEntry
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.sync.WorkspaceIndex
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class UCloneViewModel(
     application: Application,
@@ -28,6 +31,8 @@ class UCloneViewModel(
     private val _state = MutableStateFlow(UiState(settings = settingsStore.load()))
     val state: StateFlow<UiState> = _state
     private var refreshedTerminalRequestId: String? = null
+    private val refreshMutex = Mutex()
+    private var workspaceCache: WorkspaceCache? = null
 
     init {
         observeTasks()
@@ -35,13 +40,42 @@ class UCloneViewModel(
     }
 
     fun refreshAll() {
-        refreshEnvironment()
-        loadApps()
-        refreshTaskHistory()
+        launchRefresh {
+            val settings = _state.value.settings
+            runBusy("刷新中") {
+                val environment = syncEngine.checkEnvironment(settings)
+                val workspace = syncEngine.loadWorkspaceIndex(settings)
+                val apps = packageInspector.listApps(settings).map { app ->
+                    val snapshot = workspace.snapshots[app.packageName]
+                    app.copy(
+                        lastSnapshotAt = snapshot?.updatedAt,
+                        snapshotSizeKb = snapshot?.sizeKb,
+                    )
+                }
+                workspaceCache = WorkspaceCache(settings.rootDir, workspace)
+                _state.update { state ->
+                    if (SettingsDiff.between(settings, state.settings).requiresFullRefresh) {
+                        state
+                    } else {
+                        state.copy(
+                            environment = environment,
+                            apps = apps,
+                            history = taskRepository.all(),
+                            rollbackIds = state.selectedPackage?.let(workspace::rollbackIds).orEmpty(),
+                            restoreBackups = workspace.restoreBackups,
+                            cloneRollbackBackups = workspace.cloneRollbackBackups,
+                            switchRollbackIds = workspace.switchMarkers,
+                            message = "刷新完成",
+                        )
+                    }
+                }
+                syncLauncherShortcuts()
+            }
+        }
     }
 
     fun refreshEnvironment() {
-        viewModelScope.launch {
+        launchRefresh {
             val settings = _state.value.settings
             runBusy("环境检测中") {
                 val environment = syncEngine.checkEnvironment(settings)
@@ -51,26 +85,25 @@ class UCloneViewModel(
     }
 
     fun loadApps() {
-        viewModelScope.launch {
+        launchRefresh {
             val settings = _state.value.settings
             runBusy("读取 App 列表") {
-                val snapshots = syncEngine.snapshotMetadata(settings)
-                val switchMarkers = syncEngine.switchMarkerIds(settings)
-                val restoreBackups = syncEngine.listRestoreBackups(settings)
-                val cloneRollbackBackups = syncEngine.listCloneRollbackBackups(settings)
+                val workspace = syncEngine.loadWorkspaceIndex(settings)
                 val apps = packageInspector.listApps(settings).map { app ->
-                    val snapshot = snapshots[app.packageName]
+                    val snapshot = workspace.snapshots[app.packageName]
                     app.copy(
                         lastSnapshotAt = snapshot?.updatedAt,
                         snapshotSizeKb = snapshot?.sizeKb,
                     )
                 }
+                workspaceCache = WorkspaceCache(settings.rootDir, workspace)
                 _state.update {
                     it.copy(
                         apps = apps,
-                        restoreBackups = restoreBackups,
-                        cloneRollbackBackups = cloneRollbackBackups,
-                        switchRollbackIds = switchMarkers,
+                        rollbackIds = it.selectedPackage?.let(workspace::rollbackIds).orEmpty(),
+                        restoreBackups = workspace.restoreBackups,
+                        cloneRollbackBackups = workspace.cloneRollbackBackups,
+                        switchRollbackIds = workspace.switchMarkers,
                     )
                 }
                 syncLauncherShortcuts()
@@ -79,35 +112,26 @@ class UCloneViewModel(
     }
 
     fun selectPackage(packageName: String) {
-        viewModelScope.launch {
+        launchRefresh {
             val settings = _state.value.settings
-            val snapshot = syncEngine.latestSnapshotMetadata(packageName, settings)
-            val rollbackIds = syncEngine.listRollbackIds(packageName, settings)
-            val switchRollbackId = syncEngine.switchMarkerId(packageName, settings)
+            val workspace = workspaceIndex(settings)
             _state.update {
                 val apps = it.apps.map { app ->
-                    if (app.packageName == packageName) {
-                        app.copy(
-                            lastSnapshotAt = snapshot?.updatedAt,
-                            snapshotSizeKb = snapshot?.sizeKb,
-                        )
-                    } else {
-                        app
-                    }
-                }
-                val switchRollbackIds = if (switchRollbackId == null) {
-                    it.switchRollbackIds - packageName
-                } else {
-                    it.switchRollbackIds + (packageName to switchRollbackId)
+                    val snapshot = workspace.snapshots[app.packageName]
+                    app.copy(
+                        lastSnapshotAt = snapshot?.updatedAt,
+                        snapshotSizeKb = snapshot?.sizeKb,
+                    )
                 }
                 it.copy(
                     selectedPackage = packageName,
                     apps = apps,
-                    rollbackIds = rollbackIds,
-                    switchRollbackIds = switchRollbackIds,
+                    rollbackIds = workspace.rollbackIds(packageName),
+                    restoreBackups = workspace.restoreBackups,
+                    cloneRollbackBackups = workspace.cloneRollbackBackups,
+                    switchRollbackIds = workspace.switchMarkers,
                 )
             }
-            syncLauncherShortcuts()
         }
     }
 
@@ -116,10 +140,13 @@ class UCloneViewModel(
     }
 
     fun saveSettings(settings: UCloneSettings) {
+        val diff = SettingsDiff.between(_state.value.settings, settings)
         settingsStore.save(settings)
         _state.update { it.copy(settings = settings, message = "设置已保存") }
-        syncLauncherShortcuts()
-        refreshAll()
+        when {
+            diff.requiresFullRefresh -> refreshAll()
+            diff.requiresShortcutSync -> syncLauncherShortcuts()
+        }
     }
 
     fun toggleFavorite(packageName: String) {
@@ -293,24 +320,42 @@ class UCloneViewModel(
     }
 
     private suspend fun refreshAfterTask(task: TaskRecord) {
-        runCatching {
-            val settings = _state.value.settings
-            val restoreBackups = syncEngine.listRestoreBackups(settings)
-            val cloneRollbackBackups = syncEngine.listCloneRollbackBackups(settings)
-            val switchMarkers = syncEngine.switchMarkerIds(settings)
-            val environment = syncEngine.checkEnvironment(settings)
-            val snapshot = TaskRefreshSnapshot(
-                environment = environment,
-                history = taskRepository.all(),
-                restoreBackups = restoreBackups,
-                cloneRollbackBackups = cloneRollbackBackups,
-                switchRollbackIds = switchMarkers,
-            )
-            _state.update { TaskUiStateReducer.refreshed(it, task, snapshot) }
-            syncLauncherShortcuts()
-            _state.value.selectedPackage?.let(::selectPackage)
-        }.onFailure { error ->
-            _state.update { it.copy(busy = false, message = error.message ?: "任务结束后刷新状态失败") }
+        refreshMutex.withLock {
+            runCatching {
+                val policy = RefreshPolicy.forTask(task.type)
+                val settings = _state.value.settings
+                val workspace = if (policy.workspace) {
+                    syncEngine.loadWorkspaceIndex(settings).also {
+                        workspaceCache = WorkspaceCache(settings.rootDir, it)
+                    }
+                } else {
+                    null
+                }
+                val environment = if (policy.environment) syncEngine.checkEnvironment(settings) else null
+                val snapshot = TaskRefreshSnapshot(
+                    history = taskRepository.all(),
+                    environment = environment,
+                    workspaceIndex = workspace,
+                )
+                _state.update { TaskUiStateReducer.refreshed(it, task, snapshot) }
+                if (policy.shortcuts) syncLauncherShortcuts()
+            }.onFailure { error ->
+                _state.update { it.copy(busy = false, message = error.message ?: "任务结束后刷新状态失败") }
+            }
+        }
+    }
+
+    private fun launchRefresh(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            refreshMutex.withLock { block() }
+        }
+    }
+
+    private suspend fun workspaceIndex(settings: UCloneSettings): WorkspaceIndex {
+        val cached = workspaceCache
+        if (cached?.rootDir == settings.rootDir) return cached.index
+        return syncEngine.loadWorkspaceIndex(settings).also {
+            workspaceCache = WorkspaceCache(settings.rootDir, it)
         }
     }
 
@@ -340,6 +385,11 @@ class UCloneViewModel(
         }
     }
 }
+
+private data class WorkspaceCache(
+    val rootDir: String,
+    val index: WorkspaceIndex,
+)
 
 class UCloneViewModelFactory(
     private val application: Application,

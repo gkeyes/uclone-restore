@@ -37,17 +37,17 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.graphics.drawable.toBitmap
 import com.uclone.restore.model.RiskLevel
 import com.uclone.restore.model.StepStatus
 
@@ -163,22 +163,31 @@ fun StepIcon(status: StepStatus) {
 @Composable
 fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val bitmap = remember(packageName) {
-        runCatching {
-            context.packageManager.getApplicationIcon(packageName).toBitmap(96, 96).asImageBitmap()
-        }.getOrNull()
-    }
-    if (bitmap == null) {
-        Box(
-            modifier
-                .size(36.dp)
-                .background(IosGlassRaised, RoundedCornerShape(10.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(packageName.take(1).uppercase())
+    val packageManager = context.applicationContext.packageManager
+    val cachedIcon = remember(packageName) { ApplicationIconCache[packageName] }
+    val icon by produceState<CachedAppIcon?>(cachedIcon, packageName, packageManager) {
+        if (value == null) {
+            value = loadApplicationIcon(packageManager, packageName)
         }
-    } else {
-        Image(bitmap = bitmap, contentDescription = null, modifier = modifier.size(36.dp))
+    }
+
+    when (val cached = icon) {
+        is CachedAppIcon.Loaded -> {
+            Image(bitmap = cached.bitmap, contentDescription = null, modifier = modifier.size(36.dp))
+        }
+
+        CachedAppIcon.Missing,
+        null,
+        -> {
+            Box(
+                modifier
+                    .size(36.dp)
+                    .background(IosGlassRaised, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(packageName.take(1).uppercase())
+            }
+        }
     }
 }
 

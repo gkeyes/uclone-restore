@@ -148,7 +148,7 @@ private fun CurrentTaskCard(state: UiState) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(task.packageName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    "${task.type.name} · ${task.status.name}",
+                    "${task.type.userFacingLabel} · ${task.status.userFacingLabel}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

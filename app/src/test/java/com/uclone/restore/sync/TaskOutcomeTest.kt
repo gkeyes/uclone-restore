@@ -29,6 +29,14 @@ class TaskOutcomeTest {
     }
 
     @Test
+    fun interruptedRootCommandHasDedicatedTerminalStatus() {
+        val result = ShellResult(130, "", "Command interrupted")
+
+        assertEquals(TaskStatus.INTERRUPTED, TaskOutcome.status(result))
+        assertEquals("任务已中断", TaskOutcome.failureMessage(TaskStatus.INTERRUPTED))
+    }
+
+    @Test
     fun permissionWarningsHaveExplicitPartialSuccessStatus() {
         val result = ShellResult(0, "WARN_APPOPS_FAILED:CAMERA:allow", "")
 

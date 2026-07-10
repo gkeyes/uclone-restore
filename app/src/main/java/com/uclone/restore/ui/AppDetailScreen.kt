@@ -110,7 +110,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         val task = state.currentTask.task
         if (task?.packageName == app.packageName && (state.busy || state.currentTask.steps.isNotEmpty())) {
             SectionCard("任务进度") {
-                Text(task.type.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(task.type.userFacingLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (state.busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }

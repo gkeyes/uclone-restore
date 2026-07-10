@@ -1,8 +1,7 @@
 package com.uclone.restore.root
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runInterruptible
 
 interface RootShellExecutor {
     suspend fun exec(command: String, timeoutSeconds: Long = 120): ShellResult
@@ -56,10 +55,10 @@ class ProcessRootShellExecutor internal constructor(
         timeoutSeconds: Long,
         onOutput: (ShellOutput) -> Unit,
     ): ShellResult =
-        withContext(Dispatchers.IO) {
+        runInterruptible(Dispatchers.IO) {
             val knownMode = invocationMode
             if (knownMode != null) {
-                return@withContext runner.run(knownMode.args(command), standardInput, timeoutSeconds, onOutput)
+                return@runInterruptible runner.run(knownMode.args(command), standardInput, timeoutSeconds, onOutput)
             }
             val resolution = synchronized(modeLock) {
                 val resolvedMode = invocationMode
@@ -67,6 +66,9 @@ class ProcessRootShellExecutor internal constructor(
                     return@synchronized ModeResolution(resolvedMode, null)
                 }
                 val probe = runner.run(SuInvocationMode.MOUNT_MASTER.args("exit 0"), null, 15, {})
+                if (Thread.currentThread().isInterrupted) {
+                    return@synchronized ModeResolution(SuInvocationMode.MOUNT_MASTER, probe, interrupted = true)
+                }
                 val selectedMode = if (probe.isMountMasterUnsupported()) {
                     SuInvocationMode.PLAIN
                 } else {
@@ -74,6 +76,9 @@ class ProcessRootShellExecutor internal constructor(
                 }
                 invocationMode = selectedMode
                 ModeResolution(selectedMode, probe)
+            }
+            if (resolution.interrupted) {
+                return@runInterruptible checkNotNull(resolution.probe)
             }
             val result = runner.run(resolution.mode.args(command), standardInput, timeoutSeconds, onOutput)
             resolution.probe?.let { probe ->
@@ -87,6 +92,7 @@ class ProcessRootShellExecutor internal constructor(
     private data class ModeResolution(
         val mode: SuInvocationMode,
         val probe: ShellResult?,
+        val interrupted: Boolean = false,
     )
 
     private enum class SuInvocationMode {
@@ -110,174 +116,7 @@ internal fun interface SuProcessRunner {
     ): ShellResult
 }
 
-private val SystemSuProcessRunner: SuProcessRunner = ProcessCommandRunner(listOf("su"))
-
-internal class ProcessCommandRunner(
-    private val executablePrefix: List<String>,
-    private val timeoutGraceSeconds: Long = DEFAULT_TIMEOUT_GRACE_SECONDS,
-) : SuProcessRunner {
-    override fun run(
-        args: List<String>,
-        standardInput: String?,
-        timeoutSeconds: Long,
-        onOutput: (ShellOutput) -> Unit,
-    ): ShellResult {
-        val startedAt = System.nanoTime()
-        val process = try {
-            ProcessBuilder(executablePrefix + args).redirectErrorStream(false).start()
-        } catch (error: java.io.IOException) {
-            return ShellResult(
-                exitCode = 127,
-                stdout = "",
-                stderr = error.message ?: "Unable to start su",
-                processStarts = 0,
-                durationMs = elapsedMs(startedAt),
-            )
-        }
-        val stdoutCapture = streamReader(process.inputStream, ShellStream.STDOUT, onOutput)
-        val stderrCapture = streamReader(process.errorStream, ShellStream.STDERR, onOutput)
-        runCatching {
-            process.outputStream.bufferedWriter().use { writer ->
-                if (standardInput != null) writer.write(standardInput)
-            }
-        }.onFailure {
-            process.destroyForcibly()
-            return ShellResult(
-                exitCode = 74,
-                stdout = stdoutCapture.result(),
-                stderr = "Unable to send protected standard input",
-                durationMs = elapsedMs(startedAt),
-            )
-        }
-        val finished = if (timeoutSeconds <= 0) {
-            process.waitFor()
-            true
-        } else {
-            process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
-        }
-        if (!finished) {
-            process.destroy()
-            val terminatedGracefully = process.waitFor(timeoutGraceSeconds, TimeUnit.SECONDS)
-            if (!terminatedGracefully) {
-                process.destroyForcibly()
-                process.waitFor(FORCED_TERMINATION_WAIT_SECONDS, TimeUnit.SECONDS)
-            }
-            return ShellResult(
-                exitCode = 124,
-                stdout = stdoutCapture.result(),
-                stderr = mergeTimeoutError(
-                    capturedStderr = stderrCapture.result(),
-                    timeoutSeconds = timeoutSeconds,
-                    forced = !terminatedGracefully,
-                ),
-                durationMs = elapsedMs(startedAt),
-                outputTruncated = stdoutCapture.truncated() || stderrCapture.truncated(),
-            )
-        }
-        return ShellResult(
-            exitCode = process.exitValue(),
-            stdout = stdoutCapture.result(),
-            stderr = stderrCapture.result(),
-            durationMs = elapsedMs(startedAt),
-            outputTruncated = stdoutCapture.truncated() || stderrCapture.truncated(),
-        )
-    }
-
-    private fun elapsedMs(startedAt: Long): Long =
-        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
-
-    private fun streamReader(
-        input: java.io.InputStream,
-        stream: ShellStream,
-        onOutput: (ShellOutput) -> Unit,
-    ): StreamCapture {
-        val buffer = BoundedLineBuffer(MAX_CAPTURE_CHARS)
-        val thread = Thread {
-            readBoundedStream(input, MAX_STREAM_FRAGMENT_CHARS) { fragment ->
-                buffer.append(fragment)
-                runCatching { onOutput(ShellOutput(stream, fragment)) }
-            }
-        }
-        thread.start()
-        return StreamCapture(thread, buffer)
-    }
-
-    private data class StreamCapture(
-        val thread: Thread,
-        val buffer: BoundedLineBuffer,
-    ) {
-        fun result(): String {
-            thread.join(5_000)
-            return buffer.value()
-        }
-
-        fun truncated(): Boolean = buffer.isTruncated
-    }
-
-    private class BoundedLineBuffer(private val maxChars: Int) {
-        private val lines = java.util.ArrayDeque<String>()
-        private var size = 0
-        @Volatile var isTruncated: Boolean = false
-            private set
-
-        @Synchronized
-        fun append(line: String) {
-            val value = "$line\n"
-            lines.addLast(value)
-            size += value.length
-            while (size > maxChars && lines.isNotEmpty()) {
-                size -= lines.removeFirst().length
-                isTruncated = true
-            }
-        }
-
-        @Synchronized
-        fun value(): String = buildString {
-            if (isTruncated) append("[earlier output truncated]\n")
-            lines.forEach(::append)
-        }
-    }
-
-}
-
-internal fun readBoundedStream(
-    input: java.io.InputStream,
-    maxFragmentChars: Int = MAX_STREAM_FRAGMENT_CHARS,
-    onFragment: (String) -> Unit,
-) {
-    require(maxFragmentChars > 0)
-    input.bufferedReader().use { reader ->
-        val chunk = CharArray(4096)
-        val pending = StringBuilder(maxFragmentChars)
-        while (true) {
-            val read = reader.read(chunk)
-            if (read < 0) break
-            for (index in 0 until read) {
-                val char = chunk[index]
-                if (char == '\n') {
-                    onFragment(pending.toString().trimEnd('\r'))
-                    pending.setLength(0)
-                } else {
-                    pending.append(char)
-                    if (pending.length >= maxFragmentChars) {
-                        onFragment(pending.toString())
-                        pending.setLength(0)
-                    }
-                }
-            }
-        }
-        if (pending.isNotEmpty()) onFragment(pending.toString())
-    }
-}
-
-internal fun mergeTimeoutError(capturedStderr: String, timeoutSeconds: Long, forced: Boolean = false): String =
-    listOf(
-        capturedStderr.trimEnd(),
-        "Command timed out after ${timeoutSeconds}s",
-        if (forced) "Timeout termination required SIGKILL after rollback grace period" else "Timeout termination completed during rollback grace period",
-    )
-        .filter(String::isNotBlank)
-        .joinToString("\n")
+private val SystemSuProcessRunner: SuProcessRunner = RootSuProcessRunner()
 
 private fun ShellResult.isMountMasterUnsupported(): Boolean {
     if (exitCode == 0) return false
@@ -302,8 +141,3 @@ data class ShellOutput(
 )
 
 fun shellQuote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
-
-private const val MAX_CAPTURE_CHARS = 512 * 1024
-internal const val MAX_STREAM_FRAGMENT_CHARS = 8 * 1024
-private const val DEFAULT_TIMEOUT_GRACE_SECONDS = 30L
-private const val FORCED_TERMINATION_WAIT_SECONDS = 5L

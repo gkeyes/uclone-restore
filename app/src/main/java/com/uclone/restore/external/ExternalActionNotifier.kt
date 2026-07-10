@@ -12,14 +12,13 @@ import com.uclone.restore.MainActivity
 import com.uclone.restore.R
 
 class ExternalActionNotifier(private val context: Context) {
+    private val runningPolicy = RunningNotificationPolicy()
+
     fun running(packageName: String?, operation: String?, message: String): Notification {
-        ensureChannels()
-        return builder(RUNNING_CHANNEL_ID, operation)
-            .setContentText("${displayName(packageName)}：$message")
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
+        runningPolicy.recordDisplayed(
+            RunningNotificationUpdate(message, stageKey = null, isTerminal = false),
+        )
+        return buildRunning(packageName, operation, message)
     }
 
     fun clearResult() {
@@ -30,8 +29,17 @@ class ExternalActionNotifier(private val context: Context) {
         manager.cancel(RUNNING_NOTIFICATION_ID)
     }
 
-    fun updateRunning(packageName: String?, operation: String?, message: String) {
-        manager.notify(RUNNING_NOTIFICATION_ID, running(packageName, operation, message))
+    fun updateRunning(
+        packageName: String?,
+        operation: String?,
+        message: String,
+        stageKey: String?,
+        isTerminal: Boolean,
+    ) {
+        val update = RunningNotificationUpdate(message, stageKey, isTerminal)
+        if (runningPolicy.shouldNotify(update)) {
+            manager.notify(RUNNING_NOTIFICATION_ID, buildRunning(packageName, operation, message))
+        }
     }
 
     fun notifyAccepted(packageName: String?, operation: String?, message: String) {
@@ -68,6 +76,16 @@ class ExternalActionNotifier(private val context: Context) {
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("UClone ${operationLabel(operation)}")
             .setContentIntent(contentIntent())
+
+    private fun buildRunning(packageName: String?, operation: String?, message: String): Notification {
+        ensureChannels()
+        return builder(RUNNING_CHANNEL_ID, operation)
+            .setContentText("${displayName(packageName)}：$message")
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
+    }
 
     private fun contentIntent(): PendingIntent {
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

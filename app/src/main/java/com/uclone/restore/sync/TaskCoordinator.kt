@@ -33,6 +33,15 @@ class TaskCoordinator(private val repository: TaskRepository) {
         }
     }
 
+    fun interrupt(requestId: String, message: String = "任务已中断"): TaskRecord? = synchronized(monitor) {
+        val current = active?.takeIf { it.requestId == requestId } ?: return@synchronized null
+        val record = repository.find(requestId) ?: current.record
+        if (record.status.isTerminal) return@synchronized record
+        repository.finish(record, TaskStatus.INTERRUPTED, message).also {
+            repository.publish(TaskProgress(it))
+        }
+    }
+
     fun complete(requestId: String) {
         synchronized(monitor) {
             if (active?.requestId == requestId) active = null
