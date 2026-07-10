@@ -31,16 +31,20 @@ internal class ExternalServiceLifecyclePolicy {
         return when {
             foregroundOwnerStartId != null -> ExternalServiceFinalization.None
             pendingStartIds.isNotEmpty() -> ExternalServiceFinalization.None
-            else -> ExternalServiceFinalization(stopStartId = latestStartId)
+            else -> ExternalServiceFinalization(
+                removeForeground = true,
+                stopStartId = latestStartId,
+            )
         }
     }
 
     fun onAcceptedFinished(startId: Int): ExternalServiceFinalization {
         if (foregroundOwnerStartId != startId) return ExternalServiceFinalization.None
         foregroundOwnerStartId = null
+        if (pendingStartIds.isNotEmpty()) return ExternalServiceFinalization.None
         return ExternalServiceFinalization(
             removeForeground = true,
-            stopStartId = latestStartId.takeIf { pendingStartIds.isEmpty() },
+            stopStartId = latestStartId,
         )
     }
 }

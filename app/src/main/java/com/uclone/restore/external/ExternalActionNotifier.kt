@@ -23,6 +23,7 @@ class ExternalActionNotifier(private val context: Context) {
 
     fun clearResult() {
         manager.cancel(RESULT_NOTIFICATION_ID)
+        manager.cancel(REJECTED_NOTIFICATION_ID)
     }
 
     fun clearRunning() {
@@ -53,6 +54,20 @@ class ExternalActionNotifier(private val context: Context) {
     }
 
     fun notifyResult(packageName: String?, operation: String?, status: String, message: String) {
+        notifyResult(RESULT_NOTIFICATION_ID, packageName, operation, status, message)
+    }
+
+    fun notifyRejected(packageName: String?, operation: String?, status: String, message: String) {
+        notifyResult(REJECTED_NOTIFICATION_ID, packageName, operation, status, message)
+    }
+
+    private fun notifyResult(
+        notificationId: Int,
+        packageName: String?,
+        operation: String?,
+        status: String,
+        message: String,
+    ) {
         ensureChannels()
         val success = status == ExternalActionContract.STATUS_SUCCESS
         val rejected = status == ExternalActionContract.STATUS_REJECTED ||
@@ -68,7 +83,7 @@ class ExternalActionNotifier(private val context: Context) {
             .setAutoCancel(true)
             .setPriority(if (success) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
             .build()
-        manager.notify(RESULT_NOTIFICATION_ID, notification)
+        manager.notify(notificationId, notification)
     }
 
     private fun builder(channelId: String, operation: String?): NotificationCompat.Builder =
@@ -144,5 +159,6 @@ class ExternalActionNotifier(private val context: Context) {
         const val RESULT_CHANNEL_ID = "uclone_external_results"
         const val RUNNING_NOTIFICATION_ID = 41011
         const val RESULT_NOTIFICATION_ID = 41012
+        const val REJECTED_NOTIFICATION_ID = 41013
     }
 }

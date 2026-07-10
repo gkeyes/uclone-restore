@@ -22,12 +22,21 @@ class ExternalActionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lifecycleLock = Any()
     private val lifecyclePolicy = ExternalServiceLifecyclePolicy()
+    private var foregroundActive = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         synchronized(lifecycleLock) {
             lifecyclePolicy.onStart(startId)
+            if (!foregroundActive) {
+                val notifier = ExternalActionNotifier(this)
+                startForeground(
+                    NOTIFICATION_ID,
+                    notifier.running(packageName = null, operation = null, message = "正在验证请求"),
+                )
+                foregroundActive = true
+            }
         }
         val container = (application as UCloneApplication).container
         if (intent?.action != ExternalActionContract.ACTION_EXECUTE) {
@@ -79,6 +88,7 @@ class ExternalActionService : Service() {
                     NOTIFICATION_ID,
                     notifier.running(request.packageName, request.operation, "任务已接收"),
                 )
+                foregroundActive = true
             }
         } catch (error: Exception) {
             val message = error.message ?: "无法启动任务服务"
@@ -105,7 +115,9 @@ class ExternalActionService : Service() {
 
     private fun finishRejectedStart(startId: Int) {
         synchronized(lifecycleLock) {
-            applyFinalization(lifecyclePolicy.onRejected(startId), notifier = null)
+            val finalization = lifecyclePolicy.onRejected(startId)
+            val notifier = ExternalActionNotifier(this).takeIf { finalization.removeForeground }
+            applyFinalization(finalization, notifier)
         }
     }
 
@@ -122,6 +134,7 @@ class ExternalActionService : Service() {
         if (finalization.removeForeground) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             requireNotNull(notifier).clearRunning()
+            foregroundActive = false
         }
         finalization.stopStartId?.let(::stopSelfResult)
     }
@@ -179,12 +192,12 @@ class ExternalActionService : Service() {
 
     private fun reject(request: ExternalActionRequest, status: String, message: String) {
         broadcastStatus(request, status, message)
-        ExternalActionNotifier(this).notifyResult(request.packageName, request.operation, status, message)
+        ExternalActionNotifier(this).notifyRejected(request.packageName, request.operation, status, message)
     }
 
     private fun reject(intent: Intent, status: String, message: String) {
         broadcastStatus(intent, status, message)
-        ExternalActionNotifier(this).notifyResult(
+        ExternalActionNotifier(this).notifyRejected(
             intent.getStringExtra(ExternalActionContract.EXTRA_PACKAGE_NAME),
             intent.getStringExtra(ExternalActionContract.EXTRA_OPERATION),
             status,

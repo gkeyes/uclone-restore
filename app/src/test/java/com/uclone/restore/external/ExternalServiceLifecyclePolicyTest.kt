@@ -20,7 +20,7 @@ class ExternalServiceLifecyclePolicyTest {
     }
 
     @Test
-    fun taskAFinalizationDoesNotStopTaskBWhileBStartIsPending() {
+    fun taskAFinalizationRetainsForegroundWhileTaskBStartIsPending() {
         val policy = ExternalServiceLifecyclePolicy()
         policy.onStart(1)
         policy.onAccepted(1)
@@ -30,7 +30,7 @@ class ExternalServiceLifecyclePolicyTest {
         policy.onAccepted(2)
         val taskBFinalization = policy.onAcceptedFinished(2)
 
-        assertEquals(ExternalServiceFinalization(removeForeground = true), taskAFinalization)
+        assertEquals(ExternalServiceFinalization.None, taskAFinalization)
         assertEquals(ExternalServiceFinalization(removeForeground = true, stopStartId = 2), taskBFinalization)
     }
 
@@ -49,7 +49,7 @@ class ExternalServiceLifecyclePolicyTest {
     }
 
     @Test
-    fun rejectedPendingStartStopsOnlyAfterPreviousOwnerFinishes() {
+    fun rejectedPendingStartKeepsForegroundUntilTheRejectionFinalizes() {
         val policy = ExternalServiceLifecyclePolicy()
         policy.onStart(1)
         policy.onAccepted(1)
@@ -58,17 +58,17 @@ class ExternalServiceLifecyclePolicyTest {
         val taskFinalization = policy.onAcceptedFinished(1)
         val rejection = policy.onRejected(2)
 
-        assertEquals(ExternalServiceFinalization(removeForeground = true), taskFinalization)
-        assertEquals(ExternalServiceFinalization(stopStartId = 2), rejection)
+        assertEquals(ExternalServiceFinalization.None, taskFinalization)
+        assertEquals(ExternalServiceFinalization(removeForeground = true, stopStartId = 2), rejection)
     }
 
     @Test
-    fun standaloneRejectedStartStopsWithoutRemovingForeground() {
+    fun standaloneRejectedStartRemovesBootstrapForegroundBeforeStopping() {
         val policy = ExternalServiceLifecyclePolicy()
         policy.onStart(7)
 
         assertEquals(
-            ExternalServiceFinalization(stopStartId = 7),
+            ExternalServiceFinalization(removeForeground = true, stopStartId = 7),
             policy.onRejected(7),
         )
     }
