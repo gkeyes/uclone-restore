@@ -207,6 +207,7 @@ UClone 永远不会复制 `/data/misc/keystore`。依赖 Android Keystore 的 Ap
 4. 打开 UClone Module 设置页。
 5. 在 App 页勾选允许显示 UClone 菜单的目标 App。
 6. 在 UClone Restore 主 App 设置中打开“允许模块控制”。
+7. 首次打开 UClone Restore 时允许通知权限，用于显示快捷任务的进度和结果。
 
 之后在桌面长按目标 App 图标，会出现 UClone 入口。
 

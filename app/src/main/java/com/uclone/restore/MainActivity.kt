@@ -1,13 +1,18 @@
 package com.uclone.restore
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.uclone.restore.launcher.LauncherShortcutActionActivity
 import com.uclone.restore.launcher.LauncherShortcutRequest
@@ -17,6 +22,7 @@ import com.uclone.restore.ui.UCloneViewModelFactory
 
 class MainActivity : ComponentActivity() {
     private var launcherShortcutRequest by mutableStateOf<LauncherShortcutRequest?>(null)
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,6 +38,7 @@ class MainActivity : ComponentActivity() {
                 onLauncherShortcutHandled = { launcherShortcutRequest = null },
             )
         }
+        requestNotificationPermission()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -54,4 +61,15 @@ class MainActivity : ComponentActivity() {
         finish()
         return true
     }
+
+    private fun requestNotificationPermission() {
+        val isGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (shouldRequestNotificationPermission(Build.VERSION.SDK_INT, isGranted)) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 }
+
+internal fun shouldRequestNotificationPermission(sdkInt: Int, isGranted: Boolean): Boolean =
+    sdkInt >= Build.VERSION_CODES.TIRAMISU && !isGranted
