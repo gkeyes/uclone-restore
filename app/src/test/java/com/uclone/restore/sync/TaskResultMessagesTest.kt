@@ -15,13 +15,15 @@ class TaskResultMessagesTest {
             WARN_APPOPS_FAILED:CAMERA:allow
             WARN_APPOPS_FAILED:POST_NOTIFICATION:allow
             WARN_APPOPS_FAILED:MIUIOP(10001):allow
+            WARN_APPOPS_RESET_FAILED
+            WARN_APPOPS_WRITE_SETTINGS_FAILED
             STDERR:
             EXIT=0
         """.trimIndent()
 
         val message = TaskResultMessages.successMessage(output)
 
-        assertEquals("完成，权限部分未完全恢复（权限授予 2 项，权限撤销 1 项，AppOps 3 项）", message)
+        assertEquals("完成，权限部分未完全恢复（权限授予 2 项，权限撤销 1 项，AppOps 5 项）", message)
     }
 
     @Test

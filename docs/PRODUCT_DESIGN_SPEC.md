@@ -132,7 +132,7 @@ Android 多用户下，同一包名在不同 user 中拥有独立的数据目录
 
 1. 检查 user10 状态。
 2. 若已 `RUNNING_UNLOCKED`，直接继续。
-3. 若未启动，执行 `am start-user -w <cloneUserId>`。
+3. 若未启动，执行非阻塞 `am start-user <cloneUserId>`，每 250ms 查询一次用户状态；进入 `RUNNING_LOCKED` 后立即验证 PIN，进入 `RUNNING_UNLOCKED` 后直接继续。禁止使用会在部分 HyperOS 设备上阻塞约 120 秒的 `-w`。
 4. 若仍未解锁，执行 `cmd lock_settings verify --old <PIN> --user <cloneUserId>`。
 5. 循环检测状态，直到 `RUNNING_UNLOCKED` 或超时。
 6. “无感启动分身”是显式生命周期操作，成功后保持 user10 为 `RUNNING_UNLOCKED`，不执行自动关闭。

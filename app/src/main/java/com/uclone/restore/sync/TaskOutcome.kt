@@ -25,6 +25,6 @@ internal object TaskOutcome {
     private val PERMISSION_WARNING_MARKERS = listOf(
         "WARN_REVOKE_FAILED:",
         "WARN_GRANT_FAILED:",
-        "WARN_APPOPS_FAILED:",
+        "WARN_APPOPS_",
     )
 }

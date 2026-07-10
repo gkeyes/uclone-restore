@@ -34,4 +34,13 @@ class TaskOutcomeTest {
 
         assertEquals(TaskStatus.SUCCESS_WITH_WARNINGS, TaskOutcome.status(result))
     }
+
+    @Test
+    fun appOpsResetAndPersistenceWarningsHaveExplicitPartialSuccessStatus() {
+        listOf("WARN_APPOPS_RESET_FAILED", "WARN_APPOPS_WRITE_SETTINGS_FAILED").forEach { warning ->
+            val result = ShellResult(0, warning, "")
+
+            assertEquals(TaskStatus.SUCCESS_WITH_WARNINGS, TaskOutcome.status(result))
+        }
+    }
 }

@@ -51,7 +51,7 @@ internal object RestoreTransactionShell {
         }
         auto_rollback_target() {
           echo "AUTO_ROLLBACK_BEGIN rollback=${'$'}ROLLBACK"
-          force_stop_package_users
+          force_stop_package_users || return 1
           (restore_rollback_part "${'$'}ROLLBACK/ce" "/data/user/${'$'}DST_USER/${'$'}PKG" "app" "ce") || return 1
           (restore_rollback_part "${'$'}ROLLBACK/de" "/data/user_de/${'$'}DST_USER/${'$'}PKG" "app" "de") || return 1
           (restore_rollback_part "${'$'}ROLLBACK/external" "/data/media/${'$'}DST_USER/Android/data/${'$'}PKG" "media" "external") || return 1
@@ -60,7 +60,7 @@ internal object RestoreTransactionShell {
           ${if (includePermissions) "(restore_permission_state \"${'$'}ROLLBACK/permissions\") || return 1" else ":"}
           ${if (manageSwitchMarker) "restore_previous_switch_marker || return 1" else ":"}
           sync
-          force_stop_package_users
+          force_stop_package_users || return 1
           return 0
         }
         transaction_on_exit() {
@@ -81,7 +81,7 @@ internal object RestoreTransactionShell {
           fi
           if [ "${'$'}TRANSACTION_EMIT_FAILURE_METRICS" = "1" ]; then
             UCLONE_TARGET_READY_AT=${'$'}(uclone_now_ms)
-            UCLONE_TARGET_DOWNTIME_MS=${'$'}((UCLONE_TARGET_READY_AT - UCLONE_TARGET_STOPPED_AT))
+            UCLONE_TARGET_DOWNTIME_MS=${'$'}(awk -v FINISHED_AT="${'$'}UCLONE_TARGET_READY_AT" -v STARTED_AT="${'$'}UCLONE_TARGET_STOPPED_AT" 'BEGIN { VALUE = FINISHED_AT - STARTED_AT; if (VALUE < 0) VALUE = 0; printf "%.0f\n", VALUE }')
             uclone_emit_metrics
           fi
           if command -v cleanup_on_exit >/dev/null 2>&1; then

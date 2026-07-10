@@ -3,6 +3,7 @@ package com.uclone.restore.sync
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RootTaskScriptTest {
@@ -19,6 +20,8 @@ class RootTaskScriptTest {
         assertTrue("set -o pipefail" in script)
         assertTrue("ERR_ROOT_UNAVAILABLE" in script)
         assertTrue("DURATION_MS=" in script)
+        assertTrue("TASK_DURATION_MS=${'$'}(awk" in script)
+        assertFalse("TASK_END -" in script)
         assertTrue("echo BODY_OK" in script)
         assertTrue("/data/adb/uclone/logs/task.log" in script)
     }

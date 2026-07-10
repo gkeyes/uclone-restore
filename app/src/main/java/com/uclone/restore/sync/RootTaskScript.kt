@@ -34,10 +34,11 @@ internal object RootTaskScript {
                   ;;
               esac
               TASK_END=${'$'}(/system/bin/date +%s%3N 2>/dev/null || true)
-              case "${'$'}TASK_END" in ''|*[!0-9]*) TASK_END=${'$'}(( $(/system/bin/date +%s) * 1000 )) ;; esac
+              case "${'$'}TASK_END" in ''|*[!0-9]*) TASK_END=${'$'}(/system/bin/date +%s | awk '{ printf "%.0f\n", ${'$'}1 * 1000 }') ;; esac
               echo "END=${'$'}TASK_END"
               echo "END_LOCAL=${'$'}(/system/bin/date '+%Y-%m-%d %H:%M:%S.%3N %z' 2>/dev/null || true)"
-              echo "DURATION_MS=${'$'}((TASK_END - $startedAt))"
+              TASK_DURATION_MS=${'$'}(awk -v FINISHED_AT="${'$'}TASK_END" -v STARTED_AT="$startedAt" 'BEGIN { VALUE = FINISHED_AT - STARTED_AT; if (VALUE < 0) VALUE = 0; printf "%.0f\n", VALUE }')
+              echo "DURATION_MS=${'$'}TASK_DURATION_MS"
               echo "EXIT=${'$'}TASK_EXIT"
               return "${'$'}TASK_EXIT"
             }

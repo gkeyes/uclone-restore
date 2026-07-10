@@ -22,7 +22,7 @@ object ShellScripts {
         uclone_now_ms() {
           UCLONE_NOW=${'$'}(/system/bin/date +%s%3N 2>/dev/null || true)
           case "${'$'}UCLONE_NOW" in
-            ''|*[!0-9]*) echo "${'$'}(( $(/system/bin/date +%s) * 1000 ))" ;;
+            ''|*[!0-9]*) /system/bin/date +%s | awk '{ printf "%.0f\n", ${'$'}1 * 1000 }' ;;
             *) echo "${'$'}UCLONE_NOW" ;;
           esac
         }
@@ -38,14 +38,20 @@ object ShellScripts {
         uclone_add_written_kb() {
           UCLONE_WRITE_KB="${'$'}1"
           case "${'$'}UCLONE_WRITE_KB" in ''|*[!0-9]*) return 0 ;; esac
-          UCLONE_COPIED_BYTES=${'$'}((UCLONE_COPIED_BYTES + UCLONE_WRITE_KB * 1024))
+          UCLONE_NEXT_COPIED_BYTES=${'$'}(awk -v TOTAL="${'$'}UCLONE_COPIED_BYTES" -v KB="${'$'}UCLONE_WRITE_KB" 'BEGIN { printf "%.0f\n", TOTAL + KB * 1024 }')
+          case "${'$'}UCLONE_NEXT_COPIED_BYTES" in ''|*[!0-9]*) return 0 ;; esac
+          UCLONE_COPIED_BYTES="${'$'}UCLONE_NEXT_COPIED_BYTES"
         }
         uclone_record_temp_path() {
           [ -d "${'$'}1" ] || return 0
           UCLONE_TEMP_KB=${'$'}(du -sk "${'$'}1" 2>/dev/null | awk '{print ${'$'}1}')
           case "${'$'}UCLONE_TEMP_KB" in ''|*[!0-9]*) return 0 ;; esac
-          UCLONE_TEMP_BYTES=${'$'}((UCLONE_TEMP_KB * 1024))
-          [ "${'$'}UCLONE_TEMP_BYTES" -le "${'$'}UCLONE_PEAK_TEMPORARY_BYTES" ] || UCLONE_PEAK_TEMPORARY_BYTES="${'$'}UCLONE_TEMP_BYTES"
+          UCLONE_TEMP_BYTES=${'$'}(awk -v KB="${'$'}UCLONE_TEMP_KB" 'BEGIN { printf "%.0f\n", KB * 1024 }')
+          case "${'$'}UCLONE_TEMP_BYTES" in ''|*[!0-9]*) return 0 ;; esac
+          awk -v CURRENT="${'$'}UCLONE_TEMP_BYTES" -v PEAK="${'$'}UCLONE_PEAK_TEMPORARY_BYTES" 'BEGIN { exit !(CURRENT > PEAK) }' && UCLONE_PEAK_TEMPORARY_BYTES="${'$'}UCLONE_TEMP_BYTES"
+        }
+        uclone_elapsed_ms() {
+          awk -v FINISHED_AT="${'$'}1" -v STARTED_AT="${'$'}2" 'BEGIN { VALUE = FINISHED_AT - STARTED_AT; if (VALUE < 0) VALUE = 0; printf "%.0f\n", VALUE }'
         }
         uclone_emit_metrics() {
           echo "UCLONE_METRIC:scanned_files=${'$'}UCLONE_SCANNED_FILES copied_files=${'$'}UCLONE_COPIED_FILES copied_bytes=${'$'}UCLONE_COPIED_BYTES peak_temporary_bytes=${'$'}UCLONE_PEAK_TEMPORARY_BYTES target_downtime_ms=${'$'}UCLONE_TARGET_DOWNTIME_MS"
@@ -54,6 +60,13 @@ object ShellScripts {
 
     internal fun storagePreflightScript(): String = """
         UCLONE_ESTIMATED_KB=0
+        uclone_decimal_add() {
+          LEFT="${'$'}1"
+          RIGHT="${'$'}2"
+          case "${'$'}LEFT:${'$'}RIGHT" in *[!0-9:]*) return 1 ;; esac
+          [ "${'$'}{#LEFT}" -le 15 ] && [ "${'$'}{#RIGHT}" -le 15 ] || return 1
+          awk -v LEFT="${'$'}LEFT" -v RIGHT="${'$'}RIGHT" 'BEGIN { printf "%.0f\n", LEFT + RIGHT }'
+        }
         uclone_dir_kb() {
           [ -d "${'$'}1" ] || { echo 0; return 0; }
           VALUE_KB=${'$'}(du -sk "${'$'}1" 2>/dev/null | awk '{print ${'$'}1}')
@@ -61,7 +74,9 @@ object ShellScripts {
         }
         uclone_add_dir_kb() {
           VALUE_KB=${'$'}(uclone_dir_kb "${'$'}1")
-          UCLONE_ESTIMATED_KB=${'$'}((UCLONE_ESTIMATED_KB + VALUE_KB))
+          NEXT_ESTIMATED_KB=${'$'}(uclone_decimal_add "${'$'}UCLONE_ESTIMATED_KB" "${'$'}VALUE_KB") || NEXT_ESTIMATED_KB=""
+          case "${'$'}NEXT_ESTIMATED_KB" in ''|*[!0-9]*) UCLONE_ESTIMATED_KB=""; return 1 ;; esac
+          UCLONE_ESTIMATED_KB="${'$'}NEXT_ESTIMATED_KB"
         }
         uclone_add_first_dir_kb() {
           for VALUE_PATH in "${'$'}@"; do
@@ -76,17 +91,17 @@ object ShellScripts {
           REQUIRED_KB="${'$'}1"
           SPACE_LABEL="${'$'}2"
           case "${'$'}REQUIRED_KB" in ''|*[!0-9]*) echo "ERR_SPACE_ESTIMATE:${'$'}SPACE_LABEL:${'$'}REQUIRED_KB" >&2; exit 75 ;; esac
-          [ "${'$'}{#REQUIRED_KB}" -le 13 ] && [ "${'$'}REQUIRED_KB" -le 8000000000000 ] || {
-            echo "ERR_SPACE_ESTIMATE:${'$'}SPACE_LABEL:${'$'}REQUIRED_KB" >&2
-            exit 75
-          }
-          AVAILABLE_KB=${'$'}(df -k "${'$'}ROOT" 2>/dev/null | awk 'NR==2 {print ${'$'}4; exit}')
+          [ "${'$'}{#REQUIRED_KB}" -le 15 ] || { echo "ERR_SPACE_ESTIMATE:${'$'}SPACE_LABEL:${'$'}REQUIRED_KB" >&2; exit 75; }
+          AVAILABLE_KB=${'$'}(df -k "${'$'}ROOT" 2>/dev/null | awk 'NR > 1 && ${'$'}4 ~ /^[0-9]+${'$'}/ { print ${'$'}4; exit }')
           case "${'$'}AVAILABLE_KB" in ''|*[!0-9]*) echo "ERR_SPACE_UNKNOWN:${'$'}SPACE_LABEL" >&2; exit 75 ;; esac
-          RESERVE_KB=${'$'}((REQUIRED_KB / 10))
-          [ "${'$'}RESERVE_KB" -ge 65536 ] || RESERVE_KB=65536
-          NEEDED_KB=${'$'}((REQUIRED_KB + RESERVE_KB))
+          [ "${'$'}{#AVAILABLE_KB}" -le 15 ] || { echo "ERR_SPACE_UNKNOWN:${'$'}SPACE_LABEL" >&2; exit 75; }
+          RESERVE_KB=${'$'}(awk -v REQUIRED_KB="${'$'}REQUIRED_KB" 'BEGIN { printf "%.0f\n", REQUIRED_KB / 10 }')
+          case "${'$'}RESERVE_KB" in ''|*[!0-9]*) echo "ERR_SPACE_ESTIMATE:${'$'}SPACE_LABEL:${'$'}REQUIRED_KB" >&2; exit 75 ;; esac
+          awk -v RESERVE_KB="${'$'}RESERVE_KB" 'BEGIN { exit !(RESERVE_KB >= 65536) }' || RESERVE_KB=65536
+          NEEDED_KB=${'$'}(uclone_decimal_add "${'$'}REQUIRED_KB" "${'$'}RESERVE_KB") || NEEDED_KB=""
+          case "${'$'}NEEDED_KB" in ''|*[!0-9]*) echo "ERR_SPACE_ESTIMATE:${'$'}SPACE_LABEL:${'$'}REQUIRED_KB" >&2; exit 75 ;; esac
           echo "SPACE_PREFLIGHT:${'$'}SPACE_LABEL requiredKb=${'$'}REQUIRED_KB reserveKb=${'$'}RESERVE_KB neededKb=${'$'}NEEDED_KB availableKb=${'$'}AVAILABLE_KB"
-          [ "${'$'}AVAILABLE_KB" -ge "${'$'}NEEDED_KB" ] || {
+          awk -v AVAILABLE_KB="${'$'}AVAILABLE_KB" -v NEEDED_KB="${'$'}NEEDED_KB" 'BEGIN { exit !(AVAILABLE_KB >= NEEDED_KB) }' || {
             echo "ERR_INSUFFICIENT_SPACE:${'$'}SPACE_LABEL:neededKb=${'$'}NEEDED_KB:availableKb=${'$'}AVAILABLE_KB" >&2
             exit 75
           }
@@ -122,9 +137,8 @@ object ShellScripts {
                 echo "${'$'}{WAIT_LABEL}_${'$'}{WAIT_INDEX}=${'$'}WAIT_STATE"
                 case "${'$'}WAIT_STATE" in
                   *RUNNING_UNLOCKED*) return 0 ;;
-                  *RUNNING_LOCKED*) [ "${'$'}WAIT_LABEL" = "WAIT_AFTER_START" ] && return 2 ;;
                 esac
-                sleep 1
+                sleep 0.25
                 WAIT_INDEX=${'$'}((WAIT_INDEX + 1))
               done
               return 1
@@ -155,26 +169,16 @@ object ShellScripts {
                 fi
                 case "${'$'}STATE_BEFORE_UNLOCK" in
                   *"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*)
-                    echo "START_USER_BEGIN"
-                    START_USER_OUTPUT=${'$'}(/system/bin/am start-user -w "${'$'}CLONE_USER" 2>&1 || true)
-                    echo "START_USER_OUTPUT=${'$'}START_USER_OUTPUT"
-                    CLONE_STARTED_BY_TASK=1
+                    ${startCloneUserRequestScript(
+                        amCommand = "/system/bin/am",
+                        sleepCommand = "sleep",
+                        startPollLimit = 40,
+                        startPollIntervalSeconds = 0.25,
+                        markStartedByTask = true,
+                        failureExitCode = 80,
+                    )}
                     STATE_AFTER_START=${'$'}(clone_state)
                     echo "STATE_AFTER_START=${'$'}STATE_AFTER_START"
-                    case "${'$'}STATE_AFTER_START" in
-                      *RUNNING_UNLOCKED*) ;;
-                      *RUNNING_LOCKED*) ;;
-                      *)
-                        wait_for_clone_state "WAIT_AFTER_START" 15
-                        WAIT_START_RESULT=${'$'}?
-                        STATE_AFTER_START_WAIT=${'$'}(clone_state)
-                        echo "STATE_AFTER_START_WAIT=${'$'}STATE_AFTER_START_WAIT"
-                        case "${'$'}STATE_AFTER_START_WAIT" in
-                          *RUNNING_UNLOCKED*|*RUNNING_LOCKED*) ;;
-                          *) echo "ERR_CLONE_START_FAILED:${'$'}STATE_AFTER_START_WAIT" >&2; exit 80 ;;
-                        esac
-                        ;;
-                    esac
                     ;;
                 esac
                 STATE_BEFORE_VERIFY=${'$'}(clone_state)
@@ -203,7 +207,7 @@ object ShellScripts {
                     esac
                     echo "VERIFY_RESULT=${'$'}VERIFY_RESULT"
                     [ "${'$'}VERIFY_RESULT" = "SUCCESS" ] || { echo "ERR_CLONE_PIN_VERIFY_FAILED:${'$'}VERIFY_RESULT" >&2; exit 84; }
-                    wait_for_clone_state "WAIT_AFTER_VERIFY" 30 || {
+                    wait_for_clone_state "WAIT_AFTER_VERIFY" 120 || {
                       STATE_AFTER_VERIFY_WAIT=${'$'}(clone_state)
                       echo "STATE_AFTER_VERIFY_WAIT=${'$'}STATE_AFTER_VERIFY_WAIT"
                       echo "ERR_CLONE_UNLOCK_TIMEOUT:${'$'}STATE_AFTER_VERIFY_WAIT" >&2
@@ -215,6 +219,63 @@ object ShellScripts {
                 esac
                 ;;
             esac
+        """.trimIndent()
+    }
+
+    private fun startCloneUserRequestScript(
+        amCommand: String,
+        sleepCommand: String,
+        startPollLimit: Int,
+        startPollIntervalSeconds: Double,
+        markStartedByTask: Boolean,
+        failureExitCode: Int,
+    ): String {
+        require(startPollLimit in 1..200)
+        require(startPollIntervalSeconds > 0.0 && startPollIntervalSeconds <= 5.0)
+        require(failureExitCode in 1..255)
+        return """
+            START_AM_COMMAND=${shellQuote(amCommand)}
+            START_SLEEP_COMMAND=${shellQuote(sleepCommand)}
+            START_POLL_INTERVAL=${shellQuote(startPollIntervalSeconds.toString())}
+            START_CLONE_READY=0
+            START_STATE_BEFORE_REQUEST=${'$'}(clone_state)
+            echo "START_STATE_BEFORE_REQUEST=${'$'}START_STATE_BEFORE_REQUEST"
+            case "${'$'}START_STATE_BEFORE_REQUEST" in
+              *RUNNING*)
+                START_CLONE_READY=1
+                echo "START_CLONE_CONFIRMED=${'$'}START_STATE_BEFORE_REQUEST"
+                echo "START_CLONE_OWNERSHIP=preexisting"
+                ;;
+              *)
+                echo "START_USER_BEGIN"
+                START_USER_EXIT=0
+                START_USER_OUTPUT=${'$'}("${'$'}START_AM_COMMAND" start-user "${'$'}CLONE_USER" 2>&1) || START_USER_EXIT=${'$'}?
+                echo "START_USER_EXIT=${'$'}START_USER_EXIT"
+                echo "START_USER_OUTPUT=${'$'}START_USER_OUTPUT"
+                START_WAIT_INDEX=0
+                while [ "${'$'}START_WAIT_INDEX" -lt $startPollLimit ]; do
+                  START_WAIT_STATE=${'$'}(clone_state)
+                  echo "WAIT_AFTER_START_${'$'}START_WAIT_INDEX=${'$'}START_WAIT_STATE"
+                  case "${'$'}START_WAIT_STATE" in
+                    *RUNNING*)
+                      ${if (markStartedByTask) "CLONE_STARTED_BY_TASK=1" else ":"}
+                      START_CLONE_READY=1
+                      echo "START_CLONE_CONFIRMED=${'$'}START_WAIT_STATE"
+                      echo "START_CLONE_OWNERSHIP=requested_by_task"
+                      break
+                      ;;
+                  esac
+                  "${'$'}START_SLEEP_COMMAND" "${'$'}START_POLL_INTERVAL"
+                  START_WAIT_INDEX=${'$'}((START_WAIT_INDEX + 1))
+                done
+                ;;
+            esac
+            if [ "${'$'}START_CLONE_READY" != "1" ]; then
+              STATE_AFTER_START_TIMEOUT=${'$'}(clone_state)
+              echo "STATE_AFTER_START_TIMEOUT=${'$'}STATE_AFTER_START_TIMEOUT"
+              echo "ERR_START_CLONE_FAILED:requestExit=${'$'}START_USER_EXIT:state=${'$'}STATE_AFTER_START_TIMEOUT" >&2
+              exit $failureExitCode
+            fi
         """.trimIndent()
     }
 
@@ -236,15 +297,24 @@ object ShellScripts {
               fi
               echo "STOP_CLONE_AFTER_TASK=1 startedByTask=1"
               echo "STATE_BEFORE_STOP=${'$'}(clone_state)"
-              STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user "${'$'}CLONE_USER" 2>&1 || true)
-              CLONE_STOPPED_AFTER_TASK=1
+              STOP_USER_EXIT=0
+              STOP_USER_OUTPUT=${'$'}(/system/bin/am stop-user "${'$'}CLONE_USER" 2>&1) || STOP_USER_EXIT=${'$'}?
+              echo "STOP_USER_EXIT=${'$'}STOP_USER_EXIT"
               echo "STOP_USER_OUTPUT=${'$'}STOP_USER_OUTPUT"
+              if [ "${'$'}STOP_USER_EXIT" -ne 0 ]; then
+                echo "WARN_STOP_CLONE_REQUEST_FAILED:${'$'}STOP_USER_EXIT:${'$'}(clone_state)"
+                return 0
+              fi
               STOP_WAIT_INDEX=0
               while [ "${'$'}STOP_WAIT_INDEX" -lt 20 ]; do
                 STOP_WAIT_STATE=${'$'}(clone_state)
                 echo "WAIT_AFTER_STOP_${'$'}STOP_WAIT_INDEX=${'$'}STOP_WAIT_STATE"
                 case "${'$'}STOP_WAIT_STATE" in
-                  *"User is not started"*|*"not started"*|*SHUTDOWN*) echo "STOP_CLONE_CONFIRMED=1"; return 0 ;;
+                  *"User is not started"*|*"not started"*|*SHUTDOWN*)
+                    echo "STOP_CLONE_CONFIRMED=1"
+                    CLONE_STOPPED_AFTER_TASK=1
+                    return 0
+                    ;;
                 esac
                 sleep 0.25
                 STOP_WAIT_INDEX=${'$'}((STOP_WAIT_INDEX + 1))
@@ -389,7 +459,11 @@ object ShellScripts {
             rm -rf "${'$'}TRY_TMP"
             return 1
           fi
-          am force-stop --user "${'$'}TRY_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+          am force-stop --user "${'$'}TRY_USER" "${'$'}PKG" >/dev/null 2>&1 || {
+            echo "ERR_FORCE_STOP_FAILED:${'$'}TRY_USER:${'$'}PKG" >&2
+            rm -rf "${'$'}TRY_TMP"
+            return 1
+          }
           COPIED_PARTS=0
           COPIED_ITEMS=0
           ${if (rule.includeCe) "copy_first_nonempty \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\"" else ":"}
@@ -548,20 +622,26 @@ object ShellScripts {
         uclone_add_dir_kb "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG"
         uclone_add_dir_kb "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG"
         PUSH_TARGET_KB="${'$'}UCLONE_ESTIMATED_KB"
-        PUSH_REQUIRED_KB=${'$'}((PUSH_SOURCE_KB + PUSH_TARGET_KB))
+        PUSH_REQUIRED_KB=${'$'}(uclone_decimal_add "${'$'}PUSH_SOURCE_KB" "${'$'}PUSH_TARGET_KB") || PUSH_REQUIRED_KB=""
         uclone_require_space "${'$'}PUSH_REQUIRED_KB" "push_source_and_clone_rollback"
         uclone_stage_end
         force_stop_source_package() {
-          am force-stop --user "${'$'}SRC_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+          am force-stop --user "${'$'}SRC_USER" "${'$'}PKG" >/dev/null 2>&1 || {
+            echo "ERR_FORCE_STOP_FAILED:${'$'}SRC_USER:${'$'}PKG" >&2
+            return 1
+          }
           echo "FORCE_STOP_SOURCE_USER:${'$'}SRC_USER"
         }
         force_stop_target_package() {
-          am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+          am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || {
+            echo "ERR_FORCE_STOP_FAILED:${'$'}DST_USER:${'$'}PKG" >&2
+            return 1
+          }
           echo "FORCE_STOP_TARGET_USER:${'$'}DST_USER"
         }
         force_stop_package_users() {
-          force_stop_source_package
-          force_stop_target_package
+          force_stop_source_package || return 1
+          force_stop_target_package || return 1
           echo "FORCE_STOP_USERS:${'$'}SRC_USER ${'$'}DST_USER"
         }
         count_items() {
@@ -802,7 +882,7 @@ object ShellScripts {
             done < "${'$'}GRANTS_FILE"
           fi
           if [ -f "${'$'}APPOPS_FILE" ]; then
-            cmd appops reset --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+            cmd appops reset --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || echo "WARN_APPOPS_RESET_FAILED"
             while read -r OP MODE EXTRA; do
               [ -n "${'$'}OP" ] || continue
               [ -z "${'$'}EXTRA" ] || continue
@@ -810,12 +890,12 @@ object ShellScripts {
               cmd appops set --user "${'$'}DST_USER" "${'$'}PKG" "${'$'}OP" "${'$'}MODE" >/dev/null 2>&1 || echo "WARN_APPOPS_FAILED:${'$'}OP:${'$'}MODE"
               APPOPS_COUNT=${'$'}((APPOPS_COUNT + 1))
             done < "${'$'}APPOPS_FILE"
-            cmd appops write-settings >/dev/null 2>&1 || true
+            cmd appops write-settings >/dev/null 2>&1 || echo "WARN_APPOPS_WRITE_SETTINGS_FAILED"
           fi
           echo "PUSHED_PERMISSIONS:grants=${'$'}GRANT_COUNT appops=${'$'}APPOPS_COUNT"
         }
         uclone_stage_begin SOURCE_PREPARE
-        force_stop_source_package
+        force_stop_source_package || exit 76
         mkdir -p "${'$'}PUSH_TEMP" "${'$'}ROLLBACK_TMP" || exit 11
         COPIED_PARTS=0
         COPIED_ITEMS=0
@@ -836,7 +916,7 @@ object ShellScripts {
         uclone_record_temp_path "${'$'}PUSH_TEMP"
         uclone_stage_end
         uclone_stage_begin TARGET_STOP
-        force_stop_target_package
+        force_stop_target_package || exit 76
         UCLONE_TARGET_STOPPED_AT=${'$'}(uclone_now_ms)
         uclone_stage_end
         uclone_stage_begin ROLLBACK_BACKUP
@@ -886,11 +966,11 @@ object ShellScripts {
           exit 54
         fi
         sync
-        force_stop_package_users
+        force_stop_package_users || exit 76
         TRANSACTION_COMMITTED=1
         rm -rf "${'$'}ROLLBACK_PREVIOUS" >/dev/null 2>&1 || echo "WARN_CLONE_ROLLBACK_PREVIOUS_CLEANUP_FAILED:${'$'}ROLLBACK_PREVIOUS"
         UCLONE_TARGET_READY_AT=${'$'}(uclone_now_ms)
-        UCLONE_TARGET_DOWNTIME_MS=${'$'}((UCLONE_TARGET_READY_AT - UCLONE_TARGET_STOPPED_AT))
+        UCLONE_TARGET_DOWNTIME_MS=${'$'}(uclone_elapsed_ms "${'$'}UCLONE_TARGET_READY_AT" "${'$'}UCLONE_TARGET_STOPPED_AT")
         uclone_stage_end
         uclone_emit_metrics
         echo "PUSH_MAIN_TO_CLONE_DONE targetUser=${'$'}DST_USER restoredParts=${'$'}RESTORED_PARTS restoredItems=${'$'}RESTORED_ITEMS copiedParts=${'$'}COPIED_PARTS backupParts=${'$'}BACKUP_PARTS"
@@ -949,6 +1029,35 @@ object ShellScripts {
         echo "USER10_CE_STATE=RUNNING_UNLOCKED"
         echo "USER10_CE_READY=1"
         echo "UNLOCK_CLONE_WITH_CREDENTIAL_DONE"
+    """.trimIndent()
+
+    internal fun startCloneUser(
+        settings: UCloneSettings,
+        amCommand: String = "/system/bin/am",
+        sleepCommand: String = "sleep",
+        startPollLimit: Int = 40,
+        startPollIntervalSeconds: Double = 0.25,
+    ): String = """
+        set -u
+        CLONE_USER=${settings.cloneUserId}
+        AM_COMMAND=${shellQuote(amCommand)}
+        clone_state() {
+          "${'$'}AM_COMMAND" get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
+        }
+        echo "EXPLICIT_START_CLONE_USER=${'$'}CLONE_USER"
+        STATE_BEFORE_START=${'$'}(clone_state)
+        echo "STATE_BEFORE_START=${'$'}STATE_BEFORE_START"
+        case "${'$'}STATE_BEFORE_START" in
+          *RUNNING*) echo "START_CLONE_ALREADY_STARTED=${'$'}STATE_BEFORE_START"; exit 0 ;;
+        esac
+        ${startCloneUserRequestScript(
+            amCommand = amCommand,
+            sleepCommand = sleepCommand,
+            startPollLimit = startPollLimit,
+            startPollIntervalSeconds = startPollIntervalSeconds,
+            markStartedByTask = false,
+            failureExitCode = 88,
+        )}
     """.trimIndent()
 
     internal fun stopCloneUser(
@@ -1379,7 +1488,9 @@ object ShellScripts {
           case "${'$'}SIZE_KB" in ''|*[!0-9]*) SIZE_KB=0 ;; esac
           rm -rf "${'$'}TARGET" || { echo "ERR_RESET_DELETE_FAILED:${'$'}TARGET" >&2; exit 74; }
           DELETED_TARGETS=${'$'}((DELETED_TARGETS + 1))
-          DELETED_SIZE_KB=${'$'}((DELETED_SIZE_KB + SIZE_KB))
+          NEXT_DELETED_SIZE_KB=${'$'}(awk -v TOTAL="${'$'}DELETED_SIZE_KB" -v SIZE_KB="${'$'}SIZE_KB" 'BEGIN { printf "%.0f\n", TOTAL + SIZE_KB }')
+          case "${'$'}NEXT_DELETED_SIZE_KB" in ''|*[!0-9]*) NEXT_DELETED_SIZE_KB="${'$'}DELETED_SIZE_KB" ;; esac
+          DELETED_SIZE_KB="${'$'}NEXT_DELETED_SIZE_KB"
           echo "RESET_DELETED:${'$'}TARGET SIZE_KB=${'$'}SIZE_KB"
         done
         echo "RESET_WORKSPACE_DONE root=${'$'}ROOT deletedTargets=${'$'}DELETED_TARGETS sizeKb=${'$'}DELETED_SIZE_KB"
@@ -1511,7 +1622,11 @@ object ShellScripts {
             rm -rf "${'$'}TRY_TMP"
             return 1
           fi
-          am force-stop --user "${'$'}TRY_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+          am force-stop --user "${'$'}TRY_USER" "${'$'}PKG" >/dev/null 2>&1 || {
+            echo "ERR_FORCE_STOP_FAILED:${'$'}TRY_USER:${'$'}PKG" >&2
+            rm -rf "${'$'}TRY_TMP"
+            return 1
+          }
           COPIED_PARTS=0
           COPIED_ITEMS=0
           ${if (rule.includeCe) "copy_first_nonempty \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\"" else ":"}
@@ -1636,7 +1751,7 @@ object ShellScripts {
             uclone_add_dir_kb "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG"
             uclone_add_dir_kb "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG"
             RESTORE_TARGET_KB="${'$'}UCLONE_ESTIMATED_KB"
-            RESTORE_REQUIRED_KB=${'$'}((RESTORE_SOURCE_KB + RESTORE_TARGET_KB))
+            RESTORE_REQUIRED_KB=${'$'}(uclone_decimal_add "${'$'}RESTORE_SOURCE_KB" "${'$'}RESTORE_TARGET_KB") || RESTORE_REQUIRED_KB=""
             uclone_require_space "${'$'}RESTORE_REQUIRED_KB" "restore_prepared_and_rollback"
             PREPARED_ROOT="${'$'}ROOT/tmp/prepared_${'$'}{PKG}_${'$'}TS"
             ROLLBACK_FINALIZED=0
@@ -1690,20 +1805,14 @@ object ShellScripts {
             uclone_record_temp_path "${'$'}PREPARED_ROOT"
             uclone_stage_end
             force_stop_package_users() {
-              STOPPED_USERS=""
-              for U in ${'$'}(pm list users 2>/dev/null | sed -n 's/.*UserInfo{\([0-9][0-9]*\):.*/\1/p'); do
-                [ -n "${'$'}U" ] || continue
-                am force-stop --user "${'$'}U" "${'$'}PKG" >/dev/null 2>&1 || true
-                STOPPED_USERS="${'$'}STOPPED_USERS ${'$'}U"
-              done
-              case " ${'$'}STOPPED_USERS " in
-                *" ${'$'}DST_USER "*) ;;
-                *) am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || true ;;
-              esac
-              echo "FORCE_STOP_USERS:${'$'}STOPPED_USERS"
+              am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || {
+                echo "ERR_FORCE_STOP_FAILED:${'$'}DST_USER:${'$'}PKG" >&2
+                return 1
+              }
+              echo "FORCE_STOP_USERS:${'$'}DST_USER"
             }
             uclone_stage_begin TARGET_STOP
-            force_stop_package_users
+            force_stop_package_users || exit 76
             UCLONE_TARGET_STOPPED_AT=${'$'}(uclone_now_ms)
             uclone_stage_end
             BACKUP_PARTS=0
@@ -1914,7 +2023,7 @@ object ShellScripts {
                 done < "${'$'}GRANTS_FILE"
               fi
               if [ -f "${'$'}APPOPS_FILE" ]; then
-                cmd appops reset --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || true
+                cmd appops reset --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || echo "WARN_APPOPS_RESET_FAILED"
                 while read -r OP MODE EXTRA; do
                   [ -n "${'$'}OP" ] || continue
                   [ -z "${'$'}EXTRA" ] || continue
@@ -1922,7 +2031,7 @@ object ShellScripts {
                   cmd appops set --user "${'$'}DST_USER" "${'$'}PKG" "${'$'}OP" "${'$'}MODE" >/dev/null 2>&1 || echo "WARN_APPOPS_FAILED:${'$'}OP:${'$'}MODE"
                   APPOPS_COUNT=${'$'}((APPOPS_COUNT + 1))
                 done < "${'$'}APPOPS_FILE"
-                cmd appops write-settings >/dev/null 2>&1 || true
+                cmd appops write-settings >/dev/null 2>&1 || echo "WARN_APPOPS_WRITE_SETTINGS_FAILED"
               fi
               echo "RESTORED_PERMISSIONS:grants=${'$'}GRANT_COUNT appops=${'$'}APPOPS_COUNT"
             }
@@ -2023,10 +2132,10 @@ object ShellScripts {
             echo "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER"
             """.trimIndent() else ":"}
             sync
-            force_stop_package_users
+            force_stop_package_users || exit 76
             TRANSACTION_COMMITTED=1
             UCLONE_TARGET_READY_AT=${'$'}(uclone_now_ms)
-            UCLONE_TARGET_DOWNTIME_MS=${'$'}((UCLONE_TARGET_READY_AT - UCLONE_TARGET_STOPPED_AT))
+            UCLONE_TARGET_DOWNTIME_MS=${'$'}(uclone_elapsed_ms "${'$'}UCLONE_TARGET_READY_AT" "${'$'}UCLONE_TARGET_STOPPED_AT")
             uclone_stage_end
             ${if (pruneOldRollbacks) "(prune_old_rollbacks) || echo \"WARN_PRUNE_ROLLBACK_FAILED:${'$'}ROLLBACK\"" else ":"}
             ${if (writeSwitchMarker || clearSwitchMarker) "stop_clone_user_after_switch_restore" else ":"}

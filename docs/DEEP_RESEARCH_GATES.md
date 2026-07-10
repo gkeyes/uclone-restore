@@ -38,7 +38,7 @@ Confirm on target HyperOS/Android devices whether a root app running in user `0`
 Run all probes through `su -c` from user `0`:
 
 ```sh
-am start-user -w 10
+am start-user 10
 am get-started-user-state 10
 am unlock-user 10
 am get-started-user-state 10
@@ -71,7 +71,7 @@ sealed class User10CeState {
 For at least one test app, collect logs showing:
 
 - `am get-started-user-state 10` before start.
-- State after `am start-user -w 10`.
+- State observed by polling after non-blocking `am start-user 10`. Do not use `-w`: HyperOS may already reach `RUNNING_LOCKED` while the waiting command remains blocked until its internal timeout.
 - State after `am unlock-user 10`.
 - Whether `/data/user/10/<pkg>` is readable.
 - Whether `/data/user_de/10/<pkg>` is readable.

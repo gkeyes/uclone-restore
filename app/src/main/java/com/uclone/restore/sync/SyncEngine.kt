@@ -457,7 +457,7 @@ class SyncEngine(
         }
 
     suspend fun startCloneUser(settings: UCloneSettings) =
-        shell.exec("am start-user -w ${settings.cloneUserId}", timeoutSeconds = 60)
+        shell.exec(ShellScripts.startCloneUser(settings), timeoutSeconds = 15)
 
     suspend fun switchToCloneUser(settings: UCloneSettings) =
         shell.exec("am switch-user ${settings.cloneUserId}", timeoutSeconds = 30)

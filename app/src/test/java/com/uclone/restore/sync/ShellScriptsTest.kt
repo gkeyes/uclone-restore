@@ -12,6 +12,72 @@ import kotlin.test.assertTrue
 
 class ShellScriptsTest {
     @Test
+    fun storagePreflightUsesAwkForDeviceSizeArithmetic() {
+        val script = ShellScripts.storagePreflightScript()
+
+        assertContains(script, "uclone_decimal_add()")
+        assertContains(script, "awk -v LEFT=")
+        assertFalse(script.contains("8000000000000"))
+        assertFalse(script.contains("REQUIRED_KB\" -le"))
+    }
+
+    @Test
+    fun storagePreflightAcceptsReportedMultiGigabyteEstimate() {
+        val directory = Files.createTempDirectory("uclone-space-test")
+        directory.resolve("df").toFile().apply {
+            writeText(
+                """
+                    #!/bin/sh
+                    printf '%s\n' 'Filesystem 1024-blocks Used Available Capacity Mounted on' 'uclone 999999999 1 900000000 1% /'
+                """.trimIndent() + "\n",
+            )
+            check(setExecutable(true))
+        }
+        val script = """
+            ROOT=/
+            ${ShellScripts.storagePreflightScript()}
+            uclone_require_space 3696214 push_source_and_clone_rollback
+        """.trimIndent()
+        val process = ProcessBuilder("/bin/sh", "-c", script)
+            .redirectErrorStream(true)
+            .apply {
+                environment()["PATH"] = "${directory.toAbsolutePath()}:${System.getenv("PATH")}"
+            }
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+
+        assertEquals(0, process.waitFor(), output)
+        assertContains(output, "SPACE_PREFLIGHT:push_source_and_clone_rollback requiredKb=3696214")
+    }
+
+    @Test
+    fun permissionRestoreReportsAppOpsResetAndPersistenceFailures() {
+        val rule = AppRule(packageName = "com.example.app")
+        val scripts = listOf(
+            ShellScripts.pushMainToClone("com.example.app", rule, settings, appPackage),
+            ShellScripts.restore("com.example.app", settings, appPackage),
+        )
+
+        scripts.forEach { script ->
+            assertContains(script, "WARN_APPOPS_RESET_FAILED")
+            assertContains(script, "WARN_APPOPS_WRITE_SETTINGS_FAILED")
+        }
+    }
+
+    @Test
+    fun mutationScriptsDoNotSilentlyIgnoreForceStopFailures() {
+        val rule = AppRule(packageName = "com.example.app")
+        val scripts = listOf(
+            ShellScripts.capture("com.example.app", rule, settings, appPackage),
+            ShellScripts.pushMainToClone("com.example.app", rule, settings, appPackage),
+            ShellScripts.switchFromCloneLatest("com.example.app", rule, settings, appPackage),
+            ShellScripts.restore("com.example.app", settings, appPackage),
+        )
+
+        scripts.forEach { script -> assertContains(script, "ERR_FORCE_STOP_FAILED:") }
+    }
+
+    @Test
     fun mutationScriptsEmitStructuredPerformanceMetrics() {
         val rule = AppRule(packageName = "com.example.app")
         val capture = ShellScripts.capture("com.example.app", rule, settings, appPackage)
@@ -22,6 +88,8 @@ class ShellScriptsTest {
             assertContains(script, "UCLONE_METRIC:stage=")
             assertContains(script, "UCLONE_METRIC:scanned_files=")
             assertContains(script, "copied_bytes=")
+            assertFalse(script.contains("UCLONE_COPIED_BYTES=${'$'}(("))
+            assertFalse(script.contains("UCLONE_TARGET_DOWNTIME_MS=${'$'}(("))
         }
         assertContains(restore, "target_downtime_ms=")
         assertContains(push, "target_downtime_ms=")
@@ -357,7 +425,8 @@ class ShellScriptsTest {
 
         assertContains(script, "ENSURE_CLONE_CE_BEGIN")
         assertContains(script, "CLONE_AUTO_UNLOCK=1")
-        assertContains(script, "/system/bin/am start-user -w")
+        assertContains(script, "start-user \"${'$'}CLONE_USER\"")
+        assertFalse(script.contains("start-user -w"))
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
         assertContains(script, "ERR_SWITCH_CE_MISSING:${'$'}TRY_USER")
@@ -403,7 +472,8 @@ class ShellScriptsTest {
         assertContains(script, "CAPTURE_REQUIRE_CE=1")
         assertContains(script, "ENSURE_CLONE_CE_BEGIN")
         assertContains(script, "CLONE_AUTO_UNLOCK=1")
-        assertContains(script, "/system/bin/am start-user -w")
+        assertContains(script, "start-user \"${'$'}CLONE_USER\"")
+        assertFalse(script.contains("start-user -w"))
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
         assertContains(script, "ERR_PACKAGE_NOT_LISTED:${'$'}TRY_USER")
@@ -443,10 +513,11 @@ class ShellScriptsTest {
         assertContains(script, "ENSURE_CLONE_CE_BEGIN")
         assertContains(script, "CLONE_AUTO_UNLOCK=1")
         assertContains(script, "START_USER_BEGIN")
-        assertContains(script, "/system/bin/am start-user -w")
+        assertContains(script, "start-user \"${'$'}CLONE_USER\"")
+        assertFalse(script.contains("start-user -w"))
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "VERIFY_RESULT=")
-        assertContains(script, "WAIT_AFTER_VERIFY")
+        assertContains(script, "wait_for_clone_state \"WAIT_AFTER_VERIFY\" 120")
         assertContains(script, "STOP_CLONE_AFTER_TASK=0")
         assertContains(script, "reason=persistent_lifecycle_action")
         assertFalse(script.contains("am stop-user"))
@@ -474,6 +545,9 @@ class ShellScriptsTest {
         assertFalse(script.contains("stop-user -w"))
         assertContains(script, "WAIT_AFTER_STOP_${'$'}STOP_WAIT_INDEX")
         assertContains(script, "sleep 0.25")
+        assertContains(script, "STOP_USER_EXIT=0")
+        assertContains(script, "WARN_STOP_CLONE_REQUEST_FAILED")
+        assertTrue(script.indexOf("STOP_CLONE_CONFIRMED=1") < script.indexOf("CLONE_STOPPED_AFTER_TASK=1"))
     }
 
     @Test
@@ -523,6 +597,84 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun explicitStartReturnsAsSoonAsCloneUserIsRunningLocked() {
+        val result = runExplicitStartScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state)
+                    if [ -f "${'$'}UCLONE_TEST_STATE_FILE" ]; then echo RUNNING_LOCKED; else echo "User is not started: 10"; fi
+                    exit 0
+                    ;;
+                  start-user) : > "${'$'}UCLONE_TEST_STATE_FILE"; echo started; exit 0 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "START_USER_EXIT=0")
+        assertContains(result.output, "START_CLONE_CONFIRMED=RUNNING_LOCKED")
+    }
+
+    @Test
+    fun explicitStartUsesObservedStateWhenActivityManagerReportsFailure() {
+        val result = runExplicitStartScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state)
+                    if [ -f "${'$'}UCLONE_TEST_STATE_FILE" ]; then echo RUNNING_LOCKED; else echo "User is not started: 10"; fi
+                    exit 0
+                    ;;
+                  start-user) : > "${'$'}UCLONE_TEST_STATE_FILE"; echo "Error: could not start user"; exit 9 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "START_USER_EXIT=9")
+        assertContains(result.output, "START_CLONE_CONFIRMED=RUNNING_LOCKED")
+    }
+
+    @Test
+    fun explicitStartFailsWhenCloneUserNeverLeavesStoppedState() {
+        val result = runExplicitStartScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state) echo "User is not started: 10"; exit 0 ;;
+                  start-user) echo "Error: could not start user"; exit 9 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(88, result.exitCode, result.output)
+        assertContains(result.output, "ERR_START_CLONE_FAILED:requestExit=9")
+    }
+
+    @Test
+    fun explicitStartDoesNotClaimOrRepeatAConcurrentManualStart() {
+        val result = runExplicitStartScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state)
+                    if [ -f "${'$'}UCLONE_TEST_STATE_FILE" ]; then
+                      echo RUNNING_LOCKED
+                    else
+                      : > "${'$'}UCLONE_TEST_STATE_FILE"
+                      echo "User is not started: 10"
+                    fi
+                    exit 0
+                    ;;
+                  start-user) echo SHOULD_NOT_START; exit 9 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "START_CLONE_OWNERSHIP=preexisting")
+        assertFalse(result.output.contains("START_USER_BEGIN"))
+        assertFalse(result.output.contains("SHOULD_NOT_START"))
+    }
+
+    @Test
     fun auditRestoreConsistency_collectsReadOnlyEvidence() {
         val script = ShellScripts.auditRestoreConsistency("com.example.app", settings, appPackage)
 
@@ -554,6 +706,28 @@ class ShellScriptsTest {
         )
         val process = ProcessBuilder("/bin/bash", "-c", script)
             .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText()
+        return StopScriptResult(process.waitFor(), output)
+    }
+
+    private fun runExplicitStartScript(amBody: String): StopScriptResult {
+        val directory = Files.createTempDirectory("uclone-start-test")
+        val stateFile = directory.resolve("state").toFile()
+        val fakeAm = directory.resolve("am").toFile().apply {
+            writeText("#!/bin/sh\n$amBody\n")
+            check(setExecutable(true))
+        }
+        val script = ShellScripts.startCloneUser(
+            settings = settings,
+            amCommand = fakeAm.absolutePath,
+            sleepCommand = "/bin/sleep",
+            startPollLimit = 2,
+            startPollIntervalSeconds = 0.01,
+        )
+        val process = ProcessBuilder("/bin/bash", "-c", script)
+            .redirectErrorStream(true)
+            .apply { environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath }
             .start()
         val output = process.inputStream.bufferedReader().readText()
         return StopScriptResult(process.waitFor(), output)
