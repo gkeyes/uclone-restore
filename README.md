@@ -10,6 +10,14 @@ English documentation: [README.en.md](README.en.md)
 - 桌面长按模块：`0.2.0`
 - 主要测试环境：小米 / HyperOS，多用户为 `user0` + `user10`，Root 为 KernelSU / KernelSU Next 一类方案
 
+## 界面预览
+
+| 主 App 首页 | UClone Module 状态 |
+| --- | --- |
+| <img src="docs/screenshots/home.jpg" alt="UClone Restore 首页" width="280"> | <img src="docs/screenshots/module-status.jpg" alt="UClone Module 状态页" width="280"> |
+| **诊断与分身控制** | **任务历史** |
+| <img src="docs/screenshots/diagnostics.jpg" alt="UClone Restore 诊断页" width="280"> | <img src="docs/screenshots/task-history.jpg" alt="UClone Restore 任务历史页" width="280"> |
+
 ## 它能做什么
 
 当前版本支持这些方向：
