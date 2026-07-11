@@ -10,8 +10,10 @@ internal object TaskOutcome {
         return when {
             "AUTO_ROLLBACK_FAILED" in output -> TaskStatus.FAILED_FATAL
             "Timeout termination required SIGKILL" in output -> TaskStatus.FAILED_FATAL
+            result.isSuccess && "WARN_INSTALL_SYNC_FAILED:" in output -> TaskStatus.SUCCESS_WITH_WARNINGS
             "AUTO_ROLLBACK_SUCCESS" in output -> TaskStatus.ROLLED_BACK
             result.exitCode == INTERRUPTED_EXIT_CODE || "Command interrupted" in output -> TaskStatus.INTERRUPTED
+            result.isSuccess && "UCLONE_RECOVERY:ORPHANED" in output -> TaskStatus.SUCCESS_WITH_WARNINGS
             result.isSuccess && PERMISSION_WARNING_MARKERS.any(output::contains) -> TaskStatus.SUCCESS_WITH_WARNINGS
             result.isSuccess -> TaskStatus.SUCCESS
             else -> TaskStatus.FAILED
@@ -30,5 +32,6 @@ internal object TaskOutcome {
         "WARN_GRANT_FAILED:",
         "WARN_APPOPS_",
         "WARN_STOP_CLONE_",
+        "WARN_INSTALL_",
     )
 }

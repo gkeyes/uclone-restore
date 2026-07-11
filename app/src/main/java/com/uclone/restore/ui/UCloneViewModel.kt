@@ -28,6 +28,7 @@ class UCloneViewModel(
     private val taskRepository = container.taskRepository
     private val taskCoordinator = container.taskCoordinator
     private val launcherShortcutController = container.launcherShortcutController
+    private val externalRequestStore = container.externalRequestStore
     private val _state = MutableStateFlow(UiState(settings = settingsStore.load()))
     val state: StateFlow<UiState> = _state
     private var refreshedTerminalRequestId: String? = null
@@ -112,6 +113,7 @@ class UCloneViewModel(
     }
 
     fun selectPackage(packageName: String) {
+        _state.update { it.copy(selectedPackage = packageName) }
         launchRefresh {
             val settings = _state.value.settings
             val workspace = workspaceIndex(settings)
@@ -124,7 +126,6 @@ class UCloneViewModel(
                     )
                 }
                 it.copy(
-                    selectedPackage = packageName,
                     apps = apps,
                     rollbackIds = workspace.rollbackIds(packageName),
                     restoreBackups = workspace.restoreBackups,
@@ -250,6 +251,10 @@ class UCloneViewModel(
         submitTask(UiTaskAction.DELETE_ROLLBACK, packageName, "正在删除被动备份", rollbackId)
     }
 
+    fun deleteCloneRollback(packageName: String, rollbackId: String) {
+        submitTask(UiTaskAction.DELETE_CLONE_ROLLBACK, packageName, "正在删除分身回滚", rollbackId)
+    }
+
     fun probeCloneCe() {
         submitTask(UiTaskAction.PROBE_CLONE, cloneUserLabel(), "正在探测分身 CE")
     }
@@ -281,6 +286,58 @@ class UCloneViewModel(
         submitTask(UiTaskAction.RESET_WORKSPACE, "workspace", "正在重置 UClone 数据")
     }
 
+    fun scanWorkspaceOwnership() {
+        if (_state.value.busy || taskCoordinator.isBusy()) {
+            _state.update { it.copy(message = "已有任务正在执行") }
+            return
+        }
+        launchRefresh {
+            val settings = _state.value.settings
+            runBusy("正在扫描备份容量归属") {
+                val report = syncEngine.scanWorkspaceOwnership(settings)
+                _state.update {
+                    it.copy(
+                        workspaceOwnership = report,
+                        message = if (report.nonRootEntries == 0L) {
+                            "备份容量归属正常"
+                        } else {
+                            "发现 ${report.nonRootEntries} 个文件或目录需要修复"
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    fun repairWorkspaceOwnership() {
+        val report = _state.value.workspaceOwnership ?: return
+        if (report.nonRootEntries <= 0L) {
+            _state.update { it.copy(message = "备份容量归属已经正常") }
+            return
+        }
+        submitTask(UiTaskAction.REPAIR_WORKSPACE_OWNERSHIP, "workspace", "正在修复备份容量归属")
+    }
+
+    internal fun installSelectedToOtherUser(action: UiTaskAction) {
+        val app = _state.value.selectedApp ?: return
+        val settings = _state.value.settings
+        val targetUserId = when {
+            app.user0Installed && !app.user10Installed -> settings.cloneUserId
+            app.user10Installed && !app.user0Installed -> settings.mainUserId
+            else -> {
+                _state.update { it.copy(message = "只有单侧已安装的 App 才能执行跨用户安装") }
+                return
+            }
+        }
+        val message = when (action) {
+            UiTaskAction.INSTALL_OTHER_USER -> "正在安装到 user$targetUserId"
+            UiTaskAction.INSTALL_OTHER_USER_WITH_PERMISSIONS -> "正在安装并迁移权限到 user$targetUserId"
+            UiTaskAction.INSTALL_OTHER_USER_AND_SYNC -> "正在安装并同步数据到 user$targetUserId"
+            else -> return
+        }
+        submitTask(action, app.packageName, message, targetUserId = targetUserId)
+    }
+
     fun startCloneUser() {
         submitTask(UiTaskAction.START_CLONE_USER, cloneUserLabel(), "正在启动分身")
     }
@@ -299,6 +356,11 @@ class UCloneViewModel(
 
     private fun observeTasks() {
         viewModelScope.launch {
+            externalRequestStore.events.collect { events ->
+                _state.update { it.copy(externalRequests = events) }
+            }
+        }
+        viewModelScope.launch {
             taskRepository.history.collect { history ->
                 _state.update { it.copy(history = history) }
             }
@@ -315,13 +377,25 @@ class UCloneViewModel(
         }
     }
 
-    private fun submitTask(action: UiTaskAction, packageName: String, message: String, rollbackId: String? = null) {
+    private fun submitTask(
+        action: UiTaskAction,
+        packageName: String,
+        message: String,
+        rollbackId: String? = null,
+        targetUserId: Int? = null,
+    ) {
         if (_state.value.busy || taskCoordinator.isBusy()) {
             _state.update { it.copy(message = "已有任务正在执行") }
             return
         }
         _state.update { it.copy(message = message) }
-        ExternalActionService.startInternal(getApplication(), action.operation, packageName, rollbackId)
+        ExternalActionService.startInternal(
+            getApplication(),
+            action.operation,
+            packageName,
+            rollbackId,
+            targetUserId,
+        )
     }
 
     private suspend fun refreshAfterTask(task: TaskRecord) {
@@ -337,12 +411,31 @@ class UCloneViewModel(
                     null
                 }
                 val environment = if (policy.environment) syncEngine.checkEnvironment(settings) else null
+                val apps = if (policy.apps) {
+                    val previousApps = _state.value.apps.associateBy { it.packageName }
+                    packageInspector.listApps(settings).map { app ->
+                        val snapshot = workspace?.snapshots?.get(app.packageName)
+                        val previous = previousApps[app.packageName]
+                        app.copy(
+                            lastSnapshotAt = snapshot?.updatedAt ?: previous?.lastSnapshotAt,
+                            snapshotSizeKb = snapshot?.sizeKb ?: previous?.snapshotSizeKb,
+                            lastRestoreAt = previous?.lastRestoreAt,
+                        )
+                    }
+                } else {
+                    null
+                }
                 val snapshot = TaskRefreshSnapshot(
                     history = taskRepository.all(),
                     environment = environment,
                     workspaceIndex = workspace,
+                    apps = apps,
                 )
                 _state.update { TaskUiStateReducer.refreshed(it, task, snapshot) }
+                if (task.type == com.uclone.restore.model.TaskType.REPAIR_WORKSPACE_OWNERSHIP) {
+                    val ownership = syncEngine.scanWorkspaceOwnership(settings)
+                    _state.update { it.copy(workspaceOwnership = ownership) }
+                }
                 if (policy.shortcuts) syncLauncherShortcuts()
             }.onFailure { error ->
                 _state.update { it.copy(busy = false, message = error.message ?: "任务结束后刷新状态失败") }
@@ -350,11 +443,10 @@ class UCloneViewModel(
         }
     }
 
-    private fun launchRefresh(block: suspend () -> Unit) {
+    private fun launchRefresh(block: suspend () -> Unit) =
         viewModelScope.launch {
             refreshMutex.withLock { block() }
         }
-    }
 
     private suspend fun workspaceIndex(settings: UCloneSettings): WorkspaceIndex {
         val cached = workspaceCache

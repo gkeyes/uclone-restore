@@ -1,0 +1,30 @@
+package com.uclone.restore.sync
+
+import com.uclone.restore.root.RootShellExecutor
+import com.uclone.restore.root.ShellResult
+import kotlinx.coroutines.runBlocking
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class ActiveRootTaskProbeTest {
+    @Test
+    fun probeParsesLiveRootTaskWithoutMutatingMarker() = runBlocking {
+        val shell = RecordingShell("ACTIVE_ROOT_TASK\trequest-1\t1\n")
+
+        val state = ActiveRootTaskProbe(shell).probe("/data/adb/uclone")
+
+        assertEquals(ActiveRootTaskState("request-1", isLive = true), state)
+        assertTrue("kill -0" in shell.command)
+        assertTrue("rm " !in shell.command)
+        assertTrue("mv " !in shell.command)
+    }
+
+    private class RecordingShell(private val output: String) : RootShellExecutor {
+        var command: String = ""
+        override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult {
+            this.command = command
+            return ShellResult(0, output, "")
+        }
+    }
+}

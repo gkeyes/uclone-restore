@@ -2,6 +2,7 @@ package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.root.shellQuote
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -224,6 +225,22 @@ class ShellScriptsTest {
         assertContains(script, "chmod 700 \"${'$'}BASE\" \"${'$'}BASE/active\" \"${'$'}BASE/history\"")
     }
 
+    @Test
+    fun workspaceCopiesIgnoreArchivedApplicationOwner() {
+        val rule = AppRule(packageName = "com.example.app")
+        val capture = ShellScripts.capture("com.example.app", rule, settings, appPackage)
+        val push = ShellScripts.pushMainToClone("com.example.app", rule, settings, appPackage)
+        val restore = ShellScripts.restore("com.example.app", settings, appPackage)
+        val switch = ShellScripts.switchFromCloneLatest("com.example.app", rule, settings, appPackage)
+
+        assertContains(capture, "(cd \"${'$'}DST.tmp\" && tar -xopf -)")
+        assertContains(push, "(cd \"${'$'}DST.tmp\" && tar -xopf -)")
+        assertContains(push, "(cd \"${'$'}DST\" && tar -xopf -) || exit 55")
+        assertContains(restore, "(cd \"${'$'}PREPARE_DST\" && tar -xopf -)")
+        assertContains(restore, "(cd \"${'$'}DST\" && tar -xopf -) || exit 55")
+        assertContains(switch, "(cd \"${'$'}DST.tmp\" && tar -xopf -)")
+    }
+
     private val settings = UCloneSettings(rootDir = "/data/adb/uclone")
     private val appPackage = "com.uclone.restore"
 
@@ -325,11 +342,12 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun restorePruneClearsStaleSwitchMarker() {
+    fun restorePruneKeepsExistingMainReturnPointAndClearsOnlyMissingMarkerTarget() {
         val script = ShellScripts.restore("com.example.app", settings, appPackage)
 
         assertContains(script, "SWITCH_ID_AFTER_PRUNE=")
-        assertContains(script, "[ \"${'$'}SWITCH_ID_AFTER_PRUNE\" != \"${'$'}ROLLBACK_ID\" ]")
+        assertContains(script, "[ ! -d \"${'$'}ROLLBACK_PARENT/${'$'}SWITCH_ID_AFTER_PRUNE\" ]")
+        assertFalse(script.contains("[ \"${'$'}SWITCH_ID_AFTER_PRUNE\" != \"${'$'}ROLLBACK_ID\" ]"))
         assertContains(script, "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER_FOR_PRUNE")
     }
 
@@ -361,8 +379,86 @@ class ShellScriptsTest {
         assertContains(script, "ACTIVE=\"${'$'}ROOT/tmp/switch_${'$'}{PKG}_${'$'}TS\"")
         assertContains(script, "SWITCH_SOURCE_READY=${'$'}SWITCH_TEMP")
         assertContains(script, "SWITCH_MARKER=${'$'}SWITCH_DIR/active ROLLBACK_ID=${'$'}ROLLBACK_ID")
+        assertContains(script, "SOURCE_STATE_KIND='clone'")
+        assertContains(script, "\\\"stateKind\\\":\\\"${'$'}CURRENT_STATE_KIND\\\"")
         assertFalse(script.contains("SNAPSHOT_ACTIVE="))
         assertFalse(script.contains("mv \"${'$'}TMP\" \"${'$'}BASE/active\""))
+    }
+
+    @Test
+    fun restoringBackupSynchronizesCurrentStateFromBackupManifest() {
+        val script = ShellScripts.rollback(
+            "com.example.app",
+            "20260710-010203",
+            settings,
+            appPackage,
+        )
+
+        assertContains(script, "SOURCE_STATE_KIND=${'$'}(sed -n")
+        assertContains(script, "RESTORE_SOURCE_STATE=${'$'}SOURCE_STATE_KIND CURRENT_STATE=${'$'}CURRENT_STATE_KIND")
+        assertContains(script, "DATA_STATE_UPDATED=main")
+        assertContains(script, "DATA_STATE_UPDATED=clone")
+        assertContains(script, "MAIN_ROLLBACK_ID=\"${'$'}ROLLBACK_ID\"")
+    }
+
+    @Test
+    fun passiveRollbackPruningKeepsBackupFromOtherDataState() {
+        val script = ShellScripts.restore("com.example.app", settings, appPackage)
+
+        assertContains(script, "OLD_STATE_KIND")
+        assertContains(script, "KEPT_ROLLBACK_OTHER_STATE=")
+        assertContains(script, "KEPT_ROLLBACK_LEGACY=")
+    }
+
+    @Test
+    fun passiveBackupReuseRequiresMatchingStateAndCompleteStateFiles() {
+        val reuseSettings = settings.copy(reuseExistingPassiveBackups = true)
+        val restore = ShellScripts.restore("com.example.app", reuseSettings, appPackage)
+        val push = ShellScripts.pushMainToClone(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            reuseSettings,
+            appPackage,
+        )
+
+        assertContains(restore, "REUSE_STATE")
+        assertContains(restore, "REUSE_STATE\" = \"${'$'}CURRENT_STATE_KIND")
+        assertContains(restore, "uclone_backup_is_valid \"${'$'}REUSE_CANDIDATE\"")
+        assertContains(restore, "PASSIVE_BACKUP_REUSED=")
+        assertContains(restore, "if [ \"${'$'}ROLLBACK_REUSED\" = \"0\" ]; then")
+        assertContains(push, "uclone_backup_is_valid \"${'$'}ROLLBACK_LATEST\"")
+        assertContains(push, "CLONE_ROLLBACK_REUSED=")
+        assertContains(push, "if [ \"${'$'}CLONE_ROLLBACK_REUSED\" = \"0\" ]; then")
+    }
+
+    @Test
+    fun backupReuseValidatorRejectsMissingPayloadAndAcceptsCompleteBackup() {
+        val root = Files.createTempDirectory("uclone-reuse-validator").toFile()
+        val backup = root.resolve("backup").apply { mkdirs() }
+        backup.resolve("manifest.json").writeText("{\"stateKind\":\"main\"}\n")
+        val state = backup.resolve(".state").apply { mkdirs() }
+        listOf("ce", "de", "external", "media", "obb").forEach { state.resolve(it).writeText("absent\n") }
+        state.resolve("ce").writeText("data\n")
+
+        fun validate(): Int = ProcessBuilder(
+            "/bin/sh",
+            "-c",
+            "${ShellScripts.backupReuseValidationScript()}\nuclone_backup_is_valid ${shellQuote(backup.absolutePath)}",
+        ).start().waitFor()
+
+        assertEquals(1, validate())
+        backup.resolve("ce").apply { mkdirs(); resolve("token.db").writeText("data") }
+        assertEquals(0, validate())
+        root.deleteRecursively()
+    }
+
+    @Test
+    fun cloneRollbackDeletionUsesCloneRollbackPathOnly() {
+        val script = ShellScripts.deleteCloneRollback("com.example.app", "latest", settings, appPackage)
+
+        assertContains(script, "TARGET=\"${'$'}ROOT/clone_rollback/${'$'}PKG/${'$'}ROLLBACK_ID\"")
+        assertContains(script, "DELETED_CLONE_ROLLBACK=")
+        assertFalse(script.contains("${'$'}ROOT/rollback/${'$'}PKG"))
     }
 
     @Test
@@ -394,6 +490,7 @@ class ShellScriptsTest {
         assertContains(script, "ROLLBACK=\"${'$'}ROLLBACK_TMP\"")
         assertContains(script, "\\\"backupKind\\\":\\\"clone_rollback\\\"")
         assertContains(script, "\\\"retention\\\":\\\"latest_only\\\"")
+        assertContains(script, "\\\"stateKind\\\":\\\"clone\\\"")
         assertContains(script, "copy_first_nonempty \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}SRC_USER/${'$'}PKG\"")
         assertContains(script, "restore_part \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}DST_USER/${'$'}PKG\" \"app\"")
         assertContains(script, "PUSH_MAIN_TO_CLONE_DONE")

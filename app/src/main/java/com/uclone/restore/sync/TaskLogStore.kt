@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.TaskMetrics
+import com.uclone.restore.model.TaskAudit
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskStatus
@@ -56,7 +57,7 @@ class TaskLogStore(
         synchronized(records) { clearHistoryLocked() }
     }
 
-    override fun accepted(type: TaskType, packageName: String, requestId: String): TaskRecord =
+    override fun accepted(type: TaskType, packageName: String, requestId: String, audit: TaskAudit): TaskRecord =
         store(
             TaskRecord(
                 id = ids.incrementAndGet(),
@@ -68,6 +69,7 @@ class TaskLogStore(
                 status = TaskStatus.ACCEPTED,
                 logPath = "",
                 message = "任务已接收",
+                audit = audit,
             ),
         )
 
@@ -76,6 +78,7 @@ class TaskLogStore(
         packageName: String,
         logPath: String,
         requestId: String,
+        audit: TaskAudit?,
     ): TaskRecord {
         val accepted = find(requestId)
         return TaskRecord(
@@ -88,6 +91,7 @@ class TaskLogStore(
             status = TaskStatus.RUNNING,
             logPath = logPath,
             message = "运行中",
+            audit = audit ?: accepted?.audit ?: TaskAudit(),
         ).let(::store)
     }
 

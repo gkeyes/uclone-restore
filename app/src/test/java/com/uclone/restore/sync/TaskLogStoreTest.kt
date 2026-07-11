@@ -1,6 +1,8 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.TaskStatus
+import com.uclone.restore.model.BackupKind
+import com.uclone.restore.model.TaskAudit
 import com.uclone.restore.model.TaskMetrics
 import com.uclone.restore.model.TaskStage
 import com.uclone.restore.model.TaskStageMetric
@@ -58,6 +60,34 @@ class TaskLogStoreTest {
         assertEquals("切换完成", records.single().message)
         assertTrue(records.single().finishedAt != null)
         assertTrue(!historyFile.resolveSibling("${historyFile.name}.tmp").exists())
+    }
+
+    @Test
+    fun deletionAuditSurvivesStoreRecreation() {
+        val historyFile = Files.createTempDirectory("uclone-history-audit").resolve("task_history_v2.jsonl").toFile()
+        val firstStore = TaskLogStore(NoopShell, historyFile)
+        val task = firstStore.running(
+            requestId = "delete-request",
+            type = TaskType.DELETE_RESTORE_BACKUP,
+            packageName = "com.example.app",
+            logPath = "/data/adb/uclone/logs/delete.log",
+            audit = TaskAudit(
+                source = "app",
+                backupKind = BackupKind.PASSIVE_BACKUP,
+                backupId = "backup-1",
+                path = "/data/adb/uclone/rollback/com.example.app/backup-1",
+                sizeKb = 512,
+            ),
+        )
+        firstStore.finish(task, TaskStatus.SUCCESS, "deleted")
+
+        val audit = TaskLogStore(NoopShell, historyFile).all().single().audit
+
+        assertEquals("app", audit.source)
+        assertEquals(BackupKind.PASSIVE_BACKUP, audit.backupKind)
+        assertEquals("backup-1", audit.backupId)
+        assertEquals("/data/adb/uclone/rollback/com.example.app/backup-1", audit.path)
+        assertEquals(512L, audit.sizeKb)
     }
 
     @Test

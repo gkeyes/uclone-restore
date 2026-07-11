@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.AdminPanelSettings
+import androidx.compose.material.icons.outlined.InstallMobile
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.SwapHoriz
@@ -48,6 +50,16 @@ import com.uclone.restore.util.Formatters
 @Composable
 fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, onBack: () -> Unit) {
     val app = state.selectedApp
+    val installTargetUserId = app?.let {
+        when {
+            it.user0Installed && !it.user10Installed -> state.settings.cloneUserId
+            it.user10Installed && !it.user0Installed -> state.settings.mainUserId
+            else -> null
+        }
+    }
+    val installSourceUserId = installTargetUserId?.let { target ->
+        if (target == state.settings.mainUserId) state.settings.cloneUserId else state.settings.mainUserId
+    }
     var confirm by remember { mutableStateOf<ConfirmAction?>(null) }
     Column(
         modifier
@@ -86,6 +98,45 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             InfoRow("分身 user${state.settings.cloneUserId}", if (app.user10Installed) "已安装 UID ${app.user10Uid}" else "未安装")
             RiskChip(app.riskLevel)
         }
+        val showCrossUserInstall = installTargetUserId != null &&
+            app.packageName != "com.uclone.restore" &&
+            (!app.isSystemApp || state.settings.allowSystemAppInstall)
+        if (showCrossUserInstall) {
+            SectionCard("跨用户安装", glass = false) {
+                Text(
+                    "使用系统现有 APK，从 user$installSourceUserId 安装到 user$installTargetUserId；不会复制 /data/app。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                AppToolRow(
+                    title = "仅安装到 user$installTargetUserId",
+                    description = "只启用同版本 APK；不迁移权限或数据，也不会启动或解锁分身。",
+                    actionLabel = "安装",
+                    icon = Icons.Outlined.InstallMobile,
+                    primary = true,
+                    enabled = !state.busy,
+                    onClick = { confirm = ConfirmAction.INSTALL_ONLY },
+                )
+                ToolDivider()
+                AppToolRow(
+                    title = "安装并迁移权限/AppOps",
+                    description = "安装后迁移可支持的运行时权限和 AppOps；不复制 App 数据，不触发 CE 解锁。",
+                    actionLabel = "安装",
+                    icon = Icons.Outlined.AdminPanelSettings,
+                    enabled = !state.busy,
+                    onClick = { confirm = ConfirmAction.INSTALL_PERMISSIONS },
+                )
+                ToolDivider()
+                AppToolRow(
+                    title = "安装并同步 user$installSourceUserId 数据",
+                    description = "安装后复用现有安全同步流程；需要分身数据时才会按设置解锁 CE。同步失败也保留安装结果。",
+                    actionLabel = "执行",
+                    icon = Icons.Outlined.Sync,
+                    warning = true,
+                    enabled = !state.busy,
+                    onClick = { confirm = ConfirmAction.INSTALL_AND_SYNC },
+                )
+            }
+        }
         SectionCard("主动备份") {
             InfoRow("状态", if (app.lastSnapshotAt == null) "未建立" else "已建立")
             InfoRow("时间", Formatters.time(app.lastSnapshotAt))
@@ -121,6 +172,9 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         if (task?.packageName == app.packageName && (state.busy || state.currentTask.steps.isNotEmpty())) {
             SectionCard("任务进度") {
                 Text(task.type.userFacingLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                task.currentStage?.let { stage ->
+                    Text("当前阶段：${stage.displayLabel}", fontWeight = FontWeight.SemiBold)
+                }
                 if (state.busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
@@ -137,7 +191,13 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             }
         }
         val switched = state.selectedSwitchRollbackId != null
+        val bothUsersInstalled = app.user0Installed && app.user10Installed
         SectionCard("操作工具", glass = false) {
+            InfoRow(
+                "主系统当前数据",
+                if (switched) "来自分身系统 · 可还原" else "主系统原始状态 · 可切换",
+            )
+            ToolDivider()
             AppToolRow(
                 title = if (switched) "还原切换前的主系统状态" else "切换到分身当前登录状态",
                 description = if (switched) {
@@ -148,7 +208,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 actionLabel = if (switched) "还原" else "切换",
                 icon = if (switched) Icons.Outlined.Restore else Icons.Outlined.SwapHoriz,
                 primary = !switched,
-                enabled = !state.busy,
+                enabled = (if (switched) app.user0Installed else bothUsersInstalled) && !state.busy,
                 onClick = { confirm = if (switched) ConfirmAction.RESTORE_SWITCH else ConfirmAction.SWITCH },
             )
             ToolDivider()
@@ -157,7 +217,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 description = "读取 user${state.settings.cloneUserId} 当前最新数据并写入 active；不会修改主系统 App 数据。",
                 actionLabel = "建立",
                 icon = Icons.Outlined.CloudUpload,
-                enabled = !state.busy,
+                enabled = app.user10Installed && !state.busy,
                 onClick = { confirm = ConfirmAction.CAPTURE },
             )
             ToolDivider()
@@ -166,7 +226,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 description = "只读取已保存的 active 并覆盖 user${state.settings.mainUserId}；不会读取分身当前数据。",
                 actionLabel = "恢复",
                 icon = Icons.Outlined.Restore,
-                enabled = app.lastSnapshotAt != null && !state.busy,
+                enabled = app.user0Installed && app.lastSnapshotAt != null && !state.busy,
                 onClick = { confirm = ConfirmAction.RESTORE },
             )
             ToolDivider()
@@ -175,7 +235,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 description = "先用 user${state.settings.cloneUserId} 当前数据更新 active，再把 active 恢复到 user${state.settings.mainUserId}。",
                 actionLabel = "执行",
                 icon = Icons.Outlined.Sync,
-                enabled = !state.busy,
+                enabled = bothUsersInstalled && !state.busy,
                 onClick = { confirm = ConfirmAction.LATEST },
             )
             ToolDivider()
@@ -184,7 +244,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 description = "只读采集文件树、UID、SELinux、权限和 AppOps；不会恢复或删除数据。",
                 actionLabel = "生成",
                 icon = Icons.AutoMirrored.Outlined.FactCheck,
-                enabled = !state.busy,
+                enabled = app.user0Installed && !state.busy,
                 onClick = { confirm = ConfirmAction.AUDIT },
             )
             if (switched) {
@@ -219,6 +279,9 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             highRisk = state.selectedApp?.riskLevel != RiskLevel.NORMAL,
             mainUserId = state.settings.mainUserId,
             cloneUserId = state.settings.cloneUserId,
+            installSourceUserId = installSourceUserId,
+            installTargetUserId = installTargetUserId,
+            systemApp = app?.isSystemApp == true,
             onDismiss = { confirm = null },
             onConfirm = {
                 confirm = null
@@ -231,6 +294,12 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                     ConfirmAction.AUDIT -> viewModel.auditRestoreConsistencySelected()
                     ConfirmAction.RESET_SWITCH -> viewModel.resetSwitchStateSelected()
                     ConfirmAction.DELETE -> viewModel.deleteSnapshotSelected()
+                    ConfirmAction.INSTALL_ONLY ->
+                        viewModel.installSelectedToOtherUser(UiTaskAction.INSTALL_OTHER_USER)
+                    ConfirmAction.INSTALL_PERMISSIONS ->
+                        viewModel.installSelectedToOtherUser(UiTaskAction.INSTALL_OTHER_USER_WITH_PERMISSIONS)
+                    ConfirmAction.INSTALL_AND_SYNC ->
+                        viewModel.installSelectedToOtherUser(UiTaskAction.INSTALL_OTHER_USER_AND_SYNC)
                 }
             },
         )
@@ -350,7 +419,19 @@ private fun SettingCheck(label: String, checked: Boolean, onChange: (Boolean) ->
     }
 }
 
-private enum class ConfirmAction { SWITCH, RESTORE_SWITCH, CAPTURE, RESTORE, LATEST, AUDIT, RESET_SWITCH, DELETE }
+private enum class ConfirmAction {
+    SWITCH,
+    RESTORE_SWITCH,
+    CAPTURE,
+    RESTORE,
+    LATEST,
+    AUDIT,
+    RESET_SWITCH,
+    DELETE,
+    INSTALL_ONLY,
+    INSTALL_PERMISSIONS,
+    INSTALL_AND_SYNC,
+}
 
 @Composable
 private fun ConfirmDialog(
@@ -358,6 +439,9 @@ private fun ConfirmDialog(
     highRisk: Boolean,
     mainUserId: Int,
     cloneUserId: Int,
+    installSourceUserId: Int?,
+    installTargetUserId: Int?,
+    systemApp: Boolean,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
@@ -370,6 +454,9 @@ private fun ConfirmDialog(
         ConfirmAction.AUDIT -> "生成恢复一致性审计"
         ConfirmAction.RESET_SWITCH -> "重置切换状态"
         ConfirmAction.DELETE -> "删除 active 主动备份"
+        ConfirmAction.INSTALL_ONLY -> "仅安装到另一用户"
+        ConfirmAction.INSTALL_PERMISSIONS -> "安装并迁移权限/AppOps"
+        ConfirmAction.INSTALL_AND_SYNC -> "安装并同步 App 数据"
     }
     val body = when (action) {
         ConfirmAction.SWITCH -> "会先把主系统 user$mainUserId 当前数据保存为被动备份，再读取分身 user$cloneUserId 最新数据并覆盖 user$mainUserId。完成后按钮会变为“还原”。"
@@ -379,15 +466,33 @@ private fun ConfirmDialog(
         ConfirmAction.LATEST -> "会先读取分身 user$cloneUserId 最新数据更新 active，再用 active 覆盖主系统 user$mainUserId。"
         ConfirmAction.AUDIT -> "会只读采集文件树、UID、SELinux、权限和 AppOps 证据，写入审计目录；不会恢复、不会删除，也不会执行 restorecon。"
         ConfirmAction.RESET_SWITCH -> "只清除该 App 的切换状态标记，让首页操作恢复为“切换”。不会恢复或删除任何 App 数据、主动备份和被动备份。"
-        ConfirmAction.DELETE -> "将删除当前 App 的 active 快照。history 和被动备份不会被删除。删除后无法直接恢复该 active 快照。"
+        ConfirmAction.DELETE -> "只删除当前 App 的 active 主动快照。history、被动备份、App 安装和 App 数据不会被删除。删除后无法直接恢复该 active 快照。"
+        ConfirmAction.INSTALL_ONLY -> "会使用系统现有 APK，从 user$installSourceUserId 安装到 user$installTargetUserId。不会复制 /data/app，不迁移权限或数据，也不会启动或解锁分身。"
+        ConfirmAction.INSTALL_PERMISSIONS -> "会先安装到 user$installTargetUserId，再从 user$installSourceUserId 迁移可支持的运行时权限和 AppOps。不会复制 App 数据，也不会触发 CE 解锁。"
+        ConfirmAction.INSTALL_AND_SYNC -> "会先安装到 user$installTargetUserId，再把 user$installSourceUserId 当前数据同步到目标。需要读取分身 CE 时才按设置解锁；同步失败不会自动卸载已安装的 App。"
     }
-    val text = if (
-        highRisk && action != ConfirmAction.DELETE && action != ConfirmAction.AUDIT && action != ConfirmAction.RESET_SWITCH
-    ) {
-        "$body\n\n该 App 可能使用 Keystore 或服务端风控，请确认风险。"
-    } else {
-        body
+    val dataRiskActions = setOf(
+        ConfirmAction.SWITCH,
+        ConfirmAction.RESTORE_SWITCH,
+        ConfirmAction.CAPTURE,
+        ConfirmAction.RESTORE,
+        ConfirmAction.LATEST,
+        ConfirmAction.INSTALL_AND_SYNC,
+    )
+    val installActions = setOf(
+        ConfirmAction.INSTALL_ONLY,
+        ConfirmAction.INSTALL_PERMISSIONS,
+        ConfirmAction.INSTALL_AND_SYNC,
+    )
+    val warnings = buildList {
+        if (highRisk && action in dataRiskActions) {
+            add("该 App 可能使用 Keystore 或服务端风控，请确认风险。")
+        }
+        if (systemApp && action in installActions) {
+            add("这是系统 App。你已在高级设置中允许跨用户安装，请确认目标用户和系统兼容性。")
+        }
     }
+    val text = (listOf(body) + warnings).joinToString("\n\n")
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -397,6 +502,10 @@ private fun ConfirmDialog(
                 text = when (action) {
                     ConfirmAction.DELETE -> "删除"
                     ConfirmAction.RESET_SWITCH -> "重置"
+                    ConfirmAction.INSTALL_ONLY,
+                    ConfirmAction.INSTALL_PERMISSIONS,
+                    -> "安装"
+                    ConfirmAction.INSTALL_AND_SYNC -> "安装并同步"
                     else -> "继续"
                 },
                 onClick = onConfirm,

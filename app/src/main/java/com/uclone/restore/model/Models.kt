@@ -96,7 +96,23 @@ data class TaskRecord(
     val message: String,
     val currentStage: TaskStage? = null,
     val metrics: TaskMetrics = TaskMetrics(),
+    val audit: TaskAudit = TaskAudit(),
 )
+
+data class TaskAudit(
+    val source: String = "unknown",
+    val backupKind: BackupKind? = null,
+    val backupId: String? = null,
+    val path: String? = null,
+    val sizeKb: Long? = null,
+)
+
+enum class BackupKind {
+    ACTIVE_SNAPSHOT,
+    PASSIVE_BACKUP,
+    CLONE_ROLLBACK,
+    WORKSPACE,
+}
 
 data class TaskMetrics(
     val rootProcessStarts: Int = 0,
@@ -119,6 +135,7 @@ data class TaskStageMetric(
 
 enum class TaskStage {
     PRECHECK,
+    INSTALL_PACKAGE,
     SOURCE_PREPARE,
     TARGET_STOP,
     ROLLBACK_BACKUP,
@@ -135,6 +152,7 @@ enum class TaskStage {
     val displayLabel: String
         get() = when (this) {
             PRECHECK -> "检查运行条件"
+            INSTALL_PACKAGE -> "安装到目标用户"
             SOURCE_PREPARE -> "准备源数据"
             TARGET_STOP -> "停止目标 App"
             ROLLBACK_BACKUP -> "生成回滚备份"
@@ -167,6 +185,19 @@ data class RestoreBackupEntry(
     val reason: String,
     val isActiveSwitchBackup: Boolean,
     val isCloneRollback: Boolean = false,
+    val stateKind: PassiveBackupStateKind? = null,
+)
+
+enum class PassiveBackupStateKind {
+    MAIN,
+    CLONE,
+}
+
+data class WorkspaceOwnershipReport(
+    val rootPath: String,
+    val totalEntries: Long,
+    val nonRootEntries: Long,
+    val totalSizeKb: Long,
 )
 
 data class UCloneSettings(
@@ -183,6 +214,8 @@ data class UCloneSettings(
     val stopCloneAfterTask: Boolean = true,
     val autoUnlockClone: Boolean = false,
     val allowModuleControl: Boolean = false,
+    val allowSystemAppInstall: Boolean = false,
+    val reuseExistingPassiveBackups: Boolean = false,
     val favoritePackages: Set<String> = emptySet(),
     val cloneUnlockCredential: String = "",
 )
@@ -214,6 +247,16 @@ enum class TaskType {
     START_CLONE_USER,
     SWITCH_TO_CLONE_USER,
     STOP_CLONE_USER,
+    REPAIR_WORKSPACE_OWNERSHIP,
+    INSTALL_TO_OTHER_USER,
+    INSTALL_WITH_PERMISSIONS_TO_OTHER_USER,
+    INSTALL_AND_SYNC_TO_OTHER_USER,
+}
+
+enum class CrossUserInstallMode {
+    INSTALL_ONLY,
+    INSTALL_WITH_PERMISSIONS,
+    INSTALL_AND_SYNC,
 }
 
 enum class TaskStatus {
@@ -235,7 +278,13 @@ enum class TaskStatus {
     val isTerminal: Boolean
         get() = when (this) {
             ACCEPTED, RUNNING, AUTO_ROLLING_BACK -> false
-            else -> true
+            ROLLED_BACK,
+            SUCCESS,
+            SUCCESS_WITH_WARNINGS,
+            FAILED,
+            FAILED_FATAL,
+            INTERRUPTED,
+            -> true
         }
 }
 

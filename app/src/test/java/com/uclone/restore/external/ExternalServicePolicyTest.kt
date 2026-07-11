@@ -49,6 +49,7 @@ class ExternalServicePolicyTest {
             ExternalActionContract.OPERATION_RESET_SWITCH_STATE,
             ExternalActionContract.OPERATION_DELETE_SNAPSHOT,
             ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP,
+            ExternalActionContract.OPERATION_DELETE_CLONE_ROLLBACK,
             ExternalActionContract.OPERATION_PROBE_CLONE_CE,
             ExternalActionContract.OPERATION_UNLOCK_CLONE,
             ExternalActionContract.OPERATION_DEBUG_CLONE_SYSTEM,
@@ -58,6 +59,10 @@ class ExternalServicePolicyTest {
             ExternalActionContract.OPERATION_START_CLONE_USER,
             ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER,
             ExternalActionContract.OPERATION_STOP_CLONE_USER,
+            ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP,
+            ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER,
+            ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER,
+            ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER,
         ).forEach { operation ->
             assertEquals("模块不允许执行此操作", module.copy(operation = operation).sourceOperationRejection(), operation)
         }
@@ -103,6 +108,22 @@ class ExternalServicePolicyTest {
 
         assertEquals(TaskStatus.INTERRUPTED, interrupted?.status)
         assertEquals(TaskStatus.INTERRUPTED, repository.find(request.requestId)?.status)
+    }
+
+    @Test
+    fun terminalRequestIdCannotReplayDestructiveOperationAfterCoordinatorRestart() {
+        val repository = TaskLogStore(NoopShell)
+        val firstCoordinator = TaskCoordinator(repository)
+        val request = request(ExternalActionContract.SOURCE_MODULE, null, requestId = "durable-request")
+        val accepted = assertIs<ExternalTaskAdmission.Accepted>(admitExternalTask(firstCoordinator, request))
+        repository.finish(accepted.record, TaskStatus.SUCCESS, "完成")
+        firstCoordinator.complete(request.requestId)
+
+        val replay = assertIs<ExternalTaskAdmission.Rejected>(admitExternalTask(TaskCoordinator(repository), request))
+
+        assertEquals(ExternalActionContract.STATUS_SUCCESS, replay.status)
+        assertEquals("该 requestId 已有终态记录，未重复执行", replay.message)
+        assertEquals(1, repository.all().size)
     }
 
     private fun request(source: String, token: String?, requestId: String = "request-1") = ExternalActionRequest(

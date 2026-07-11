@@ -1,6 +1,8 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.TaskMetrics
+import com.uclone.restore.model.BackupKind
+import com.uclone.restore.model.TaskAudit
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskStage
 import com.uclone.restore.model.TaskStageMetric
@@ -24,6 +26,7 @@ internal object TaskRecordJsonCodec {
         .put("message", record.message)
         .put("currentStage", record.currentStage?.name ?: JSONObject.NULL)
         .put("metrics", encodeMetrics(record.metrics))
+        .put("audit", encodeAudit(record.audit))
         .toString()
 
     fun decode(line: String, interruptedAt: Long = System.currentTimeMillis()): TaskRecord? = runCatching {
@@ -42,6 +45,7 @@ internal object TaskRecordJsonCodec {
             message = if (interrupted) "任务中断" else json.getString("message"),
             currentStage = json.optString("currentStage").toEnumOrNull<TaskStage>(),
             metrics = json.optJSONObject("metrics")?.let(::decodeMetrics) ?: TaskMetrics(),
+            audit = json.optJSONObject("audit")?.let(::decodeAudit) ?: TaskAudit(),
         )
     }.getOrNull()
 
@@ -89,6 +93,21 @@ internal object TaskRecordJsonCodec {
             },
         )
 
+    private fun encodeAudit(audit: TaskAudit): JSONObject = JSONObject()
+        .put("source", audit.source)
+        .put("backupKind", audit.backupKind?.name ?: JSONObject.NULL)
+        .put("backupId", audit.backupId ?: JSONObject.NULL)
+        .put("path", audit.path ?: JSONObject.NULL)
+        .put("sizeKb", audit.sizeKb ?: JSONObject.NULL)
+
+    private fun decodeAudit(json: JSONObject): TaskAudit = TaskAudit(
+        source = json.optString("source").ifBlank { "unknown" },
+        backupKind = json.optString("backupKind").toEnumOrNull<BackupKind>(),
+        backupId = json.optString("backupId").takeIf(String::isNotBlank),
+        path = json.optString("path").takeIf(String::isNotBlank),
+        sizeKb = json.optLongOrNull("sizeKb"),
+    )
+
     private fun decodeMetrics(json: JSONObject): TaskMetrics {
         val encodedStages = json.optJSONArray("stages") ?: JSONArray()
         val stages = buildList {
@@ -125,7 +144,7 @@ internal object TaskRecordJsonCodec {
         TaskStatus.RUNNING,
         TaskStatus.AUTO_ROLLING_BACK,
     )
-    private const val SCHEMA_VERSION = 2
+    private const val SCHEMA_VERSION = 3
     private const val LEGACY_FIELD_COUNT = 8
     private const val UTF_8 = "UTF-8"
 }

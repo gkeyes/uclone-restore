@@ -2,6 +2,7 @@ package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.RestoreBackupEntry
+import com.uclone.restore.model.PassiveBackupStateKind
 import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
@@ -10,6 +11,8 @@ import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskStep
 import com.uclone.restore.model.TaskType
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.model.WorkspaceOwnershipReport
+import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.root.RootEnvironmentChecker
 import com.uclone.restore.root.RootShellExecutor
 import com.uclone.restore.root.ShellOutput
@@ -37,6 +40,64 @@ class SyncEngine(
         }
         return WorkspaceIndexParser.parse(result.stdout)
     }
+
+    suspend fun scanWorkspaceOwnership(settings: UCloneSettings): WorkspaceOwnershipReport {
+        val result = shell.exec(WorkspaceOwnershipScripts.scan(settings.rootDir), 300)
+        check(result.isSuccess) { taskFailureMessage(result) }
+        return checkNotNull(WorkspaceOwnershipReportParser.parse(result.stdout)) {
+            "无法解析备份容量归属扫描结果"
+        }
+    }
+
+    suspend fun repairWorkspaceOwnership(
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.REPAIR_WORKSPACE_OWNERSHIP,
+        packageName = "workspace",
+        settings = settings,
+        labels = listOf("检查工作区", "扫描文件归属", "分批修复归属", "验证结果", "写入完成标记"),
+        script = WorkspaceOwnershipScripts.repair(settings.rootDir),
+        report = report,
+        requestId = requestId,
+    )
+
+    suspend fun installAcrossUsers(
+        packageName: String,
+        targetUserId: Int,
+        mode: CrossUserInstallMode,
+        rule: AppRule,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = when (mode) {
+            CrossUserInstallMode.INSTALL_ONLY -> TaskType.INSTALL_TO_OTHER_USER
+            CrossUserInstallMode.INSTALL_WITH_PERMISSIONS -> TaskType.INSTALL_WITH_PERMISSIONS_TO_OTHER_USER
+            CrossUserInstallMode.INSTALL_AND_SYNC -> TaskType.INSTALL_AND_SYNC_TO_OTHER_USER
+        },
+        packageName = packageName,
+        settings = settings,
+        labels = when (mode) {
+            CrossUserInstallMode.INSTALL_ONLY -> listOf("检查安装状态", "启用目标用户安装", "验证目标 UID")
+            CrossUserInstallMode.INSTALL_WITH_PERMISSIONS ->
+                listOf("检查安装状态", "启用目标用户安装", "迁移权限/AppOps", "验证结果")
+            CrossUserInstallMode.INSTALL_AND_SYNC ->
+                listOf("检查安装状态", "启用目标用户安装", "准备源数据", "同步目标数据", "验证结果")
+        },
+        script = CrossUserInstallScripts.build(
+            packageName = packageName,
+            targetUserId = targetUserId,
+            mode = mode,
+            rule = rule,
+            settings = settings,
+            appPackage = appPackage,
+            requestId = requestId,
+        ),
+        report = report,
+        requestId = requestId,
+    )
 
     suspend fun captureSnapshot(
         packageName: String,
@@ -257,6 +318,22 @@ class SyncEngine(
         requestId = requestId,
     )
 
+    suspend fun deleteCloneRollback(
+        packageName: String,
+        rollbackId: String,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.DELETE_RESTORE_BACKUP,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查 root", "读取分身回滚", "删除指定备份", "完成"),
+        script = ShellScripts.deleteCloneRollback(packageName, rollbackId, settings, appPackage),
+        report = report,
+        requestId = requestId,
+    )
+
     suspend fun probeCloneCe(
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
@@ -397,7 +474,7 @@ class SyncEngine(
         val script = restoreBackupListScript(rollbackRoot, switchRoot)
         val result = shell.exec(script, 30)
         return result.stdout.lineSequence().mapNotNull { line ->
-            val parts = line.split("\t", limit = 6)
+            val parts = line.split("\t", limit = 7)
             val packageName = parts.getOrNull(0)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
             val rollbackId = parts.getOrNull(1)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
             val createdAt = parts.getOrNull(2)?.toLongOrNull()?.times(1000) ?: 0L
@@ -408,9 +485,14 @@ class SyncEngine(
                 sizeKb = parts.getOrNull(3)?.toLongOrNull(),
                 isActiveSwitchBackup = parts.getOrNull(4) == "1",
                 reason = parts.getOrNull(5)?.takeIf(String::isNotBlank) ?: "被动备份",
+                stateKind = when (parts.getOrNull(6)) {
+                    "main" -> PassiveBackupStateKind.MAIN
+                    "clone" -> PassiveBackupStateKind.CLONE
+                    else -> if (parts.getOrNull(4) == "1") PassiveBackupStateKind.MAIN else null
+                },
             )
         }.sortedByDescending { it.createdAt }
-            .distinctBy { it.packageName }
+            .distinctBy { it.packageName to it.stateKind }
             .toList()
     }
 
@@ -445,6 +527,7 @@ class SyncEngine(
                 reason = parts.getOrNull(4)?.takeIf(String::isNotBlank) ?: "推送到分身前生成",
                 isActiveSwitchBackup = false,
                 isCloneRollback = true,
+                stateKind = PassiveBackupStateKind.CLONE,
             )
         }.sortedByDescending { it.createdAt }
             .toList()
@@ -452,44 +535,86 @@ class SyncEngine(
 
     fun history(): List<TaskRecord> = logStore.all()
 
-    suspend fun clearLogs(settings: UCloneSettings, clearHistory: Boolean = true) =
-        shell.exec(
-            """
-                LOG_DIR=${shellQuote("${settings.rootDir}/logs")}
-                mkdir -p "${'$'}LOG_DIR" || exit 10
-                COUNT=0
-                for f in "${'$'}LOG_DIR"/*.log; do
-                  [ -f "${'$'}f" ] || continue
-                  rm -f "${'$'}f" || exit 11
-                  COUNT=${'$'}((COUNT + 1))
-                done
-                echo "CLEARED_LOGS=${'$'}COUNT"
-            """.trimIndent(),
-            timeoutSeconds = 60,
-        ).also { result ->
-            if (result.isSuccess && clearHistory) {
-                logStore.clear()
-            }
-        }
+    suspend fun clearLogs(
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.CLEAR_LOGS,
+        packageName = "logs",
+        settings = settings,
+        labels = listOf("检查 Root", "清理任务日志"),
+        script = """
+            echo "UCLONE_STAGE_BEGIN:CLEANUP"
+            LOG_DIR=${shellQuote("${settings.rootDir}/logs")}
+            mkdir -p "${'$'}LOG_DIR" || exit 10
+            COUNT=0
+            for f in "${'$'}LOG_DIR"/*.log; do
+              [ -f "${'$'}f" ] || continue
+              rm -f "${'$'}f" || exit 11
+              COUNT=${'$'}((COUNT + 1))
+            done
+            echo "CLEARED_LOGS=${'$'}COUNT"
+        """.trimIndent(),
+        report = report,
+        requestId = requestId,
+    )
 
-    suspend fun resetWorkspace(settings: UCloneSettings, clearHistory: Boolean = true): ShellResult =
-        shell.exec(
-            ShellScripts.resetWorkspace(settings),
-            timeoutSeconds = 120,
-        ).also { result ->
-            if (result.isSuccess && clearHistory) {
-                logStore.clear()
-            }
-        }
+    suspend fun resetWorkspace(
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.RESET_WORKSPACE,
+        packageName = "workspace",
+        settings = settings,
+        labels = listOf("检查 Root", "重置工作区"),
+        script = "echo \"UCLONE_STAGE_BEGIN:CLEANUP\"\n${ShellScripts.resetWorkspace(settings)}",
+        report = report,
+        requestId = requestId,
+    )
 
-    suspend fun startCloneUser(settings: UCloneSettings) =
-        shell.exec(ShellScripts.startCloneUser(settings), timeoutSeconds = 15)
+    suspend fun startCloneUser(
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.START_CLONE_USER,
+        packageName = "user${settings.cloneUserId}",
+        settings = settings,
+        labels = listOf("检查 Root", "启动分身用户"),
+        script = "echo \"UCLONE_STAGE_BEGIN:PRECHECK\"\n${ShellScripts.startCloneUser(settings)}",
+        report = report,
+        requestId = requestId,
+    )
 
-    suspend fun switchToCloneUser(settings: UCloneSettings) =
-        shell.exec("am switch-user ${settings.cloneUserId}", timeoutSeconds = 30)
+    suspend fun switchToCloneUser(
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.SWITCH_TO_CLONE_USER,
+        packageName = "user${settings.cloneUserId}",
+        settings = settings,
+        labels = listOf("检查 Root", "进入分身用户"),
+        script = "echo \"UCLONE_STAGE_BEGIN:COMMIT\"\nam switch-user ${settings.cloneUserId}",
+        report = report,
+        requestId = requestId,
+    )
 
-    suspend fun stopCloneUserByExplicitUserRequest(settings: UCloneSettings) =
-        shell.exec(ShellScripts.stopCloneUser(settings), timeoutSeconds = 15)
+    suspend fun stopCloneUserByExplicitUserRequest(
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.STOP_CLONE_USER,
+        packageName = "user${settings.cloneUserId}",
+        settings = settings,
+        labels = listOf("检查 Root", "关闭分身用户"),
+        script = "echo \"UCLONE_STAGE_BEGIN:COMMIT\"\n${ShellScripts.stopCloneUser(settings)}",
+        report = report,
+        requestId = requestId,
+    )
 
     private suspend fun runScriptTask(
         type: TaskType,
@@ -516,6 +641,13 @@ class SyncEngine(
             header = "TASK=$type\nREQUEST_ID=$requestId\nPACKAGE=$packageName\nSTART=$timestamp\nSTART_LOCAL=${formatLocalTime(timestamp)}\n",
             body = script,
             startedAt = timestamp,
+            activeTask = ActiveRootTask(
+                rootDir = settings.rootDir,
+                requestId = requestId,
+                taskType = type.name,
+                packageName = packageName,
+                startedAt = timestamp,
+            ),
         )
         val handleOutput: (ShellOutput) -> Unit = { output ->
             val line = if (output.stream == ShellStream.STDERR) "STDERR: ${output.line}" else output.line
@@ -538,7 +670,10 @@ class SyncEngine(
                 }
             }
         }
-        val protectedInput = settings.cloneUnlockCredential.trim().takeIf(String::isNotEmpty)?.plus("\n")
+        val protectedInput = settings.cloneUnlockCredential
+            .trim()
+            .takeIf { it.isNotEmpty() && "IFS= read -r CLONE_UNLOCK_CREDENTIAL" in script }
+            ?.plus("\n")
         val timeoutSeconds = taskHostTimeoutSeconds(type)
         val result = if (protectedInput == null) {
             shell.execStreaming(command, timeoutSeconds, handleOutput)
@@ -565,14 +700,19 @@ class SyncEngine(
             TaskStatus.SUCCESS,
             TaskStatus.SUCCESS_WITH_WARNINGS,
             -> TaskResultMessages.successMessage(liveLog) + if (result.outputTruncated) "；运行输出过长，完整内容请查看任务日志" else ""
-            else -> TaskOutcome.failureMessage(status) ?: taskFailureMessage(result)
+            else -> TaskResultMessages.fatalInstallMessage(liveLog)
+                ?: TaskOutcome.failureMessage(status)
+                ?: taskFailureMessage(result)
         }
         val metrics = TaskMetricsParser.parse(
             output = result.stdout + "\n" + result.stderr,
             rootProcessStarts = result.processStarts,
             rootCommandCount = 1,
         )
-        val finished = logStore.finish(task, status, message, metrics)
+        val auditedTask = task.copy(
+            audit = TaskAuditParser.enrich(task.audit, type, result.stdout + "\n" + result.stderr),
+        )
+        val finished = logStore.finish(auditedTask, status, message, metrics)
         report(TaskProgress(finished, steps, liveLog))
         return finished
     }
@@ -581,6 +721,11 @@ class SyncEngine(
         val output = result.stderr + "\n" + result.stdout
         return when {
             "ERR_ROOT_UNAVAILABLE:" in output -> "Root 权限不可用"
+            "ERR_ACTIVE_ROOT_TASK:" in output -> "另一个 Root 数据任务仍在运行，请等待其结束"
+            "ERR_SELF_INSTALL" in output -> "不允许把 UClone 自身安装到另一用户"
+            "ERR_INSTALL_SOURCE_MISSING" in output -> "源用户未安装此 App，无法安装到另一侧"
+            "ERR_INSTALL_EXISTING_FAILED" in output -> "系统拒绝为目标用户启用此 App"
+            "ERR_INSTALL_VERIFY_TIMEOUT" in output -> "系统已接收安装请求，但未能确认目标用户安装"
             "ERR_INSUFFICIENT_SPACE:" in output -> "存储空间不足，任务未停止目标 App，也未写入数据"
             "ERR_SPACE_UNKNOWN:" in output || "ERR_SPACE_ESTIMATE:" in output -> "无法确认可用空间，任务未执行"
             "ERR_CLONE_AUTO_UNLOCK_DISABLED" in output -> "分身未解锁，请开启分身自动解锁或先手动解锁"
@@ -593,8 +738,16 @@ class SyncEngine(
             "ERR_PACKAGE_NOT_LISTED_TARGET" in output -> "分身系统未安装此 App，无法推送"
             "ERR_PACKAGE_NOT_LISTED_SOURCE" in output -> "主系统未安装此 App，无法推送"
             "ERR_PACKAGE_NOT_LISTED" in output -> "分身系统未安装此 App，未执行备份或切换"
+            "ERR_MAIN_STATE_BACKUP_MISSING" in output -> "缺少可返回的主系统数据备份，未更新切换状态"
+            "ERR_BACKUP_STATE_UNKNOWN" in output -> "旧备份没有主系统/分身来源标识，为避免状态错乱已停止恢复"
             "ERR_PUSH_CE_MISSING" in output -> "主系统 CE 数据缺失，未执行推送"
             "ERR_FORCE_STOP_FAILED" in output -> "无法停止分身 App，未读取或写入数据"
+            "ERR_UNTRUSTED_WORKSPACE" in output -> "当前保存路径不是受信任的 UClone 工作区，未修改任何文件"
+            "ERR_WORKSPACE_SYMLINK" in output || "ERR_UNSAFE_WORKSPACE_TARGET" in output ->
+                "工作区包含不安全的符号链接或路径，未执行归属修复"
+            "ERR_WORKSPACE_SCAN" in output -> "无法完整扫描工作区，未执行归属修复"
+            "ERR_WORKSPACE_OWNER_REMAINING" in output -> "部分文件归属未修复，可稍后重试"
+            "ERR_WORKSPACE_OWNER_REPAIR_FAILED" in output -> "备份容量归属修复失败，可安全重试"
             "ERR_NOTHING_PUSHED" in output || "ERR_NOTHING_COPIED" in output -> "没有找到可推送的数据"
             else -> result.stderr.ifBlank { "命令失败：${result.exitCode}" }
         }
@@ -638,6 +791,8 @@ private val TRANSACTIONAL_TASK_TYPES = setOf(
     TaskType.PUSH_MAIN_TO_CLONE,
     TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE,
     TaskType.RESTORE_SWITCH_MAIN_STATE,
+    TaskType.REPAIR_WORKSPACE_OWNERSHIP,
+    TaskType.INSTALL_AND_SYNC_TO_OTHER_USER,
 )
 
 private fun <K, V> Map<K, V>.getValueOrNull(key: K): V? = if (containsKey(key)) getValue(key) else null
@@ -660,12 +815,13 @@ internal fun restoreBackupListScript(rollbackRoot: String, switchRoot: String): 
         active=1
       fi
       reason=${'$'}(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
+      state_kind=${'$'}(sed -n 's/.*"stateKind":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
       if [ -z "${'$'}reason" ]; then
         case "${'$'}id" in
           rollback_*) reason="恢复主系统备份前生成" ;;
           *) if [ "${'$'}active" = "1" ]; then reason="切换到分身态前生成"; else reason="恢复或切换前生成"; fi ;;
         esac
       fi
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${'$'}pkg" "${'$'}id" "${'$'}ts" "${'$'}size" "${'$'}active" "${'$'}reason"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${'$'}pkg" "${'$'}id" "${'$'}ts" "${'$'}size" "${'$'}active" "${'$'}reason" "${'$'}state_kind"
     done
 """.trimIndent()

@@ -16,11 +16,17 @@ class PackageInspector(
 ) {
     suspend fun listApps(settings: UCloneSettings): List<AppEntry> = withContext(Dispatchers.IO) {
         val pm = context.packageManager
-        val user0 = parsePackages(shell.exec("cmd package list packages -U --user ${settings.mainUserId}", 45).stdout)
-        val user10 = parsePackages(shell.exec("cmd package list packages -U --user ${settings.cloneUserId}", 45).stdout)
-        val localApps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-        localApps
-            .mapNotNull { app -> toEntry(pm, app, user0, user10) }
+        val user0 = parsePackageUidList(shell.exec("cmd package list packages -U --user ${settings.mainUserId}", 45).stdout)
+        val user10 = parsePackageUidList(shell.exec("cmd package list packages -U --user ${settings.cloneUserId}", 45).stdout)
+        val metadataFlags = PackageManager.GET_META_DATA or PackageManager.MATCH_UNINSTALLED_PACKAGES
+        val localApps = pm.getInstalledApplications(metadataFlags).associateBy { it.packageName }
+        (user0.keys + user10.keys)
+            .map { packageName ->
+                val app = localApps[packageName] ?: runCatching {
+                    pm.getApplicationInfo(packageName, metadataFlags)
+                }.getOrNull()
+                toEntry(pm, packageName, app, user0, user10)
+            }
             .sortedBy { it.label.lowercase() }
     }
 
@@ -29,13 +35,14 @@ class PackageInspector(
 
     private fun toEntry(
         pm: PackageManager,
-        app: ApplicationInfo,
+        packageName: String,
+        app: ApplicationInfo?,
         user0: Map<String, Int?>,
         user10: Map<String, Int?>,
-    ): AppEntry? {
-        val packageName = app.packageName
-        val label = app.loadLabel(pm).toString().ifBlank { packageName }
-        val system = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+    ): AppEntry {
+        val label = app?.loadLabel(pm)?.toString()?.ifBlank { packageName } ?: packageName
+        val systemFlags = ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP
+        val system = app != null && app.flags and systemFlags != 0
         return AppEntry(
             packageName = packageName,
             label = label,
@@ -51,17 +58,18 @@ class PackageInspector(
         )
     }
 
-    private fun parsePackages(output: String): Map<String, Int?> {
-        val result = linkedMapOf<String, Int?>()
-        output.lineSequence()
-            .map(String::trim)
-            .filter { it.startsWith("package:") }
-            .forEach { line ->
-                val parts = line.split(" ")
-                val pkg = parts.first().removePrefix("package:")
-                val uid = parts.firstOrNull { it.startsWith("uid:") }?.removePrefix("uid:")?.toIntOrNull()
-                result[pkg] = uid
-            }
-        return result
-    }
+}
+
+internal fun parsePackageUidList(output: String): Map<String, Int?> {
+    val result = linkedMapOf<String, Int?>()
+    output.lineSequence()
+        .map(String::trim)
+        .filter { it.startsWith("package:") }
+        .forEach { line ->
+            val parts = line.split(" ")
+            val packageName = parts.first().removePrefix("package:")
+            val uid = parts.firstOrNull { it.startsWith("uid:") }?.removePrefix("uid:")?.toIntOrNull()
+            result[packageName] = uid
+        }
+    return result
 }

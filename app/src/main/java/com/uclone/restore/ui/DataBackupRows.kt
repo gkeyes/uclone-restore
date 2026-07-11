@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
+import com.uclone.restore.model.PassiveBackupStateKind
 import com.uclone.restore.model.RestoreBackupEntry
 import com.uclone.restore.util.Formatters
 
@@ -51,6 +52,11 @@ fun ActiveBackupRow(app: AppEntry, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "数据来源: 分身系统",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = IosBlue,
                 )
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -109,7 +115,7 @@ fun PassiveBackupRow(
                 )
                 SingleLinePathText(backupPath)
                 Text(
-                    backup.reason + if (backup.isActiveSwitchBackup) " · 当前切换被动备份" else "",
+                    backup.sourceLabel() + if (backup.isActiveSwitchBackup) " · 当前还原点" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = IosOrange,
                     maxLines = 1,
@@ -133,4 +139,10 @@ fun PassiveBackupRow(
             }
         }
     }
+}
+
+internal fun RestoreBackupEntry.sourceLabel(): String = when (stateKind) {
+    PassiveBackupStateKind.MAIN -> "来源：主系统"
+    PassiveBackupStateKind.CLONE -> "来源：分身系统"
+    null -> "来源未标记（旧备份）"
 }

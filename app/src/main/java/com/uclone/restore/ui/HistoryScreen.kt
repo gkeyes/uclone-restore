@@ -17,6 +17,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.TaskStatus
+import com.uclone.restore.model.BackupKind
+import com.uclone.restore.model.TaskType
 import com.uclone.restore.util.Formatters
 
 @Composable
@@ -50,6 +52,25 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                     }
                     InfoRow("状态", task.status.userFacingLabel, statusColor)
                     InfoRow("结果", task.message)
+                    if (task.type == TaskType.DELETE_SNAPSHOT || task.type == TaskType.DELETE_RESTORE_BACKUP) {
+                        InfoRow("调用来源", task.audit.source.userFacingTaskSource())
+                        InfoRow(
+                            "备份类型",
+                            when (task.audit.backupKind) {
+                                BackupKind.ACTIVE_SNAPSHOT -> "主动快照"
+                                BackupKind.PASSIVE_BACKUP -> "指定被动备份"
+                                BackupKind.CLONE_ROLLBACK -> "分身回滚"
+                                BackupKind.WORKSPACE -> "工作区"
+                                null -> "未记录"
+                            },
+                        )
+                        task.audit.backupId?.let { InfoRow("备份 ID", it) }
+                        task.audit.sizeKb?.let { InfoRow("删除前大小", Formatters.kilobytes(it)) }
+                        task.audit.path?.let {
+                            Text("实际路径", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            SingleLinePathText(it)
+                        }
+                    }
                     Text("日志", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SingleLinePathText(task.logPath)
                     if (task.packageName != state.selectedPackage) {
@@ -62,4 +83,11 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
             }
         }
     }
+}
+
+private fun String.userFacingTaskSource(): String = when (this) {
+    "app" -> "主 App"
+    "launcher_shortcut" -> "桌面快捷方式"
+    "launcher_module", "module" -> "LSPosed 模块"
+    else -> ifBlank { "未知" }
 }

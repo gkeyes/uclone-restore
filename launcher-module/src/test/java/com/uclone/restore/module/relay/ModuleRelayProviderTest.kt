@@ -17,13 +17,14 @@ import org.robolectric.annotation.Config
 @Config(manifest = Config.NONE, sdk = [35])
 class ModuleRelayProviderTest {
     @Test
-    fun callerValidation_allowsOnlyConfiguredLauncherPackages() {
-        val allowed = setOf("com.miui.home", "com.android.launcher3")
+    fun callerValidation_requiresConfiguredSystemLauncherPackage() {
+        val allowed = setOf("com.miui.home")
+        val systemPackages = setOf("com.miui.home")
 
-        assertTrue(isAllowedLauncherCaller(setOf("com.miui.home"), allowed))
-        assertTrue(isAllowedLauncherCaller(setOf("shared.uid.package", "com.android.launcher3"), allowed))
-        assertFalse(isAllowedLauncherCaller(setOf("com.example.untrusted"), allowed))
-        assertFalse(isAllowedLauncherCaller(emptySet(), allowed))
+        assertTrue(isTrustedSystemLauncherCaller(setOf("com.miui.home"), allowed, systemPackages::contains))
+        assertFalse(isTrustedSystemLauncherCaller(setOf("com.miui.home"), allowed) { false })
+        assertFalse(isTrustedSystemLauncherCaller(setOf("com.android.launcher3"), allowed) { true })
+        assertFalse(isTrustedSystemLauncherCaller(emptySet(), allowed, systemPackages::contains))
     }
 
     @Test

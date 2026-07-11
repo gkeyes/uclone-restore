@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.TaskProgress
+import com.uclone.restore.model.TaskAudit
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskType
@@ -9,7 +10,12 @@ class TaskCoordinator(private val repository: TaskRepository) {
     private val monitor = Any()
     private var active: ActiveTask? = null
 
-    fun accept(requestId: String, type: TaskType, packageName: String): TaskSubmissionResult = synchronized(monitor) {
+    fun accept(
+        requestId: String,
+        type: TaskType,
+        packageName: String,
+        audit: TaskAudit = TaskAudit(),
+    ): TaskSubmissionResult = synchronized(monitor) {
         val current = active
         if (current != null) {
             return@synchronized if (current.requestId == requestId) {
@@ -18,7 +24,10 @@ class TaskCoordinator(private val repository: TaskRepository) {
                 TaskSubmissionResult.Busy(repository.find(current.requestId) ?: current.record)
             }
         }
-        val record = repository.accepted(type, packageName, requestId)
+        repository.find(requestId)?.takeIf { it.status.isTerminal }?.let {
+            return@synchronized TaskSubmissionResult.AlreadyCompleted(it)
+        }
+        val record = repository.accepted(type, packageName, requestId, audit)
         active = ActiveTask(requestId, record)
         repository.publish(TaskProgress(record))
         TaskSubmissionResult.Accepted(record)
@@ -61,5 +70,6 @@ sealed interface TaskSubmissionResult {
 
     data class Accepted(override val record: TaskRecord) : TaskSubmissionResult
     data class AlreadyRunning(override val record: TaskRecord) : TaskSubmissionResult
+    data class AlreadyCompleted(override val record: TaskRecord) : TaskSubmissionResult
     data class Busy(override val record: TaskRecord) : TaskSubmissionResult
 }

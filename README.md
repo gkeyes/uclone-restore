@@ -6,8 +6,8 @@ English documentation: [README.en.md](README.en.md)
 
 ## 当前版本
 
-- 主 App：`0.2.0`
-- 桌面长按模块：`0.2.0`
+- 主 App：`0.3.0`
+- 桌面长按模块：`0.3.0`
 - 主要测试环境：小米 / HyperOS，多用户为 `user0` + `user10`，Root 为 KernelSU / KernelSU Next 一类方案
 
 ## 界面预览
@@ -28,6 +28,7 @@ English documentation: [README.en.md](README.en.md)
 - 在切换、恢复、推送前自动生成被动备份，用于回滚。
 - 恢复分身侧回滚备份，用于撤销一次推送。
 - 尝试迁移运行时权限和 AppOps。Android 不允许 shell 稳定恢复的权限会记录为 warning。
+- 将同一 APK 直接安装到另一用户，并可选择迁移权限或继续同步数据。
 - 通过 LSPosed 桌面长按模块，在桌面 App 图标长按菜单中增加 UClone 快捷入口。
 
 它不是云同步工具，也不是双端实时同步工具。所有数据都保存在本机 root 目录下，默认路径是：
@@ -61,14 +62,14 @@ English documentation: [README.en.md](README.en.md)
 
 每次发布会提供两个 APK：
 
-- `uclone-restore-v0.2.0-release.apk`：主 App。
-- `uclone-launcher-module-v0.2.0-release.apk`：桌面长按 LSPosed 模块。
+- `uclone-restore-v0.3.0-release.apk`：主 App。
+- `uclone-launcher-module-v0.3.0-release.apk`：桌面长按 LSPosed 模块。
 
 安装命令示例：
 
 ```bash
-adb install -r uclone-restore-v0.2.0-release.apk
-adb install -r uclone-launcher-module-v0.2.0-release.apk
+adb install -r uclone-restore-v0.3.0-release.apk
+adb install -r uclone-launcher-module-v0.3.0-release.apk
 ```
 
 如果从旧的 debug 签名版本升级，Android 可能会因为签名不同拒绝覆盖安装。这种情况下需要先卸载旧版，再安装 release 版。
@@ -222,6 +223,22 @@ UClone 永远不会复制 `/data/misc/keystore`。依赖 Android Keystore 的 Ap
 
 模块只负责显示入口和转发请求。真正的 root 操作、备份、恢复、日志、通知都由 UClone Restore 主 App 执行。
 
+Android 15 及以上会限制 `dataSync` 类型前台服务的后台累计运行时间。`0.3.0` 起，来自桌面长按模块和桌面快捷方式的显式用户操作使用已声明用途的 `specialUse` 前台服务类型，避免在主 App 未打开时因 `dataSync` 时限耗尽而在通知出现前失败；从主 App 内提交的任务仍使用 `dataSync`。如果手机仍显示 `0.2.0`，必须同时更新主 App 和模块后，这项修复才会生效。
+
+### F. 把 App 安装到另一用户
+
+适合场景：目标 App 只安装在主系统或只安装在分身，希望在另一侧启用同一个 APK。
+
+进入 App 详情页后，“跨用户安装”提供三种模式：
+
+- 仅安装到另一用户：执行 `cmd package install-existing --user`，不迁移权限或数据。
+- 安装并迁移权限/AppOps：安装后迁移 Android 允许 shell 设置的权限状态，不复制 App 数据。
+- 安装并同步数据：安装后复用现有推送或分身恢复流程，先建立必要回滚，再写入目标数据。
+
+UClone 不复制 `/data/app`，两侧使用系统中同一个 APK 版本。仅安装和权限迁移不会启动或解锁分身；只有同步数据需要读取分身 CE 时，才会按设置尝试自动解锁。安装成功但后续同步失败时，任务会显示“成功（有警告）”，并保留目标侧安装结果，不会自动卸载。
+
+系统 App 默认不显示跨用户安装工具。确有需要时，可在“设置 → 高级安装”中开启，执行前仍会再次确认。UClone 自身始终禁止跨用户安装。
+
 ## 页面说明
 
 ### 首页
@@ -241,6 +258,7 @@ App 页用于选择目标应用：
 - 筛选全部、双系统 App、用户 App、系统 App。
 - 收藏 App。
 - 进入详情页执行备份、恢复、推送、删除快照等操作。
+- 对仅在单侧安装的 App 执行跨用户安装、权限迁移或安装后同步。
 
 “双系统 App”表示主系统和分身系统都安装的 App。
 
@@ -268,6 +286,8 @@ App 页用于选择目标应用：
 - 数据任务后关闭本次临时启动的分身。
 - 默认数据范围。
 - 模块控制开关。
+- 系统 App 跨用户安装高级开关。
+- 旧备份容量归属的只读扫描与手动修复。
 - 重置 UClone 数据。
 
 重置会删除备份、记录、日志、临时文件等所有 UClone 数据，需要二次确认。

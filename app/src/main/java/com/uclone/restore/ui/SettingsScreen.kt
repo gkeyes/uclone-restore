@@ -14,6 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -31,12 +33,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.uclone.restore.util.Formatters
 
 @Composable
 fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     val context = LocalContext.current
     var draft by remember(state.settings) { mutableStateOf(state.settings) }
     var confirmClearLogs by remember { mutableStateOf(false) }
+    var confirmOwnershipRepair by remember { mutableStateOf(false) }
     var resetConfirmStage by remember { mutableStateOf(0) }
     Column(
         modifier
@@ -101,6 +105,28 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        SectionCard("高级安装") {
+            ToggleRow("允许系统 App 跨用户安装", draft.allowSystemAppInstall) {
+                draft = draft.copy(allowSystemAppInstall = it)
+            }
+            Text(
+                "默认关闭。开启后，系统 App 详情页才显示跨用户安装工具；安装仍使用系统现有 APK，不复制 /data/app。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        SectionCard("被动备份") {
+            ToggleRow("复用已有状态备份", draft.reuseExistingPassiveBackups) {
+                draft = draft.copy(reuseExistingPassiveBackups = it)
+            }
+            Text(
+                if (draft.reuseExistingPassiveBackups) {
+                    "主状态、分身状态和推送回滚各保留一份。已有备份校验有效时不重复复制；缺失或损坏时仍会重新建立。"
+                } else {
+                    "每次覆盖前刷新对应状态备份，数据更新但耗时更长。开启复用后，请留意数据页显示的备份时间。"
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         SectionCard("默认数据范围") {
             ToggleRow("CE 数据", draft.includeCe) { draft = draft.copy(includeCe = it) }
             ToggleRow("DE 数据", draft.includeDe) { draft = draft.copy(includeDe = it) }
@@ -121,6 +147,34 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             Text("保存设置")
         }
         SectionCard("维护") {
+            Text("备份容量归属", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val ownership = state.workspaceOwnership
+            if (ownership == null) {
+                Text("先执行只读扫描，确认旧备份是否仍归属于目标 App UID。扫描不会修改文件。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                InfoRow("工作区文件与目录", ownership.totalEntries.toString())
+                InfoRow("需要修复", ownership.nonRootEntries.toString())
+                InfoRow("备份占用", Formatters.kilobytes(ownership.totalSizeKb))
+                SingleLinePathText(ownership.rootPath)
+            }
+            IosSecondaryButton(
+                onClick = viewModel::scanWorkspaceOwnership,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.busy,
+            ) {
+                Icon(Icons.Outlined.Search, contentDescription = null)
+                Text("扫描备份容量归属")
+            }
+            if (ownership != null && ownership.nonRootEntries > 0L) {
+                IosSecondaryButton(
+                    onClick = { confirmOwnershipRepair = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.busy,
+                ) {
+                    Icon(Icons.Outlined.Build, contentDescription = null, tint = IosOrange)
+                    Text("修复备份容量归属", color = IosOrange)
+                }
+            }
             Text("日志目录", color = MaterialTheme.colorScheme.onSurfaceVariant)
             SingleLinePathText("${state.settings.rootDir}/logs")
             Text("清理日志只删除任务日志文件，不会删除主动备份或被动备份。", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -137,6 +191,31 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 Text("重置所有 UClone 数据", color = IosRed)
             }
         }
+    }
+    if (confirmOwnershipRepair) {
+        val ownership = state.workspaceOwnership
+        AlertDialog(
+            onDismissRequest = { confirmOwnershipRepair = false },
+            title = { Text("修复备份容量归属") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("将把 UClone 备份工作区中 ${ownership?.nonRootEntries ?: 0} 个文件或目录的 owner 修正为 root:root。")
+                    Text("只修改 UID/GID，不删除文件，不修改 mode、SELinux context 或备份内容。任务可中断并安全重试。")
+                    SingleLinePathText(ownership?.rootPath ?: state.settings.rootDir)
+                }
+            },
+            confirmButton = {
+                IosDialogButton(
+                    text = "开始修复",
+                    onClick = {
+                        confirmOwnershipRepair = false
+                        viewModel.repairWorkspaceOwnership()
+                    },
+                    semanticTint = IosOrange,
+                )
+            },
+            dismissButton = { IosDialogButton("取消", onClick = { confirmOwnershipRepair = false }) },
+        )
     }
     if (confirmClearLogs) {
         AlertDialog(

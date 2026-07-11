@@ -1,5 +1,6 @@
 package com.uclone.restore.sync
 
+import com.uclone.restore.model.PassiveBackupStateKind
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -26,7 +27,6 @@ class BackupDiscoveryShellTest {
             mkdirs()
             resolve("manifest.json").writeText("{\"reason\":\"clone backup\"}\n")
         }
-
         val process = ProcessBuilder("/bin/sh", "-c", workspaceIndexScript(root.absolutePath)).start()
         val output = process.inputStream.bufferedReader().readText()
         val error = process.errorStream.bufferedReader().readText()
@@ -39,6 +39,7 @@ class BackupDiscoveryShellTest {
         assertEquals("rollback-1", index.switchMarkers["com.example.app"])
         assertEquals("main backup", index.restoreBackups.single().reason)
         assertTrue(index.restoreBackups.single().isActiveSwitchBackup)
+        assertEquals(PassiveBackupStateKind.MAIN, index.restoreBackups.single().stateKind)
         assertEquals("clone backup", index.cloneRollbackBackups.single().reason)
     }
 
@@ -71,4 +72,29 @@ class BackupDiscoveryShellTest {
         assertTrue("complete backup" in output)
         assertFalse("partial" in output)
     }
+
+    @Test
+    fun workspaceIndexNeverChangesWorkspaceOwnership() {
+        val script = workspaceIndexScript("/data/adb/uclone")
+
+        assertFalse(script.contains("WORKSPACE_OWNER_REPAIR"))
+        assertFalse(script.contains("chown"))
+    }
+
+    @Test
+    fun workspaceIndexKeepsLatestBackupForEachDataState() {
+        val output = listOf(
+            "MAIN_ROLLBACK\tcom.example.app\tmain-old\t10\t100\tmain old\tmain",
+            "MAIN_ROLLBACK\tcom.example.app\tmain-new\t30\t120\tmain new\tmain",
+            "MAIN_ROLLBACK\tcom.example.app\tclone-new\t20\t110\tclone new\tclone",
+        ).joinToString("\n")
+
+        val backups = WorkspaceIndexParser.parse(output).restoreBackups
+
+        assertEquals(2, backups.size)
+        assertEquals(setOf(PassiveBackupStateKind.MAIN, PassiveBackupStateKind.CLONE), backups.map { it.stateKind }.toSet())
+        assertEquals("main-new", backups.first { it.stateKind == PassiveBackupStateKind.MAIN }.rollbackId)
+        assertEquals("clone-new", backups.first { it.stateKind == PassiveBackupStateKind.CLONE }.rollbackId)
+    }
+
 }

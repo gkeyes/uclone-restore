@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.RestoreBackupEntry
+import com.uclone.restore.model.PassiveBackupStateKind
 import com.uclone.restore.root.shellQuote
 
 data class SnapshotMetadata(
@@ -16,8 +17,15 @@ data class WorkspaceIndex(
 ) {
     val restoreBackups: List<RestoreBackupEntry>
         get() = mainRollbackBackups
+            .groupBy { it.packageName }
+            .values
+            .flatMap { backups ->
+                val labeled = PassiveBackupStateKind.entries.mapNotNull { kind ->
+                    backups.filter { it.stateKind == kind }.maxByOrNull { it.createdAt }
+                }
+                labeled.ifEmpty { listOfNotNull(backups.maxByOrNull { it.createdAt }) }
+            }
             .sortedByDescending { it.createdAt }
-            .distinctBy { it.packageName }
 
     fun rollbackIds(packageName: String): List<String> =
         mainRollbackBackups.filter { it.packageName == packageName }.map { it.rollbackId }
@@ -31,7 +39,7 @@ internal object WorkspaceIndexParser {
         val cloneRollbacks = mutableListOf<RestoreBackupEntry>()
 
         output.lineSequence().forEach { line ->
-            val parts = line.split('\t', limit = 6)
+            val parts = line.split('\t', limit = 7)
             when (parts.firstOrNull()) {
                 "SNAPSHOT" -> parseSnapshot(parts)?.let { (packageName, metadata) ->
                     snapshots[packageName] = metadata
@@ -73,6 +81,7 @@ internal object WorkspaceIndexParser {
             createdAt = parts.getOrNull(3)?.toLongOrNull()?.times(1000) ?: 0L,
             sizeKb = parts.getOrNull(4)?.toLongOrNull(),
             reason = parts.getOrNull(5).orEmpty(),
+            stateKind = parts.getOrNull(6).toPassiveBackupStateKind(),
         )
     }
 
@@ -86,6 +95,7 @@ internal object WorkspaceIndexParser {
             reason = parts.getOrNull(5)?.takeIf(String::isNotBlank) ?: "推送到分身前生成",
             isActiveSwitchBackup = false,
             isCloneRollback = true,
+            stateKind = PassiveBackupStateKind.CLONE,
         )
     }
 
@@ -95,6 +105,7 @@ internal object WorkspaceIndexParser {
         val createdAt: Long,
         val sizeKb: Long?,
         val reason: String,
+        val stateKind: PassiveBackupStateKind?,
     ) {
         fun toBackup(activeRollbackId: String?): RestoreBackupEntry {
             val active = rollbackId == activeRollbackId
@@ -110,6 +121,7 @@ internal object WorkspaceIndexParser {
                 sizeKb = sizeKb,
                 reason = reason.ifBlank { fallbackReason },
                 isActiveSwitchBackup = active,
+                stateKind = stateKind ?: if (active) PassiveBackupStateKind.MAIN else null,
             )
         }
     }
@@ -142,7 +154,8 @@ internal fun workspaceIndexScript(rootDir: String): String = """
         ts=${'$'}(stat -c %Y "${'$'}d" 2>/dev/null || echo 0)
         size=${'$'}(du -sk "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
         reason=${'$'}(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
-        printf 'MAIN_ROLLBACK\t%s\t%s\t%s\t%s\t%s\n' "${'$'}pkg" "${'$'}id" "${'$'}ts" "${'$'}size" "${'$'}reason"
+        state_kind=${'$'}(sed -n 's/.*"stateKind":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
+        printf 'MAIN_ROLLBACK\t%s\t%s\t%s\t%s\t%s\t%s\n' "${'$'}pkg" "${'$'}id" "${'$'}ts" "${'$'}size" "${'$'}reason" "${'$'}state_kind"
       done
     fi
 
@@ -169,3 +182,9 @@ internal fun workspaceIndexScript(rootDir: String): String = """
       done
     fi
 """.trimIndent()
+
+private fun String?.toPassiveBackupStateKind(): PassiveBackupStateKind? = when (this?.lowercase()) {
+    "main" -> PassiveBackupStateKind.MAIN
+    "clone" -> PassiveBackupStateKind.CLONE
+    else -> null
+}

@@ -71,6 +71,11 @@ class TaskUiStateReducerTest {
             TaskType.START_CLONE_USER to RefreshPolicy(environment = true),
             TaskType.SWITCH_TO_CLONE_USER to RefreshPolicy(environment = true),
             TaskType.STOP_CLONE_USER to RefreshPolicy(environment = true),
+            TaskType.REPAIR_WORKSPACE_OWNERSHIP to RefreshPolicy(),
+            TaskType.INSTALL_TO_OTHER_USER to RefreshPolicy(apps = true, shortcuts = true),
+            TaskType.INSTALL_WITH_PERMISSIONS_TO_OTHER_USER to RefreshPolicy(apps = true, shortcuts = true),
+            TaskType.INSTALL_AND_SYNC_TO_OTHER_USER to
+                RefreshPolicy(environment = true, workspace = true, shortcuts = true, apps = true),
         )
 
         assertEquals(TaskType.entries.toSet(), expected.keys)
@@ -187,6 +192,42 @@ class TaskUiStateReducerTest {
         assertEquals(2048L, refreshed.selectedApp?.snapshotSizeKb)
         assertEquals(listOf("rollback-1"), refreshed.rollbackIds)
         assertEquals("rollback-1", refreshed.selectedSwitchRollbackId)
+    }
+
+    @Test
+    fun installRefreshKeepsNewInstallationStateAndWorkspaceMetadata() {
+        val before = AppEntry(
+            packageName = "com.example.app",
+            label = "Example",
+            user0Installed = true,
+            user10Installed = false,
+            user0Uid = 10123,
+            user10Uid = null,
+            isSystemApp = false,
+            riskLevel = RiskLevel.NORMAL,
+            lastSnapshotAt = 100L,
+            snapshotSizeKb = 200L,
+            lastRestoreAt = null,
+        )
+        val installed = before.copy(user10Installed = true, user10Uid = 1010123)
+        val workspace = WorkspaceIndex(
+            snapshots = mapOf(before.packageName to SnapshotMetadata(updatedAt = 300L, sizeKb = 400L)),
+        )
+
+        val refreshed = TaskUiStateReducer.refreshed(
+            state = UiState(apps = listOf(before), selectedPackage = before.packageName),
+            task = task(TaskType.INSTALL_AND_SYNC_TO_OTHER_USER, TaskStatus.SUCCESS),
+            snapshot = TaskRefreshSnapshot(
+                history = emptyList(),
+                workspaceIndex = workspace,
+                apps = listOf(installed),
+            ),
+        )
+
+        assertTrue(refreshed.selectedApp?.user10Installed == true)
+        assertEquals(1010123, refreshed.selectedApp?.user10Uid)
+        assertEquals(300L, refreshed.selectedApp?.lastSnapshotAt)
+        assertEquals(400L, refreshed.selectedApp?.snapshotSizeKb)
     }
 
     @Test

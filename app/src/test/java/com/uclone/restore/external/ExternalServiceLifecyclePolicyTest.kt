@@ -2,8 +2,58 @@ package com.uclone.restore.external
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ExternalServiceLifecyclePolicyTest {
+    @Test
+    fun firstStartClaimsBootstrapForegroundAndOverlappingStartReusesIt() {
+        val policy = ExternalServiceLifecyclePolicy()
+
+        assertTrue(policy.onStart(1))
+        assertFalse(policy.onStart(2))
+    }
+
+    @Test
+    fun failedBootstrapReleasesForegroundClaimForTheNextStart() {
+        val policy = ExternalServiceLifecyclePolicy()
+        assertTrue(policy.onStart(1))
+
+        val finalization = policy.onBootstrapFailed(1)
+
+        assertEquals(
+            ExternalServiceFinalization(removeForeground = true, stopStartId = 1),
+            finalization,
+        )
+        assertTrue(policy.onStart(2))
+    }
+
+    @Test
+    fun failedBootstrapKeepsForegroundClaimForAnOverlappingPendingStart() {
+        val policy = ExternalServiceLifecyclePolicy()
+        assertTrue(policy.onStart(1))
+        assertFalse(policy.onStart(2))
+
+        val failedBootstrap = policy.onBootstrapFailed(1)
+        policy.onAccepted(2)
+        val pendingTaskFinished = policy.onAcceptedFinished(2)
+
+        assertEquals(ExternalServiceFinalization.None, failedBootstrap)
+        assertEquals(
+            ExternalServiceFinalization(removeForeground = true, stopStartId = 2),
+            pendingTaskFinished,
+        )
+    }
+
+    @Test
+    fun duplicateRejectionIsAnIdempotentNoOp() {
+        val policy = ExternalServiceLifecyclePolicy()
+        policy.onStart(1)
+        policy.onRejected(1)
+
+        assertEquals(ExternalServiceFinalization.None, policy.onRejected(1))
+    }
+
     @Test
     fun taskAFinalizationCannotRemoveOrStopTaskBAfterBClaimsForeground() {
         val policy = ExternalServiceLifecyclePolicy()

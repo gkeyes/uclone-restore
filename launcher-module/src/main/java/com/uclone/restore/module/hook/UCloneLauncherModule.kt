@@ -117,8 +117,12 @@ class UCloneLauncherModule : XposedModule() {
                     recordHookEvent(context, "click rejected package=${target.packageName} reason=${state?.message}", false)
                 } else {
                     pendingIntent.send()
-                    Toast.makeText(context, "UClone 已接收任务", Toast.LENGTH_SHORT).show()
-                    recordHookEvent(context, "click sent package=${target.packageName} request=${state.requestId}", false)
+                    Toast.makeText(context, "UClone 请求已发送", Toast.LENGTH_SHORT).show()
+                    recordHookEvent(
+                        context,
+                        "stage=${ModuleRelayContract.STATUS_SENT} package=${target.packageName} request=${state.requestId}",
+                        false,
+                    )
                 }
             }.onFailure { error ->
                 Toast.makeText(context, "UClone 启动失败：${error.message}", Toast.LENGTH_SHORT).show()

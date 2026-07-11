@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.TaskMetrics
+import com.uclone.restore.model.TaskAudit
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskStatus
@@ -15,8 +16,8 @@ interface TaskRepository {
     fun all(): List<TaskRecord>
     fun clear()
     fun clearHistoryPreservingProgress()
-    fun accepted(type: TaskType, packageName: String, requestId: String): TaskRecord
-    fun running(type: TaskType, packageName: String, logPath: String, requestId: String): TaskRecord
+    fun accepted(type: TaskType, packageName: String, requestId: String, audit: TaskAudit = TaskAudit()): TaskRecord
+    fun running(type: TaskType, packageName: String, logPath: String, requestId: String, audit: TaskAudit? = null): TaskRecord
     fun finish(task: TaskRecord, status: TaskStatus, message: String, metrics: TaskMetrics = task.metrics): TaskRecord
     fun find(requestId: String): TaskRecord?
     fun publish(progress: TaskProgress)

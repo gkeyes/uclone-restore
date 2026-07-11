@@ -2,10 +2,9 @@ package com.uclone.restore.external
 
 import com.uclone.restore.AppContainer
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
-import com.uclone.restore.model.TaskMetrics
-import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.UCloneSettings
 
 internal class ExternalActionDispatcher(private val container: AppContainer) {
@@ -35,6 +34,8 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
             container.syncEngine.deleteSnapshot(request.packageName, settings, report, request.requestId)
         ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP ->
             container.syncEngine.deleteRestoreBackup(request.packageName, requireRollbackId(request), settings, report, request.requestId)
+        ExternalActionContract.OPERATION_DELETE_CLONE_ROLLBACK ->
+            container.syncEngine.deleteCloneRollback(request.packageName, requireRollbackId(request), settings, report, request.requestId)
         ExternalActionContract.OPERATION_PROBE_CLONE_CE ->
             container.syncEngine.probeCloneCe(settings, report, request.requestId)
         ExternalActionContract.OPERATION_UNLOCK_CLONE ->
@@ -44,17 +45,40 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
         ExternalActionContract.OPERATION_AUDIT_RESTORE ->
             container.syncEngine.auditRestoreConsistency(request.packageName, settings, report, request.requestId)
         ExternalActionContract.OPERATION_CLEAR_LOGS ->
-            executeControl(request, report) { container.syncEngine.clearLogs(settings, clearHistory = false) }
+            container.syncEngine.clearLogs(settings, report, request.requestId)
         ExternalActionContract.OPERATION_RESET_WORKSPACE ->
-            executeControl(request, report) { container.syncEngine.resetWorkspace(settings, clearHistory = false) }
+            container.syncEngine.resetWorkspace(settings, report, request.requestId)
         ExternalActionContract.OPERATION_START_CLONE_USER ->
-            executeControl(request, report) { container.syncEngine.startCloneUser(settings) }
+            container.syncEngine.startCloneUser(settings, report, request.requestId)
         ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER ->
-            executeControl(request, report) { container.syncEngine.switchToCloneUser(settings) }
+            container.syncEngine.switchToCloneUser(settings, report, request.requestId)
         ExternalActionContract.OPERATION_STOP_CLONE_USER ->
-            executeControl(request, report) { container.syncEngine.stopCloneUserByExplicitUserRequest(settings) }
+            container.syncEngine.stopCloneUserByExplicitUserRequest(settings, report, request.requestId)
+        ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP ->
+            container.syncEngine.repairWorkspaceOwnership(settings, report, request.requestId)
+        ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER ->
+            installAcrossUsers(request, settings, CrossUserInstallMode.INSTALL_ONLY, report)
+        ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER ->
+            installAcrossUsers(request, settings, CrossUserInstallMode.INSTALL_WITH_PERMISSIONS, report)
+        ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER ->
+            installAcrossUsers(request, settings, CrossUserInstallMode.INSTALL_AND_SYNC, report)
         else -> error("不支持的任务操作：${request.operation}")
     }
+
+    private suspend fun installAcrossUsers(
+        request: ExternalActionRequest,
+        settings: UCloneSettings,
+        mode: CrossUserInstallMode,
+        report: (TaskProgress) -> Unit,
+    ): TaskRecord = container.syncEngine.installAcrossUsers(
+        packageName = request.packageName,
+        targetUserId = requireNotNull(request.targetUserId) { "缺少目标用户 ID" },
+        mode = mode,
+        rule = ruleFor(request.packageName, settings),
+        settings = settings,
+        report = report,
+        requestId = request.requestId,
+    )
 
     private suspend fun switchOrRestore(
         request: ExternalActionRequest,
@@ -108,34 +132,4 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
     private fun requireRollbackId(request: ExternalActionRequest): String =
         requireNotNull(request.rollbackId) { "缺少回滚 ID" }
 
-    private suspend fun executeControl(
-        request: ExternalActionRequest,
-        report: (TaskProgress) -> Unit,
-        command: suspend () -> com.uclone.restore.root.ShellResult,
-    ): TaskRecord {
-        val accepted = requireNotNull(container.taskRepository.find(request.requestId)) { "任务记录不存在" }
-        val running = container.taskRepository.running(
-            type = taskTypeForOperation(request.operation),
-            packageName = request.packageName,
-            logPath = "",
-            requestId = request.requestId,
-        )
-        report(TaskProgress(running))
-        val result = command()
-        val status = if (result.isSuccess) TaskStatus.SUCCESS else TaskStatus.FAILED
-        val message = if (result.isSuccess) {
-            result.stdout.trim().ifBlank { "完成" }
-        } else {
-            result.stderr.trim().ifBlank { result.stdout.trim().ifBlank { "命令失败：${result.exitCode}" } }
-        }
-        return container.taskRepository.finish(
-            task = running.copy(id = accepted.id),
-            status = status,
-            message = message,
-            metrics = TaskMetrics(
-                rootProcessStarts = result.processStarts,
-                rootCommandCount = 1,
-            ),
-        ).also { report(TaskProgress(it)) }
-    }
 }

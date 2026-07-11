@@ -22,6 +22,28 @@ class TaskOutcomeTest {
     }
 
     @Test
+    fun installWarningCannotDowngradeFailedAutomaticRollback() {
+        val result = ShellResult(
+            0,
+            "WARN_INSTALL_SYNC_FAILED:targetUser=10:exit=91",
+            "AUTO_ROLLBACK_FAILED originalExit=58",
+        )
+
+        assertEquals(TaskStatus.FAILED_FATAL, TaskOutcome.status(result))
+    }
+
+    @Test
+    fun successfulInstallWithRecoveredSyncFailureRemainsPartialSuccess() {
+        val result = ShellResult(
+            0,
+            "WARN_INSTALL_SYNC_FAILED:targetUser=10:exit=90\nAUTO_ROLLBACK_SUCCESS originalExit=58",
+            "",
+        )
+
+        assertEquals(TaskStatus.SUCCESS_WITH_WARNINGS, TaskOutcome.status(result))
+    }
+
+    @Test
     fun forcedTimeoutTerminationIsFatalBecauseRollbackCannotBeConfirmed() {
         val result = ShellResult(124, "", "Timeout termination required SIGKILL after rollback grace period")
 

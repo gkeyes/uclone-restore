@@ -30,6 +30,10 @@ class TaskPresentationTest {
             TaskType.START_CLONE_USER to "启动分身用户",
             TaskType.SWITCH_TO_CLONE_USER to "进入分身用户",
             TaskType.STOP_CLONE_USER to "关闭分身用户",
+            TaskType.REPAIR_WORKSPACE_OWNERSHIP to "修复备份容量归属",
+            TaskType.INSTALL_TO_OTHER_USER to "安装到另一用户",
+            TaskType.INSTALL_WITH_PERMISSIONS_TO_OTHER_USER to "安装并迁移权限",
+            TaskType.INSTALL_AND_SYNC_TO_OTHER_USER to "安装并同步数据",
         )
 
         assertEquals(TaskType.entries.toSet(), expected.keys)

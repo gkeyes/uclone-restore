@@ -18,6 +18,7 @@ object ExternalActionContract {
     const val EXTRA_MESSAGE = "com.uclone.restore.extra.MESSAGE"
     const val EXTRA_TASK_TYPE = "com.uclone.restore.extra.TASK_TYPE"
     const val EXTRA_ROLLBACK_ID = "com.uclone.restore.extra.ROLLBACK_ID"
+    const val EXTRA_TARGET_USER_ID = "com.uclone.restore.extra.TARGET_USER_ID"
     internal const val EXTRA_INTERNAL_TOKEN = "com.uclone.restore.extra.INTERNAL_TOKEN"
 
     const val PROTOCOL_VERSION = 1
@@ -34,6 +35,7 @@ object ExternalActionContract {
     const val OPERATION_RESET_SWITCH_STATE = "RESET_SWITCH_STATE"
     const val OPERATION_DELETE_SNAPSHOT = "DELETE_SNAPSHOT"
     const val OPERATION_DELETE_RESTORE_BACKUP = "DELETE_RESTORE_BACKUP"
+    const val OPERATION_DELETE_CLONE_ROLLBACK = "DELETE_CLONE_ROLLBACK"
     const val OPERATION_PROBE_CLONE_CE = "PROBE_CLONE_CE"
     const val OPERATION_UNLOCK_CLONE = "UNLOCK_CLONE"
     const val OPERATION_DEBUG_CLONE_SYSTEM = "DEBUG_CLONE_SYSTEM"
@@ -43,18 +45,31 @@ object ExternalActionContract {
     const val OPERATION_START_CLONE_USER = "START_CLONE_USER"
     const val OPERATION_SWITCH_TO_CLONE_USER = "SWITCH_TO_CLONE_USER"
     const val OPERATION_STOP_CLONE_USER = "STOP_CLONE_USER"
+    const val OPERATION_REPAIR_WORKSPACE_OWNERSHIP = "REPAIR_WORKSPACE_OWNERSHIP"
+    const val OPERATION_INSTALL_TO_OTHER_USER = "INSTALL_TO_OTHER_USER"
+    const val OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER = "INSTALL_WITH_PERMISSIONS_TO_OTHER_USER"
+    const val OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER = "INSTALL_AND_SYNC_TO_OTHER_USER"
 
     const val STATUS_ACCEPTED = "ACCEPTED"
+    const val STATUS_SERVICE_RECEIVED = "SERVICE_RECEIVED"
+    const val STATUS_RUNNING = "RUNNING"
     const val STATUS_SUCCESS = "SUCCESS"
+    const val STATUS_SUCCESS_WITH_WARNINGS = "SUCCESS_WITH_WARNINGS"
     const val STATUS_FAILED = "FAILED"
+    const val STATUS_INTERRUPTED = "INTERRUPTED"
+    const val STATUS_STILL_RUNNING = "STILL_RUNNING"
+    const val STATUS_ORPHANED = "ORPHANED"
+    const val STATUS_FAILED_PROCESS_DIED = "FAILED_PROCESS_DIED"
     const val STATUS_REJECTED = "REJECTED"
     const val STATUS_BUSY = "BUSY"
     const val STATUS_ALREADY_RUNNING = "ALREADY_RUNNING"
-    const val STATUS_NEED_CONFIRMATION = "NEED_CONFIRMATION"
-    const val STATUS_NEED_USER_ACTION = "NEED_USER_ACTION"
 
     const val SOURCE_MODULE = "module"
     const val SOURCE_LAUNCHER_MODULE = "launcher_module"
     const val SOURCE_LAUNCHER_SHORTCUT = "launcher_shortcut"
     const val SOURCE_APP = "app"
 }
+
+internal fun hasLauncherModuleStatusRecipient(source: String): Boolean =
+    source == ExternalActionContract.SOURCE_MODULE ||
+        source == ExternalActionContract.SOURCE_LAUNCHER_MODULE

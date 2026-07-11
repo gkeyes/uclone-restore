@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material3.AlertDialog
@@ -43,13 +43,18 @@ fun DataBackupDetailScreen(
     val passiveBackup = if (packageName == null || rollbackId == null) {
         null
     } else {
-        state.restoreBackups.firstOrNull { it.packageName == packageName && it.rollbackId == rollbackId }
+        (state.restoreBackups + state.cloneRollbackBackups)
+            .firstOrNull { it.packageName == packageName && it.rollbackId == rollbackId }
     }
     val activePath = packageName?.let { "$rootDir/snapshots/$it/active" }
     val passivePath = if (packageName == null || rollbackId == null) {
         null
     } else {
-        "$rootDir/rollback/$packageName/$rollbackId"
+        if (passiveBackup?.isCloneRollback == true) {
+            "$rootDir/clone_rollback/$packageName/$rollbackId"
+        } else {
+            "$rootDir/rollback/$packageName/$rollbackId"
+        }
     }
     val isPassive = rollbackId != null
     val backupExists = if (isPassive) {
@@ -81,10 +86,14 @@ fun DataBackupDetailScreen(
             InfoRow("App", app?.label ?: packageName)
             InfoRow("包名", packageName)
             InfoRow("类型", if (isPassive) "被动备份" else "主动快照")
+            if (!isPassive) {
+                InfoRow("数据来源", "分身系统")
+            }
             InfoRow("时间", Formatters.time(passiveBackup?.createdAt ?: app?.lastSnapshotAt))
             InfoRow("大小", Formatters.kilobytes(passiveBackup?.sizeKb ?: app?.snapshotSizeKb))
             if (passiveBackup != null) {
-                InfoRow("来源", passiveBackup.reason)
+                InfoRow("数据来源", passiveBackup.sourceLabel())
+                InfoRow("生成原因", passiveBackup.reason)
             }
             Text("保存位置", color = MaterialTheme.colorScheme.onSurfaceVariant)
             SingleLinePathText(passivePath ?: activePath.orEmpty())
@@ -123,14 +132,18 @@ fun DataBackupDetailScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     when (action) {
                         DataBackupAction.RESTORE -> {
-                            Text("将使用以下备份覆盖主系统 user0 数据。")
+                            if (passiveBackup?.isCloneRollback == true) {
+                                Text("将使用${passiveBackup.sourceLabel()}覆盖分身 user${state.settings.cloneUserId} 数据。")
+                            } else {
+                                Text("将使用${passiveBackup?.sourceLabel() ?: "这份备份"}覆盖主系统 user${state.settings.mainUserId} 数据，并同步更新首页的切换/还原状态。")
+                            }
                             SingleLinePathText(path)
                         }
                         DataBackupAction.DELETE -> if (isPassive) {
-                            Text("将删除以下目录下该 App 的全部被动备份。主动快照不会被删除。")
-                            SingleLinePathText("$rootDir/rollback/$packageName")
+                            Text("只删除下面这一份被动备份。其他被动备份、主动快照和 App 数据不会被删除。")
+                            SingleLinePathText(path)
                         } else {
-                            Text("将删除以下快照。删除后不能从这份快照恢复。")
+                            Text("只删除下面这一份 active 主动快照。被动备份、App 安装和 App 数据不会被删除。")
                             SingleLinePathText(path)
                         }
                     }
@@ -145,15 +158,19 @@ fun DataBackupDetailScreen(
                         if (targetPackageName != null) {
                             when (action) {
                                 DataBackupAction.RESTORE -> {
-                                    if (isPassive && rollbackId != null) {
-                                        viewModel.restoreBackup(targetPackageName, rollbackId)
+                                    if (passiveBackup?.isCloneRollback == true) {
+                                        viewModel.restoreCloneRollback(targetPackageName)
+                                    } else if (isPassive) {
+                                        viewModel.restoreBackup(targetPackageName, requireNotNull(rollbackId))
                                     } else {
                                         viewModel.restoreSnapshot(targetPackageName)
                                     }
                                 }
                                 DataBackupAction.DELETE -> {
-                                    if (isPassive && rollbackId != null) {
-                                        viewModel.deleteRestoreBackup(targetPackageName, rollbackId)
+                                    if (passiveBackup?.isCloneRollback == true) {
+                                        viewModel.deleteCloneRollback(targetPackageName, requireNotNull(rollbackId))
+                                    } else if (isPassive) {
+                                        viewModel.deleteRestoreBackup(targetPackageName, requireNotNull(rollbackId))
                                     } else {
                                         viewModel.deleteSnapshot(targetPackageName)
                                     }
@@ -183,7 +200,7 @@ private fun DataDetailHeader(title: String, subtitle: String, onBack: () -> Unit
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IosGlassIconButton(
-            imageVector = Icons.Default.ArrowBack,
+            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
             contentDescription = "返回",
             onClick = onBack,
             tint = IosText,

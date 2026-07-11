@@ -37,17 +37,6 @@
             android:authorities="com.uclone.restore.module.relay"
             android:exported="true" />
 
-        <activity
-            android:name=".relay.ModuleRelayActivity"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:noHistory="true"
-            android:theme="@android:style/Theme.NoDisplay" />
-
-        <service
-            android:name=".relay.ModuleRelayService"
-            android:exported="false" />
-
         <receiver
             android:name=".relay.UCloneStatusReceiver"
             android:exported="true"

@@ -16,6 +16,7 @@ internal fun taskTypeForOperation(operation: String): TaskType = when (operation
     ExternalActionContract.OPERATION_RESET_SWITCH_STATE -> TaskType.RESET_SWITCH_STATE
     ExternalActionContract.OPERATION_DELETE_SNAPSHOT -> TaskType.DELETE_SNAPSHOT
     ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP -> TaskType.DELETE_RESTORE_BACKUP
+    ExternalActionContract.OPERATION_DELETE_CLONE_ROLLBACK -> TaskType.DELETE_RESTORE_BACKUP
     ExternalActionContract.OPERATION_PROBE_CLONE_CE -> TaskType.PROBE_CLONE_CE
     ExternalActionContract.OPERATION_UNLOCK_CLONE -> TaskType.UNLOCK_CLONE_WITH_CREDENTIAL
     ExternalActionContract.OPERATION_DEBUG_CLONE_SYSTEM -> TaskType.DEBUG_CLONE_SYSTEM
@@ -25,5 +26,10 @@ internal fun taskTypeForOperation(operation: String): TaskType = when (operation
     ExternalActionContract.OPERATION_START_CLONE_USER -> TaskType.START_CLONE_USER
     ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER -> TaskType.SWITCH_TO_CLONE_USER
     ExternalActionContract.OPERATION_STOP_CLONE_USER -> TaskType.STOP_CLONE_USER
+    ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP -> TaskType.REPAIR_WORKSPACE_OWNERSHIP
+    ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER -> TaskType.INSTALL_TO_OTHER_USER
+    ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER ->
+        TaskType.INSTALL_WITH_PERMISSIONS_TO_OTHER_USER
+    ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER -> TaskType.INSTALL_AND_SYNC_TO_OTHER_USER
     else -> error("不支持的任务操作：$operation")
 }

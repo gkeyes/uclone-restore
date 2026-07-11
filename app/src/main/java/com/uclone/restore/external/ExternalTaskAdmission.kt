@@ -1,6 +1,8 @@
 package com.uclone.restore.external
 
 import com.uclone.restore.model.TaskRecord
+import com.uclone.restore.model.BackupKind
+import com.uclone.restore.model.TaskAudit
 import com.uclone.restore.sync.TaskCoordinator
 import com.uclone.restore.sync.TaskSubmissionResult
 
@@ -12,6 +14,17 @@ internal fun admitExternalTask(
         request.requestId,
         taskTypeForOperation(request.operation),
         request.packageName,
+        TaskAudit(
+            source = request.source,
+            backupKind = when (request.operation) {
+                ExternalActionContract.OPERATION_DELETE_SNAPSHOT -> BackupKind.ACTIVE_SNAPSHOT
+                ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP -> BackupKind.PASSIVE_BACKUP
+                ExternalActionContract.OPERATION_DELETE_CLONE_ROLLBACK -> BackupKind.CLONE_ROLLBACK
+                ExternalActionContract.OPERATION_RESET_WORKSPACE -> BackupKind.WORKSPACE
+                else -> null
+            },
+            backupId = request.rollbackId,
+        ),
     )
 ) {
     is TaskSubmissionResult.Accepted -> ExternalTaskAdmission.Accepted(submission.record)
@@ -19,6 +32,11 @@ internal fun admitExternalTask(
         record = submission.record,
         status = ExternalActionContract.STATUS_ALREADY_RUNNING,
         message = "同一任务已在执行",
+    )
+    is TaskSubmissionResult.AlreadyCompleted -> ExternalTaskAdmission.Rejected(
+        record = submission.record,
+        status = submission.record.status.toExternalStatus(),
+        message = "该 requestId 已有终态记录，未重复执行",
     )
     is TaskSubmissionResult.Busy -> ExternalTaskAdmission.Rejected(
         record = submission.record,

@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
@@ -17,7 +18,13 @@ class ModuleRelayProvider : ContentProvider() {
         val context = requireNotNull(context)
         val callerPackages = context.packageManager.getPackagesForUid(Binder.getCallingUid()).orEmpty().toSet()
         val allowedLaunchers = ModuleSettingsStore.allowedLaunchers()
-        if (!isAllowedLauncherCaller(callerPackages, allowedLaunchers)) {
+        if (!isTrustedSystemLauncherCaller(callerPackages, allowedLaunchers) { packageName ->
+                runCatching {
+                    val info = context.packageManager.getApplicationInfo(packageName, 0)
+                    info.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+                }.getOrDefault(false)
+            }
+        ) {
             return rejected("caller not allowed: ${callerPackages.joinToString()}")
         }
         return when (method) {
@@ -59,6 +66,10 @@ class ModuleRelayProvider : ContentProvider() {
 
         val flags = PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
         val pendingIntent = PendingIntent.getForegroundService(context, requestId.hashCode(), actionIntent, flags)
+        ModuleSettingsStore.recordRelayEvent(
+            context,
+            "stage=${ModuleRelayContract.STATUS_MENU_READY} package=$packageName request=$requestId",
+        )
 
         return accepted(showMenu = true, message = "ready").apply {
             putString(ModuleRelayContract.EXTRA_MENU_LABEL, ModuleConstants.MENU_LABEL)
@@ -88,5 +99,8 @@ class ModuleRelayProvider : ContentProvider() {
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
 }
 
-internal fun isAllowedLauncherCaller(callerPackages: Set<String>, allowedLaunchers: Set<String>): Boolean =
-    callerPackages.any(allowedLaunchers::contains)
+internal fun isTrustedSystemLauncherCaller(
+    callerPackages: Set<String>,
+    allowedLaunchers: Set<String>,
+    isSystemPackage: (String) -> Boolean,
+): Boolean = callerPackages.any { it in allowedLaunchers && isSystemPackage(it) }

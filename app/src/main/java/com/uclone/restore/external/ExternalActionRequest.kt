@@ -9,6 +9,7 @@ data class ExternalActionRequest(
     val source: String,
     val rollbackId: String?,
     val internalToken: String?,
+    val targetUserId: Int? = null,
 ) {
     companion object {
         fun from(intent: Intent): ExternalActionRequest? {
@@ -20,6 +21,8 @@ data class ExternalActionRequest(
                 source = intent.getStringExtra(ExternalActionContract.EXTRA_SOURCE),
                 rollbackId = intent.getStringExtra(ExternalActionContract.EXTRA_ROLLBACK_ID),
                 internalToken = intent.getStringExtra(ExternalActionContract.EXTRA_INTERNAL_TOKEN),
+                targetUserId = intent.getIntExtra(ExternalActionContract.EXTRA_TARGET_USER_ID, Int.MIN_VALUE)
+                    .takeUnless { it == Int.MIN_VALUE },
             )
         }
 
@@ -31,6 +34,7 @@ data class ExternalActionRequest(
             source: String?,
             rollbackId: String? = null,
             internalToken: String? = null,
+            targetUserId: Int? = null,
         ): ExternalActionRequest? {
             if (protocolVersion != ExternalActionContract.PROTOCOL_VERSION) return null
             val normalizedOperation = operation?.trim()?.takeIf(String::isNotEmpty) ?: return null
@@ -39,10 +43,13 @@ data class ExternalActionRequest(
             if (!safePackageToken.matches(normalizedPackage)) return null
             if (normalizedOperation in operationsRequiringAppPackage && !androidPackageName.matches(normalizedPackage)) return null
             val normalizedRequestId = requestId?.trim()?.takeIf(String::isNotEmpty) ?: return null
+            if (!safeRequestId.matches(normalizedRequestId)) return null
             val normalizedSource = source?.trim()?.takeIf(String::isNotEmpty)
                 ?: ExternalActionContract.SOURCE_MODULE
             val normalizedRollbackId = rollbackId?.trim()?.takeIf(String::isNotEmpty)
+            if (normalizedRollbackId != null && !isSafeStorageId(normalizedRollbackId)) return null
             if (normalizedOperation in operationsRequiringRollbackId && normalizedRollbackId == null) return null
+            if (normalizedOperation in operationsRequiringTargetUser && targetUserId == null) return null
             return ExternalActionRequest(
                 operation = normalizedOperation,
                 packageName = normalizedPackage,
@@ -50,6 +57,7 @@ data class ExternalActionRequest(
                 source = normalizedSource,
                 rollbackId = normalizedRollbackId,
                 internalToken = internalToken?.takeIf(String::isNotBlank),
+                targetUserId = targetUserId,
             )
         }
 
@@ -66,6 +74,7 @@ data class ExternalActionRequest(
             ExternalActionContract.OPERATION_RESET_SWITCH_STATE,
             ExternalActionContract.OPERATION_DELETE_SNAPSHOT,
             ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP,
+            ExternalActionContract.OPERATION_DELETE_CLONE_ROLLBACK,
             ExternalActionContract.OPERATION_PROBE_CLONE_CE,
             ExternalActionContract.OPERATION_UNLOCK_CLONE,
             ExternalActionContract.OPERATION_DEBUG_CLONE_SYSTEM,
@@ -75,10 +84,20 @@ data class ExternalActionRequest(
             ExternalActionContract.OPERATION_START_CLONE_USER,
             ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER,
             ExternalActionContract.OPERATION_STOP_CLONE_USER,
+            ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP,
+            ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER,
+            ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER,
+            ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER,
         )
         private val operationsRequiringRollbackId = setOf(
             ExternalActionContract.OPERATION_RESTORE_ROLLBACK,
             ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP,
+            ExternalActionContract.OPERATION_DELETE_CLONE_ROLLBACK,
+        )
+        private val operationsRequiringTargetUser = setOf(
+            ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER,
+            ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER,
+            ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER,
         )
         private val operationsRequiringAppPackage = allowedOperations - setOf(
             ExternalActionContract.OPERATION_PROBE_CLONE_CE,
@@ -89,8 +108,14 @@ data class ExternalActionRequest(
             ExternalActionContract.OPERATION_START_CLONE_USER,
             ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER,
             ExternalActionContract.OPERATION_STOP_CLONE_USER,
+            ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP,
         )
         private val safePackageToken = Regex("[A-Za-z0-9_.]+")
+        private val safeRequestId = Regex("[A-Za-z0-9_.-]{1,128}")
+        private val safeStorageId = Regex("[A-Za-z0-9_.-]{1,160}")
         private val androidPackageName = Regex("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)+")
+
+        private fun isSafeStorageId(value: String): Boolean =
+            value != "." && value != ".." && safeStorageId.matches(value)
     }
 }

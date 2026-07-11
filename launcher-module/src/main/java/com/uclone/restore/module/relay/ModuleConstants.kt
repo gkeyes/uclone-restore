@@ -3,7 +3,6 @@ package com.uclone.restore.module.relay
 object ModuleConstants {
     const val MODULE_PACKAGE = "com.uclone.restore.module"
     const val UCLONE_PACKAGE = "com.uclone.restore"
-    const val UCLONE_ACTIVITY = "com.uclone.restore.external.ExternalActionActivity"
     const val UCLONE_SERVICE = "com.uclone.restore.external.ExternalActionService"
     const val CONTROL_PERMISSION = "com.uclone.restore.permission.CONTROL"
 
@@ -19,7 +18,7 @@ object ModuleConstants {
     const val KEY_CONSECUTIVE_HOOK_ERRORS = "consecutive_hook_errors"
     const val KEY_HOOK_AUTO_DISABLED = "hook_auto_disabled"
 
-    const val DEFAULT_ALLOWED_LAUNCHERS = "com.miui.home,com.android.launcher3"
+    const val DEFAULT_ALLOWED_LAUNCHERS = "com.miui.home"
     const val MENU_LABEL = "UClone 切换/还原"
     const val HOOK_ERROR_DISABLE_THRESHOLD = 8
 }

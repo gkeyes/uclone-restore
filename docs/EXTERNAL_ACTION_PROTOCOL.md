@@ -61,13 +61,21 @@ Launcher Hook
   -> UClone ExternalActionService starts directly
 ```
 
-The token is immutable, one-shot, and has a request-specific data URI. This prevents reuse after the action and prevents an old launcher menu token from silently inheriting new extras after an APK update.
+The token is immutable, one-shot, and has a request-specific data URI. This prevents reuse after the action and prevents a token from silently inheriting different extras. An unconsumed token may still survive an APK update, so the module must refresh launcher menu state after either APK changes and must tolerate one stale-token failure.
 
 Do not use a no-display Activity trampoline for the launcher hook path. Android 14+ requires sender-side background-activity-launch opt-in, and an asynchronously blocked Activity can make `PendingIntent.send()` return without ever entering relay code. A foreground-service PendingIntent sent from the visible launcher is the supported user-action path.
 
-`ModuleRelayActivity` and `ModuleRelayService` remain non-exported legacy components for compatibility with already-issued tokens; the provider no longer issues new tokens for them.
+Legacy `ModuleRelayActivity`, `ModuleRelayService`, `ModuleRelayDispatcher`, and UClone's no-display `ExternalActionActivity` have been removed. The module refreshes menu state after upgrades instead of retaining obsolete trampolines.
 
 All hook-side logic must be wrapped in `try/catch`. Missing classes, fields, methods, or menu containers should skip injection and write `HookEventLog`; they must never crash the launcher process.
+
+### Android 15+ foreground-service type
+
+- Tasks submitted from the visible main app use `dataSync`.
+- Explicit user actions submitted by the launcher module or launcher shortcuts use the declared `specialUse` type on Android 14+.
+- This prevents a cold `ExternalActionService` from being rejected before its running notification appears after Android 15+ has exhausted the app's background `dataSync` time budget.
+- The service manifest must declare `FOREGROUND_SERVICE_SPECIAL_USE`, `dataSync|specialUse`, and `PROPERTY_SPECIAL_USE_FGS_SUBTYPE`.
+- A foreground-promotion failure must persist and broadcast a terminal `FAILED` result; the request must not remain at `SENT`.
 
 ## Module Relay Components
 
@@ -88,34 +96,17 @@ PackageManager.getPackagesForUid(callingUid)
 allowed launcher package list, for example com.miui.home
 ```
 
-The legacy module relay activity and service must not be exported:
-
-```xml
-<activity
-    android:name=".relay.ModuleRelayActivity"
-    android:exported="false"
-    android:noHistory="true"
-    android:theme="@android:style/Theme.NoDisplay" />
-```
-
-```xml
-<service
-    android:name=".relay.ModuleRelayService"
-    android:exported="false" />
-```
-
 The launcher hook can only trigger UClone through a `PendingIntent` created by the module provider. The PendingIntent creator remains the module APK UID for permission purposes.
 
 ## UClone Components
 
-UClone exposes a protected no-display activity for explicit compatibility flows and the foreground service used by the launcher module:
+UClone exposes one protected foreground service used by the launcher module:
 
 ```text
-com.uclone.restore/.external.ExternalActionActivity
 com.uclone.restore/.external.ExternalActionService
 ```
 
-Both components must be `exported=true` and protected by:
+The service must be `exported=true` and protected by:
 
 ```text
 com.uclone.restore.permission.CONTROL
@@ -249,14 +240,22 @@ com.uclone.restore.extra.TASK_TYPE
 Statuses:
 
 ```text
+SERVICE_RECEIVED
 ACCEPTED
+RUNNING
 SUCCESS
+SUCCESS_WITH_WARNINGS
 FAILED
+INTERRUPTED
 REJECTED
 BUSY
-NEED_CONFIRMATION
-NEED_USER_ACTION
+ALREADY_RUNNING
+STILL_RUNNING
+ORPHANED
+FAILED_PROCESS_DIED
 ```
+
+`MENU_READY` and `SENT` are module-local diagnostic stages recorded before UClone receives the request; they are not UClone status broadcasts.
 
 The status broadcast is also sent with `com.uclone.restore.permission.CONTROL`, so only same-signature receivers should receive it.
 

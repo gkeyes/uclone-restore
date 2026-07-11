@@ -69,11 +69,14 @@ class ExternalActionNotifier(private val context: Context) {
         message: String,
     ) {
         ensureChannels()
-        val success = status == ExternalActionContract.STATUS_SUCCESS
+        val success = status == ExternalActionContract.STATUS_SUCCESS ||
+            status == ExternalActionContract.STATUS_SUCCESS_WITH_WARNINGS
         val rejected = status == ExternalActionContract.STATUS_REJECTED ||
             status == ExternalActionContract.STATUS_BUSY ||
-            status == ExternalActionContract.STATUS_ALREADY_RUNNING
+            status == ExternalActionContract.STATUS_ALREADY_RUNNING ||
+            status == ExternalActionContract.STATUS_STILL_RUNNING
         val stateText = when {
+            status == ExternalActionContract.STATUS_SUCCESS_WITH_WARNINGS -> "完成（有提示）"
             success -> "成功"
             rejected -> "未执行"
             else -> "失败"
@@ -130,6 +133,7 @@ class ExternalActionNotifier(private val context: Context) {
         ExternalActionContract.OPERATION_RESET_SWITCH_STATE -> "重置切换状态"
         ExternalActionContract.OPERATION_DELETE_SNAPSHOT -> "删除快照"
         ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP -> "删除回滚"
+        ExternalActionContract.OPERATION_DELETE_CLONE_ROLLBACK -> "删除分身回滚"
         ExternalActionContract.OPERATION_PROBE_CLONE_CE -> "分身检测"
         ExternalActionContract.OPERATION_UNLOCK_CLONE -> "分身解锁"
         ExternalActionContract.OPERATION_DEBUG_CLONE_SYSTEM -> "分身调试"
@@ -139,6 +143,10 @@ class ExternalActionNotifier(private val context: Context) {
         ExternalActionContract.OPERATION_START_CLONE_USER -> "启动分身"
         ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER -> "进入分身"
         ExternalActionContract.OPERATION_STOP_CLONE_USER -> "关闭分身"
+        ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP -> "修复备份容量归属"
+        ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER -> "跨用户安装"
+        ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER -> "安装并迁移权限"
+        ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER -> "安装并同步"
         else -> "快捷操作"
     }
 

@@ -190,19 +190,9 @@ Hook -> ModuleRelayProvider -> module-owned PendingIntent.getForegroundService -
 
 这样既确保权限校验使用模块 APK UID，又避免后台 Activity trampoline 在 Android 14+ 被异步拦截。PendingIntent 必须使用显式组件、`FLAG_IMMUTABLE`、`FLAG_ONE_SHOT` 和 request-specific data URI。
 
-### 4.4 旧 Relay 组件兼容边界
+### 4.4 唯一入口边界
 
-已安装版本可能仍持有旧 token，因此旧 `ModuleRelayService` 可以暂时保留，但不得签发新 token，且必须保持非导出:
-
-```xml
-<service
-    android:name=".relay.ModuleRelayService"
-    android:exported="false" />
-```
-
-透明 Activity trampoline 不用于新请求。Provider 返回的前台服务 PendingIntent 是唯一现行入口。
-- 只负责在用户点击语义下启动前台服务。
-- 立即 `finish()`。
+旧 `ModuleRelayActivity`、`ModuleRelayService` 和 `ModuleRelayDispatcher` 已删除。Provider 返回的显式、一次性前台服务 PendingIntent 是唯一现行入口，不再保留 Activity 或 Service trampoline。
 
 ## 5. UClone 侧接口
 
@@ -341,14 +331,7 @@ Intent("com.uclone.restore.action.STATUS")
 | `ACCEPTED` | UClone 已接收任务 |
 | `SUCCESS` / `FAILED` / `REJECTED` / `BUSY` | 任务最终或拒绝结果 |
 
-后续可加:
-
-```text
-NEED_CONFIRMATION
-NEED_USER_ACTION
-```
-
-用于推送到分身、分身未解锁等需要用户介入的场景。
+诊断链还记录 `MENU_READY`、`SENT`、`SERVICE_RECEIVED`、`RUNNING`、`SUCCESS_WITH_WARNINGS`、`INTERRUPTED`、`STILL_RUNNING`、`ORPHANED` 与 `FAILED_PROCESS_DIED`，并始终按 `REQUEST_ID` 关联。
 
 ## 6. 安全规则
 
@@ -402,9 +385,7 @@ RESTORE_LATEST_CLONE_ROLLBACK
 
 其中 `PUSH_MAIN_TO_CLONE` 是覆盖分身数据，未来即使开放，也必须走确认:
 
-```text
-Hook menu -> ModuleRelay -> UClone returns NEED_CONFIRMATION -> UClone confirmation UI/notification -> execute
-```
+需要确认的动作只保留在 UClone 主界面，不通过桌面模块暴露。
 
 不要允许静默推送。
 

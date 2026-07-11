@@ -1,6 +1,7 @@
 package com.uclone.restore.ui
 
 import com.uclone.restore.model.EnvironmentStatus
+import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskType
@@ -12,6 +13,7 @@ internal data class TaskRefreshSnapshot(
     val history: List<TaskRecord>,
     val environment: EnvironmentStatus? = null,
     val workspaceIndex: WorkspaceIndex? = null,
+    val apps: List<AppEntry>? = null,
 )
 
 internal data class SettingsDiff(
@@ -32,6 +34,7 @@ internal data class RefreshPolicy(
     val environment: Boolean = false,
     val workspace: Boolean = false,
     val shortcuts: Boolean = false,
+    val apps: Boolean = false,
 ) {
     companion object {
         fun forTask(type: TaskType): RefreshPolicy = when (type) {
@@ -57,6 +60,12 @@ internal data class RefreshPolicy(
             TaskType.STOP_CLONE_USER,
             -> RefreshPolicy(environment = true)
             TaskType.RESET_WORKSPACE -> RefreshPolicy(environment = true, workspace = true, shortcuts = true)
+            TaskType.REPAIR_WORKSPACE_OWNERSHIP -> RefreshPolicy()
+            TaskType.INSTALL_TO_OTHER_USER,
+            TaskType.INSTALL_WITH_PERMISSIONS_TO_OTHER_USER,
+            -> RefreshPolicy(apps = true, shortcuts = true)
+            TaskType.INSTALL_AND_SYNC_TO_OTHER_USER ->
+                RefreshPolicy(environment = true, workspace = true, shortcuts = true, apps = true)
             TaskType.AUDIT_RESTORE_CONSISTENCY,
             TaskType.CLEAR_LOGS,
             -> RefreshPolicy()
@@ -77,6 +86,15 @@ internal object TaskUiStateReducer {
     fun refreshed(state: UiState, task: TaskRecord, snapshot: TaskRefreshSnapshot): UiState {
         val reset = task.type == TaskType.RESET_WORKSPACE && task.status.isSuccessful
         val workspace = snapshot.workspaceIndex
+        val refreshedApps = snapshot.apps ?: state.apps
+        val resolvedApps = when {
+            reset -> refreshedApps.map { it.copy(lastSnapshotAt = null, snapshotSizeKb = null, lastRestoreAt = null) }
+            workspace != null -> refreshedApps.map { app ->
+                val metadata = workspace.snapshots[app.packageName]
+                app.copy(lastSnapshotAt = metadata?.updatedAt, snapshotSizeKb = metadata?.sizeKb)
+            }
+            else -> refreshedApps
+        }
         val message = if (
             task.status.isSuccessful && snapshot.environment?.user10CeState is User10CeState.NotStarted
         ) {
@@ -87,16 +105,7 @@ internal object TaskUiStateReducer {
         return state.copy(
             busy = false,
             environment = snapshot.environment ?: state.environment,
-            apps = if (reset) {
-                state.apps.map { it.copy(lastSnapshotAt = null, snapshotSizeKb = null, lastRestoreAt = null) }
-            } else if (workspace != null) {
-                state.apps.map { app ->
-                    val metadata = workspace.snapshots[app.packageName]
-                    app.copy(lastSnapshotAt = metadata?.updatedAt, snapshotSizeKb = metadata?.sizeKb)
-                }
-            } else {
-                state.apps
-            },
+            apps = resolvedApps,
             history = snapshot.history,
             rollbackIds = when {
                 reset -> emptyList()

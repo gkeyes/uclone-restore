@@ -74,6 +74,7 @@ class SyncEngineTest {
             TaskType.PUSH_MAIN_TO_CLONE,
             TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE,
             TaskType.RESTORE_SWITCH_MAIN_STATE,
+            TaskType.INSTALL_AND_SYNC_TO_OTHER_USER,
         )
 
         transactional.forEach { assertEquals(0, taskHostTimeoutSeconds(it), it.name) }

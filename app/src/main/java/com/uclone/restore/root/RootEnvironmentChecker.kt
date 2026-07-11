@@ -16,7 +16,7 @@ class RootEnvironmentChecker(private val shell: RootShellExecutor) {
         val user0Present = users.stdout.contains("UserInfo{${settings.mainUserId}:")
         val user10Present = users.stdout.contains("UserInfo{${settings.cloneUserId}:")
         val writable = shell.exec(
-            "mkdir -p ${shellQuote(settings.rootDir)} && [ -d ${shellQuote(settings.rootDir)} ] && [ -w ${shellQuote(settings.rootDir)} ] && echo WRITABLE || { echo NOT_WRITABLE:${shellQuote(settings.rootDir)}; exit 1; }",
+            workspaceInitializationScript(settings.rootDir),
             timeoutSeconds = 20,
         )
         val snapshotReady = shell.exec(
@@ -46,6 +46,41 @@ class RootEnvironmentChecker(private val shell: RootShellExecutor) {
             snapshotDirReady = CheckResult(snapshotReady.isSuccess, snapshotReady.stdout.ifBlank { snapshotReady.stderr }),
         )
     }
+
+    private fun workspaceInitializationScript(rootDir: String): String = """
+        ROOT=${shellQuote(rootDir)}
+        [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "NOT_WRITABLE:${'$'}ROOT"; exit 1; }
+        mkdir -p "${'$'}ROOT" || { echo "NOT_WRITABLE:${'$'}ROOT"; exit 1; }
+        ROOT_REAL=${'$'}(readlink -f "${'$'}ROOT" 2>/dev/null || true)
+        [ -n "${'$'}ROOT_REAL" ] && [ -d "${'$'}ROOT_REAL" ] && [ -w "${'$'}ROOT_REAL" ] || {
+          echo "NOT_WRITABLE:${'$'}ROOT"
+          exit 1
+        }
+        case "${'$'}ROOT_REAL" in
+          /data/adb/uclone) ;;
+          *)
+            for CHILD in "${'$'}ROOT_REAL"/*; do
+              [ -e "${'$'}CHILD" ] || continue
+              case "${'$'}(basename "${'$'}CHILD")" in
+                snapshots|rollback|clone_rollback|switches|logs|tmp|audit|config) ;;
+                *) echo "UNSAFE_WORKSPACE_CHILD:${'$'}CHILD"; exit 1 ;;
+              esac
+            done
+            mkdir -p "${'$'}ROOT_REAL/config" || exit 1
+            IDENTITY="${'$'}ROOT_REAL/config/workspace.identity"
+            if [ -f "${'$'}IDENTITY" ]; then
+              [ "${'$'}(sed -n '1p' "${'$'}IDENTITY" 2>/dev/null)" = "com.uclone.restore.workspace.v1" ] || {
+                echo "BAD_WORKSPACE_IDENTITY:${'$'}IDENTITY"
+                exit 1
+              }
+            else
+              printf '%s\n' "com.uclone.restore.workspace.v1" > "${'$'}IDENTITY" || exit 1
+              chmod 600 "${'$'}IDENTITY" || exit 1
+            fi
+            ;;
+        esac
+        echo "WRITABLE:${'$'}ROOT_REAL"
+    """.trimIndent()
 
     private suspend fun probeBasePath(path: String): CheckResult {
         val quoted = shellQuote(path)

@@ -15,10 +15,13 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.uclone.restore.external.ExternalRequestStage
+import com.uclone.restore.util.Formatters
 
 @Composable
 fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
@@ -45,6 +48,24 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
             InfoRow("快照目录", if (env?.snapshotDirReady?.ok == true) "已准备" else "未准备")
             InfoRow("CE 基础目录", env?.user10CeBaseReadable?.detail ?: "未检测")
             InfoRow("DE 基础目录", env?.user10DeBaseReadable?.detail ?: "未检测")
+        }
+        SectionCard("外部请求") {
+            if (state.externalRequests.isEmpty()) {
+                Text("暂无模块或外部快捷请求。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                state.externalRequests.take(10).forEachIndexed { index, event ->
+                    if (index > 0) HorizontalDivider(color = IosSeparator.copy(alpha = 0.55f))
+                    Text(
+                        "${event.packageName.ifBlank { "未知目标" }} · ${event.stage.userFacingLabel()}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        "${Formatters.time(event.occurredAt)} · ${event.requestId.take(8)} · ${event.message}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
         SectionCard("操作") {
             IosPrimaryButton(onClick = viewModel::refreshEnvironment, modifier = Modifier.fillMaxWidth()) {
@@ -76,4 +97,21 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
             }
         }
     }
+}
+
+private fun ExternalRequestStage.userFacingLabel(): String = when (this) {
+    ExternalRequestStage.MENU_READY -> "菜单已准备"
+    ExternalRequestStage.SENT -> "请求已发送"
+    ExternalRequestStage.SERVICE_RECEIVED -> "服务已收到"
+    ExternalRequestStage.ACCEPTED -> "已接受"
+    ExternalRequestStage.RUNNING -> "执行中"
+    ExternalRequestStage.SUCCESS -> "成功"
+    ExternalRequestStage.SUCCESS_WITH_WARNINGS -> "成功（有警告）"
+    ExternalRequestStage.BUSY -> "忙碌"
+    ExternalRequestStage.REJECTED -> "已拒绝"
+    ExternalRequestStage.FAILED -> "失败"
+    ExternalRequestStage.INTERRUPTED -> "已中断"
+    ExternalRequestStage.STILL_RUNNING -> "Root 任务仍在运行"
+    ExternalRequestStage.ORPHANED -> "发现孤儿任务"
+    ExternalRequestStage.FAILED_PROCESS_DIED -> "进程终止"
 }

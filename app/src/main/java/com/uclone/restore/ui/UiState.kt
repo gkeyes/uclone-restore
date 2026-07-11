@@ -7,6 +7,8 @@ import com.uclone.restore.model.RestoreBackupEntry
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.model.WorkspaceOwnershipReport
+import com.uclone.restore.external.ExternalRequestEvent
 
 data class UiState(
     val settings: UCloneSettings = UCloneSettings(),
@@ -21,6 +23,8 @@ data class UiState(
     val restoreBackups: List<RestoreBackupEntry> = emptyList(),
     val cloneRollbackBackups: List<RestoreBackupEntry> = emptyList(),
     val switchRollbackIds: Map<String, String> = emptyMap(),
+    val workspaceOwnership: WorkspaceOwnershipReport? = null,
+    val externalRequests: List<ExternalRequestEvent> = emptyList(),
     val message: String? = null,
 ) {
     val selectedApp: AppEntry? = apps.firstOrNull { it.packageName == selectedPackage }

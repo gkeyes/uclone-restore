@@ -78,7 +78,7 @@ fun DataScreen(
             }
         }
         item {
-            DataSectionHeader("被动备份", "恢复、切换、还原前自动生成的主系统备份。")
+            DataSectionHeader("被动备份", "按数据来源标记为主系统或分身系统。")
         }
         if (passiveBackups.isEmpty()) {
             item {
@@ -131,7 +131,8 @@ fun DataScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("将使用以下被动备份覆盖主系统 user0 数据。")
                     SingleLinePathText("$rootDir/rollback/${backup.packageName}/${backup.rollbackId}")
-                    Text("来源: ${backup.reason}")
+                    Text("数据来源: ${backup.sourceLabel()}")
+                    Text("生成原因: ${backup.reason}")
                 }
             },
             confirmButton = {
@@ -158,7 +159,8 @@ fun DataScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("将使用以下分身回滚覆盖分身 user${state.settings.cloneUserId} 数据。")
                     SingleLinePathText("$rootDir/clone_rollback/${backup.packageName}/${backup.rollbackId}")
-                    Text("来源: ${backup.reason}")
+                    Text("数据来源: ${backup.sourceLabel()}")
+                    Text("生成原因: ${backup.reason}")
                 }
             },
             confirmButton = {

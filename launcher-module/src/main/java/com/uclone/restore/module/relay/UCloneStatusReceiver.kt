@@ -10,11 +10,11 @@ class UCloneStatusReceiver : BroadcastReceiver() {
         val packageName = intent.getStringExtra("com.uclone.restore.extra.PACKAGE_NAME").orEmpty()
         val operation = intent.getStringExtra("com.uclone.restore.extra.OPERATION").orEmpty()
         val requestId = intent.getStringExtra("com.uclone.restore.extra.REQUEST_ID").orEmpty()
-        val status = intent.getStringExtra("com.uclone.restore.extra.STATUS").orEmpty()
-        val message = intent.getStringExtra("com.uclone.restore.extra.MESSAGE").orEmpty()
+        val status = intent.getStringExtra(ModuleRelayContract.UCLONE_EXTRA_STATUS).orEmpty()
+        val message = intent.getStringExtra(ModuleRelayContract.UCLONE_EXTRA_MESSAGE).orEmpty()
         ModuleSettingsStore.recordRelayEvent(
             context,
-            "status package=$packageName operation=$operation request=$requestId status=$status message=$message",
+            "stage=$status package=$packageName operation=$operation request=$requestId message=$message",
         )
     }
 }

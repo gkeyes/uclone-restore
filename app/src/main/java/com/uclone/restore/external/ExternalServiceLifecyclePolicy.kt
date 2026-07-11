@@ -13,12 +13,16 @@ internal class ExternalServiceLifecyclePolicy {
     private val pendingStartIds = mutableSetOf<Int>()
     private var latestStartId: Int? = null
     private var foregroundOwnerStartId: Int? = null
+    private var foregroundClaimed = false
 
-    fun onStart(startId: Int) {
+    fun onStart(startId: Int): Boolean {
         require(startId > 0)
         check(latestStartId == null || startId > requireNotNull(latestStartId))
         check(pendingStartIds.add(startId))
         latestStartId = startId
+        if (foregroundClaimed) return false
+        foregroundClaimed = true
+        return true
     }
 
     fun onAccepted(startId: Int) {
@@ -26,22 +30,27 @@ internal class ExternalServiceLifecyclePolicy {
         foregroundOwnerStartId = startId
     }
 
+    fun onBootstrapFailed(startId: Int): ExternalServiceFinalization {
+        pendingStartIds.remove(startId)
+        return finalizeIfIdle()
+    }
+
     fun onRejected(startId: Int): ExternalServiceFinalization {
-        check(pendingStartIds.remove(startId))
-        return when {
-            foregroundOwnerStartId != null -> ExternalServiceFinalization.None
-            pendingStartIds.isNotEmpty() -> ExternalServiceFinalization.None
-            else -> ExternalServiceFinalization(
-                removeForeground = true,
-                stopStartId = latestStartId,
-            )
-        }
+        pendingStartIds.remove(startId)
+        return finalizeIfIdle()
     }
 
     fun onAcceptedFinished(startId: Int): ExternalServiceFinalization {
         if (foregroundOwnerStartId != startId) return ExternalServiceFinalization.None
         foregroundOwnerStartId = null
-        if (pendingStartIds.isNotEmpty()) return ExternalServiceFinalization.None
+        return finalizeIfIdle()
+    }
+
+    private fun finalizeIfIdle(): ExternalServiceFinalization {
+        if (!foregroundClaimed || foregroundOwnerStartId != null || pendingStartIds.isNotEmpty()) {
+            return ExternalServiceFinalization.None
+        }
+        foregroundClaimed = false
         return ExternalServiceFinalization(
             removeForeground = true,
             stopStartId = latestStartId,
