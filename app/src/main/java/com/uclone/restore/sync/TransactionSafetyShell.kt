@@ -156,19 +156,34 @@ internal object TransactionSafetyShell {
           GATE_KEY="${'$'}2"
           awk -F= -v key="${'$'}GATE_KEY" '${'$'}1 == key { sub(/^[^=]*=/, ""); print; exit }' "${'$'}GATE_FILE" 2>/dev/null
         }
+        uclone_process_uid_list_contains() {
+          GATE_UID="${'$'}1"
+          awk -v uid="${'$'}GATE_UID" '
+            NR == 1 { if (${'$'}1 != "UID") invalid = 1; next }
+            ${'$'}1 !~ /^[0-9]+${'$'}/ { invalid = 1 }
+            ${'$'}1 == uid { found = 1 }
+            END {
+              if (NR == 0 || invalid) status = 2
+              else if (found) status = 0
+              else status = 1
+              exit status
+            }
+          '
+        }
         uclone_app_process_exists() {
           GATE_UID="${'$'}1"
-          for STATUS_FILE in /proc/[0-9]*/status; do
-            [ -r "${'$'}STATUS_FILE" ] || continue
-            STATUS_UID=${'$'}(awk '/^Uid:/ { print ${'$'}2; exit }' "${'$'}STATUS_FILE" 2>/dev/null)
-            [ "${'$'}STATUS_UID" = "${'$'}GATE_UID" ] && return 0
-          done
-          for CMDLINE_FILE in /proc/[0-9]*/cmdline; do
-            [ -r "${'$'}CMDLINE_FILE" ] || continue
-            PROCESS_NAME=${'$'}(tr '\000' '\n' < "${'$'}CMDLINE_FILE" 2>/dev/null | sed -n '1p')
-            case "${'$'}PROCESS_NAME" in "${'$'}PKG"|"${'$'}PKG":*) return 0 ;; esac
-          done
-          return 1
+          PROCESS_UID_LIST=${'$'}(/system/bin/ps -A -o UID 2>/dev/null) || {
+            echo "ERR_GATE_PROCESS_SCAN:user_uid=${'$'}GATE_UID" >&2
+            return 0
+          }
+          PROCESS_SCAN_STATUS=0
+          printf '%s\n' "${'$'}PROCESS_UID_LIST" |
+            uclone_process_uid_list_contains "${'$'}GATE_UID" || PROCESS_SCAN_STATUS=${'$'}?
+          case "${'$'}PROCESS_SCAN_STATUS" in
+            0) return 0 ;;
+            1) return 1 ;;
+            *) echo "ERR_GATE_PROCESS_SCAN:user_uid=${'$'}GATE_UID" >&2; return 0 ;;
+          esac
         }
         uclone_gate_restore_enabled() {
           RESTORE_USER="${'$'}1"

@@ -78,8 +78,6 @@ class TransactionSafetyShellTest {
         assertContains(script, "android.intent.category.HOME")
         assertContains(script, "ERR_GATE_CRITICAL_PACKAGE:${'$'}PKG:user=${'$'}GATE_USER")
         assertContains(script, "uclone_app_process_exists")
-        assertContains(script, "/proc/[0-9]*/cmdline")
-        assertContains(script, "${'$'}PKG\":*) return 0")
         assertContains(script, "APP_GATE_HELD:")
         assertContains(script, "APP_GATE_RELEASED:")
         assertContains(script, "uclone_gate_abort_acquire")
@@ -87,5 +85,42 @@ class TransactionSafetyShellTest {
         assertContains(script, "UCLONE_GATE_DIR=\"${'$'}GATE_DIR\"")
         assertFalse(script.contains("pm enable --user"))
         assertFalse(script.contains("set-stopped-state"))
+    }
+
+    @Test
+    fun executionGateProcessCheckIsScopedToTheExactUserUid() {
+        val processCheck = TransactionSafetyShell.functions()
+            .substringAfter("uclone_process_uid_list_contains() {")
+            .substringBefore("uclone_gate_restore_enabled() {")
+
+        assertContains(processCheck, "/system/bin/ps -A -o UID")
+        assertContains(processCheck, "PROCESS_UID_LIST=${'$'}(/system/bin/ps")
+        assertContains(processCheck, "awk -v uid=\"${'$'}GATE_UID\"")
+        assertContains(processCheck, "${'$'}1 !~ /^[0-9]+${'$'}/")
+        assertContains(processCheck, "${'$'}1 == uid")
+        assertFalse(processCheck.contains("/proc/[0-9]*/cmdline"))
+        assertFalse(processCheck.contains("${'$'}PKG"))
+    }
+
+    @Test
+    fun processUidParserSeparatesAndroidUsersAndRejectsMalformedOutput() {
+        val process = ProcessBuilder(
+            "/bin/sh",
+            "-c",
+            """
+                set -u
+                ${TransactionSafetyShell.functions()}
+                if printf 'UID\n1010332\n' | uclone_process_uid_list_contains 10332; then
+                  exit 71
+                fi
+                printf 'UID\n1010332\n10332\n' | uclone_process_uid_list_contains 10332 || exit 72
+                MALFORMED_STATUS=0
+                printf 'USER\nu0_a332\n' | uclone_process_uid_list_contains 10332 || MALFORMED_STATUS=${'$'}?
+                [ "${'$'}MALFORMED_STATUS" -eq 2 ] || exit 73
+            """.trimIndent(),
+        ).start()
+        val stderr = process.errorStream.bufferedReader().readText()
+
+        assertEquals(0, process.waitFor(), stderr)
     }
 }
