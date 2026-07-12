@@ -14,10 +14,14 @@ internal object RootTaskScript {
         val activeTaskScript = activeTaskScript(activeTask)
         return """
             set -o pipefail || exit 73
-            ${WorkspacePathGuard.require(activeTask.rootDir)}
+            ROOT_ID=${'$'}(/system/bin/id 2>&1)
+            case "${'$'}ROOT_ID" in
+              *uid=0*)
+                ${WorkspacePathGuard.require(activeTask.rootDir)}
+                ;;
+            esac
             LOG_DIR=${shellQuote(logDir)}
             LOG_PATH=${shellQuote(logPath)}
-            ROOT_ID=${'$'}(/system/bin/id 2>&1)
             LOG_DIR_READY=1
             /system/bin/mkdir -p "${'$'}LOG_DIR" || LOG_DIR_READY=0
             $activeTaskScript

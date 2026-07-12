@@ -62,6 +62,11 @@ class RestoreTransactionShellTest {
             uclone_emit_metrics() { echo "DOWNTIME=${'$'}UCLONE_TARGET_DOWNTIME_MS"; }
             count_items() { echo 0; }
             uclone_verify_part_metadata() { return 0; }
+            uclone_part_root_mode() { echo 700; }
+            uclone_transaction_stage() { :; }
+            uclone_transaction_rolled_back() { :; }
+            uclone_transaction_finish_rolled_back() { :; }
+            uclone_transaction_recovery_required() { :; }
             validate_target_path() { :; }
             target_mode_for() { echo 700; }
             read_target_context() { echo ''; }

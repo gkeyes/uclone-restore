@@ -76,7 +76,13 @@ class ShellScriptsTest {
             ShellScripts.restore("com.example.app", settings, appPackage),
         )
 
-        scripts.forEach { script -> assertContains(script, "ERR_FORCE_STOP_FAILED:") }
+        scripts.forEach { script ->
+            assertContains(script, "uclone_gate_acquire")
+            assertTrue(
+                "ERR_SOURCE_GATE_ACQUIRE:" in script || "ERR_TARGET_GATE_ACQUIRE:" in script,
+                "Gate acquisition failures must remain observable",
+            )
+        }
     }
 
     @Test
@@ -270,13 +276,13 @@ class ShellScriptsTest {
         listOf(capture, restore, push).forEach { script ->
             assertContains(script, "uclone_write_part_metadata")
             assertContains(script, "uclone_verify_part_metadata")
-            assertContains(script, "\"schemaVersion\":2")
-            assertContains(script, "\"integrityMode\":\"FAST_METADATA\"")
-            assertContains(script, "\"schemaVersion\":4")
-            assertContains(script, "\"sourceSigningCertificateSha256\":")
-            assertContains(script, "\"sourceVersionName\":")
-            assertContains(script, "\"sourceUid\":")
-            assertContains(script, "\"sourceAppId\":")
+            assertContains(script, "echo \"schema=2\"")
+            assertContains(script, "\\\"integrityMode\\\":\\\"FAST_METADATA\\\"")
+            assertContains(script, "\\\"schemaVersion\\\":4")
+            assertContains(script, "sourceSigningCertificateSha256")
+            assertContains(script, "sourceVersionName")
+            assertContains(script, "sourceUid")
+            assertContains(script, "sourceAppId")
         }
         assertContains(restore, "ERR_SNAPSHOT_INTEGRITY:")
         assertContains(restore, "ERR_SNAPSHOT_SIGNATURE_MISMATCH:")
@@ -670,7 +676,10 @@ class ShellScriptsTest {
         assertContains(push, "TRANSACTION_UNDO=\"${'$'}ROOT/tmp/undo_clone_${'$'}{PKG}_${'$'}TS\"")
         assertContains(push, "ROLLBACK=\"${'$'}TRANSACTION_UNDO\"")
         assertContains(push, "TRANSACTION_UNDO_CREATED=")
-        assertFalse(push.contains("ROLLBACK=\"${'$'}ROLLBACK_LATEST\""))
+        val relocatedRollback = push.indexOf("uclone_transaction_rollback_relocated \"${'$'}ROLLBACK_LATEST\"")
+        val persistentRollbackAssignment = push.indexOf("ROLLBACK=\"${'$'}ROLLBACK_LATEST\"")
+        assertTrue(relocatedRollback >= 0)
+        assertTrue(persistentRollbackAssignment in 0 until relocatedRollback)
     }
 
     @Test
@@ -742,7 +751,7 @@ class ShellScriptsTest {
         assertContains(script, "capture_part \"${'$'}PUSH_TEMP\" ce \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}SRC_USER/${'$'}PKG\"")
         assertContains(script, "restore_part \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}DST_USER/${'$'}PKG\" \"app\"")
         assertContains(script, "PUSH_MAIN_TO_CLONE_DONE")
-        assertContains(script, "CLONE_ROLLBACK_PREPARED=${'$'}ROLLBACK_TMP")
+        assertContains(script, "CLONE_ROLLBACK_PREPARED=${'$'}ROLLBACK")
         assertContains(script, "mv \"${'$'}ROLLBACK_LATEST\" \"${'$'}ROLLBACK_PREVIOUS\"")
         assertContains(script, "mv \"${'$'}ROLLBACK_TMP\" \"${'$'}ROLLBACK_LATEST\"")
         assertTrue(script.indexOf("CLONE_ROLLBACK_PREPARED=") < script.indexOf("uclone_stage_begin RESTORE_DATA"))

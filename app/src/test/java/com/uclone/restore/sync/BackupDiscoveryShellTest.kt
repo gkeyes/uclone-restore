@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.PassiveBackupStateKind
+import com.uclone.restore.root.shellQuote
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,7 +28,12 @@ class BackupDiscoveryShellTest {
             mkdirs()
             resolve("manifest.json").writeText("{\"reason\":\"clone backup\"}\n")
         }
-        val process = ProcessBuilder("/bin/sh", "-c", workspaceIndexScript(root.absolutePath)).start()
+        val rootPath = root.canonicalPath
+        val discoveryScript = workspaceIndexScript(rootPath).replace(
+            WorkspacePathGuard.inspect(rootPath),
+            "ROOT=${shellQuote(rootPath)}\nROOT_REAL=${shellQuote(rootPath)}",
+        )
+        val process = ProcessBuilder("/bin/sh", "-c", discoveryScript).start()
         val output = process.inputStream.bufferedReader().readText()
         val error = process.errorStream.bufferedReader().readText()
         val index = WorkspaceIndexParser.parse(output)

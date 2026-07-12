@@ -31,7 +31,7 @@ class SyncEngineTest {
         val index = engine.loadWorkspaceIndex(UCloneSettings(rootDir = "/data/adb/uclone"))
 
         assertEquals(1, shell.commands.size)
-        assertTrue("ROOT='/data/adb/uclone'" in shell.commands.single())
+        assertTrue("UCLONE_WORKSPACE_EXPECTED='/data/adb/uclone'" in shell.commands.single())
         assertTrue("SNAPSHOT_ROOT=" in shell.commands.single())
         assertTrue("SWITCH_ROOT=" in shell.commands.single())
         assertTrue("ROLLBACK_ROOT=" in shell.commands.single())

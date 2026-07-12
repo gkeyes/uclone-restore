@@ -1,6 +1,8 @@
 package com.uclone.restore.sync
 
+import java.io.File
 import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermission
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -29,14 +31,14 @@ class RootTaskScriptTest {
 
     @Test
     fun wrapperStreamsAndPreservesBodyFailureExitCode() {
-        val directory = Files.createTempDirectory("uclone-root-task-").toFile().apply { deleteOnExit() }
+        val directory = prepareWorkspace(Files.createTempDirectory("uclone-root-task-").toFile())
         val log = directory.resolve("task.log").apply { deleteOnExit() }
         val androidScript = RootTaskScript.wrap(
             logPath = log.absolutePath,
             header = "TASK=TEST\n",
             body = "echo BODY_OK; exit 7",
             startedAt = System.currentTimeMillis(),
-            activeTask = activeTask(directory.absolutePath),
+            activeTask = activeTask(directory.canonicalPath),
         )
         val portableScript = portable(androidScript)
             .replace("*uid=0*)", "*uid=*)")
@@ -122,6 +124,26 @@ class RootTaskScriptTest {
         .replace("/system/bin/id", "/usr/bin/id")
         .replace("/system/bin/printf", "/usr/bin/printf")
         .replace("/system/bin/tee", "/usr/bin/tee")
+        .replace("stat -c '%u:%g'", "stat -f '%u:%g'")
+        .replace("stat -c '%a'", "stat -f '%Lp'")
+        .replace("stat -c %Y", "stat -f %m")
+        .replace(
+            "[ \"${'$'}UCLONE_IDENTITY_OWNER\" = \"0:0\" ]",
+            "[ \"${'$'}UCLONE_IDENTITY_OWNER\" = \"${'$'}(/usr/bin/id -u):${'$'}(/usr/bin/id -g)\" ]",
+        )
+
+    private fun prepareWorkspace(directory: File): File = directory.canonicalFile.apply {
+        deleteOnExit()
+        resolve("config/workspace.identity").apply {
+            check(checkNotNull(parentFile).mkdirs())
+            writeText("com.uclone.restore.workspace.v1\n")
+            Files.setPosixFilePermissions(
+                toPath(),
+                setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE),
+            )
+            deleteOnExit()
+        }
+    }
 
     private fun activeTask(rootDir: String) = ActiveRootTask(
         rootDir = rootDir,

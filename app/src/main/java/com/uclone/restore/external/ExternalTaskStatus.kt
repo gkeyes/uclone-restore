@@ -90,4 +90,3 @@ internal val ExternalRequestStage.isTerminalProtocolStage: Boolean
         ExternalRequestStage.RECOVERY_REQUIRED,
         -> true
     }
-}

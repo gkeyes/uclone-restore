@@ -270,7 +270,7 @@ class UCloneApplication : Application() {
     }
 }
 
-data class AppContainer(
+class AppContainer internal constructor(
     val settingsStore: SettingsStore,
     val packageInspector: PackageInspector,
     val launcherShortcutController: LauncherShortcutController,
@@ -279,9 +279,9 @@ data class AppContainer(
     val taskCoordinator: TaskCoordinator,
     val externalRequestStore: ExternalRequestStore,
     val transactionRecovery: TransactionRecoveryRepository,
-    val activeRootTaskProbe: ActiveRootTaskProbe,
+    internal val activeRootTaskProbe: ActiveRootTaskProbe,
     val transactionRecoveryProbe: TransactionRecoveryProbe,
-    val taskPostmortemReconciler: TaskPostmortemReconciler,
+    internal val taskPostmortemReconciler: TaskPostmortemReconciler,
     val taskScope: CoroutineScope,
     val internalRequestToken: String,
 )

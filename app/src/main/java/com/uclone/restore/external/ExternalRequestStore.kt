@@ -54,7 +54,7 @@ class ExternalRequestStore(
             .sortedBy(ExternalRequestEvent::occurredAt)
             .forEach { event -> putIfAbsent(event.requestId, event) }
     }
-    private val recordsFlow = MutableStateFlow(records.sortedByDescending(ExternalRequestEvent::occurredAt))
+    private val recordsFlow = MutableStateFlow(newestFirst(records))
     val events: StateFlow<List<ExternalRequestEvent>> = recordsFlow.asStateFlow()
 
     init {
@@ -65,7 +65,7 @@ class ExternalRequestStore(
     }
 
     fun all(): List<ExternalRequestEvent> = synchronized(monitor) {
-        records.sortedByDescending(ExternalRequestEvent::occurredAt)
+        newestFirst(records)
     }
 
     fun terminal(requestId: String): ExternalRequestEvent? = synchronized(monitor) {
@@ -83,7 +83,7 @@ class ExternalRequestStore(
             persist(file, retained, "外部请求诊断")
             records.clear()
             records += retained
-            recordsFlow.value = retained.sortedByDescending(ExternalRequestEvent::occurredAt)
+            recordsFlow.value = newestFirst(retained)
         }
     }
 
@@ -101,7 +101,7 @@ class ExternalRequestStore(
             persist(file, retained, "外部请求诊断")
             records.clear()
             records += retained
-            recordsFlow.value = retained.sortedByDescending(ExternalRequestEvent::occurredAt)
+            recordsFlow.value = newestFirst(retained)
             true
         }
     }
@@ -146,6 +146,14 @@ class ExternalRequestStore(
                 .sortedBy(ExternalRequestEvent::occurredAt)
                 .forEach { event -> putIfAbsent(event.requestId, event) }
         }
+
+    private fun newestFirst(events: List<ExternalRequestEvent>): List<ExternalRequestEvent> = events
+        .withIndex()
+        .sortedWith(
+            compareByDescending<IndexedValue<ExternalRequestEvent>> { it.value.occurredAt }
+                .thenByDescending(IndexedValue<ExternalRequestEvent>::index),
+        )
+        .map(IndexedValue<ExternalRequestEvent>::value)
 
     private fun encode(event: ExternalRequestEvent): String = JSONObject()
         .put("requestId", event.requestId)

@@ -6,6 +6,7 @@ import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskType
 import com.uclone.restore.root.RootShellExecutor
 import com.uclone.restore.root.ShellResult
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -40,7 +41,7 @@ class TaskPostmortemReconcilerTest {
     }
 
     @Test
-    fun completedRootLogReplacesInterruptedHistoryWithItsRealTerminalState() = kotlinx.coroutines.test.runTest {
+    fun completedRootLogReplacesInterruptedHistoryWithItsRealTerminalState() = runBlocking {
         val repository = TaskLogStore(NoopShell)
         val accepted = repository.accepted(
             TaskType.DELETE_SNAPSHOT,
@@ -72,7 +73,7 @@ class TaskPostmortemReconcilerTest {
     }
 
     @Test
-    fun incompleteOrUnreadableLogsDoNotOverwriteInterruptedHistory() = kotlinx.coroutines.test.runTest {
+    fun incompleteOrUnreadableLogsDoNotOverwriteInterruptedHistory() = runBlocking {
         val repository = TaskLogStore(NoopShell)
         val running = repository.running(
             TaskType.SWITCH_TO_CLONE_STATE,

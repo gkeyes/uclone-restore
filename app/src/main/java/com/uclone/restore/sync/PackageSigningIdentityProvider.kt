@@ -35,11 +35,14 @@ internal fun signingCertificateSetSha256(certificates: List<ByteArray>): String 
         .joinToString(",")
 }
 
-private fun ByteArray.toHex(): String = buildString(size * 2) {
-    forEach { byte ->
-        val value = byte.toInt() and 0xff
-        append(HEX[value ushr 4])
-        append(HEX[value and 0x0f])
+private fun ByteArray.toHex(): String {
+    val bytes = this
+    return buildString(bytes.size * 2) {
+        bytes.forEach { byte ->
+            val value = byte.toInt() and 0xff
+            append(HEX[value ushr 4])
+            append(HEX[value and 0x0f])
+        }
     }
 }
 

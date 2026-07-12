@@ -219,7 +219,7 @@ class CrossUserInstallScriptsTest {
         val portableScript = script(
             targetUser = 10,
             mode = CrossUserInstallMode.INSTALL_WITH_PERMISSIONS,
-            scriptSettings = settings.copy(rootDir = directory.resolve("root").absolutePath),
+            scriptSettings = settings.copy(rootDir = directory.resolve("root").canonicalPath),
         )
             .replace("/system/bin/cmd", cmd.absolutePath)
             .replace("/system/bin/pm", pm.absolutePath)

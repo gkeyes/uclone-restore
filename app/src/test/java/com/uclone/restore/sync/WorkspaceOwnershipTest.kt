@@ -12,9 +12,9 @@ class WorkspaceOwnershipTest {
     fun repairIsExplicitBatchedAndNeverDeletesWorkspaceFiles() {
         val script = WorkspaceOwnershipScripts.repair("/data/adb/uclone")
 
-        assertContains(script, "ROOT_REAL=${'$'}(readlink -f")
+        assertContains(script, "UCLONE_WORKSPACE_REAL=${'$'}(readlink -f")
         assertContains(script, "set -o pipefail")
-        assertContains(script, "/data/adb/uclone)")
+        assertContains(script, "UCLONE_WORKSPACE_EXPECTED='/data/adb/uclone'")
         assertContains(script, "snapshots rollback clone_rollback tmp")
         assertContains(script, "find \"${'$'}WORKSPACE_TARGET\" -xdev")
         assertContains(script, "xargs -0 -n 500")
@@ -32,7 +32,7 @@ class WorkspaceOwnershipTest {
     fun customWorkspaceRequiresIdentityMarker() {
         val script = WorkspaceOwnershipScripts.scanTask("/data/adb/custom")
 
-        assertContains(script, "config/workspace.identity")
+        assertContains(script, "UCLONE_IDENTITY=\"${'$'}UCLONE_CONFIG_DIR/workspace.identity\"")
         assertContains(script, "com.uclone.restore.workspace.v1")
         assertContains(script, "ERR_UNTRUSTED_WORKSPACE")
     }
@@ -57,7 +57,7 @@ class WorkspaceOwnershipTest {
         val scanIndex = script.lastIndexOf("workspace_owner_scan")
         assertTrue(claimIndex >= 0)
         assertTrue(scanIndex > claimIndex)
-        assertContains(script, "locks/active_task")
+        assertContains(script, "active_task.claim")
         assertContains(script, "ERR_ACTIVE_ROOT_TASK")
         assertContains(script, "taskType=SCAN_WORKSPACE_OWNERSHIP")
         assertContains(script, "trap 'uclone_release_active_task' EXIT")

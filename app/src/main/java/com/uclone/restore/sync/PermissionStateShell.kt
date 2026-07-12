@@ -177,7 +177,11 @@ internal object PermissionStateShell {
             fi
           done < "${'$'}GRANTS_FILE"
           if [ "${'$'}RESTORE_MODE" = "EXACT" ]; then
-            /system/bin/cmd appops reset --user "${'$'}PERMISSION_USER" "${'$'}PKG" >/dev/null 2>&1 || { rm -rf "${'$'}CURRENT_PERMISSION_DIR"; return 1; }
+            if ! /system/bin/cmd appops reset --user "${'$'}PERMISSION_USER" "${'$'}PKG" >/dev/null 2>&1; then
+              echo "WARN_APPOPS_RESET_FAILED"
+              rm -rf "${'$'}CURRENT_PERMISSION_DIR"
+              return 1
+            fi
           elif [ "${'$'}RESTORE_MODE" != "MERGE" ]; then
             return 1
           fi
