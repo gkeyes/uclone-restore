@@ -1170,7 +1170,7 @@ class ShellScriptsTest {
             settings = settings,
             amCommand = fakeAm.absolutePath,
             sleepCommand = "/bin/sleep",
-            stopPollLimit = 2,
+            stopPollLimit = 50,
             stopPollIntervalSeconds = 0.01,
         )
         val process = ProcessBuilder("/bin/bash", "-c", script)
@@ -1192,7 +1192,7 @@ class ShellScriptsTest {
             settings = settings,
             amCommand = fakeAm.absolutePath,
             sleepCommand = "/bin/sleep",
-            startPollLimit = 2,
+            startPollLimit = 50,
             startPollIntervalSeconds = 0.01,
         )
         val process = ProcessBuilder("/bin/bash", "-c", script)

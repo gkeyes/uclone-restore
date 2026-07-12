@@ -118,19 +118,26 @@ class RootTaskScriptTest {
         assertTrue("trap 'uclone_release_active_task' EXIT" in script)
     }
 
-    private fun portable(script: String): String = script
-        .replace("/system/bin/mkdir", "/bin/mkdir")
-        .replace("/system/bin/date", "/bin/date")
-        .replace("/system/bin/id", "/usr/bin/id")
-        .replace("/system/bin/printf", "/usr/bin/printf")
-        .replace("/system/bin/tee", "/usr/bin/tee")
-        .replace("stat -c '%u:%g'", "stat -f '%u:%g'")
-        .replace("stat -c '%a'", "stat -f '%Lp'")
-        .replace("stat -c %Y", "stat -f %m")
-        .replace(
+    private fun portable(script: String): String {
+        val common = script
+            .replace("/system/bin/mkdir", "/bin/mkdir")
+            .replace("/system/bin/date", "/bin/date")
+            .replace("/system/bin/id", "/usr/bin/id")
+            .replace("/system/bin/printf", "/usr/bin/printf")
+            .replace("/system/bin/tee", "/usr/bin/tee")
+        val platform = if (System.getProperty("os.name").orEmpty().startsWith("Mac")) {
+            common
+                .replace("stat -c '%u:%g'", "stat -f '%u:%g'")
+                .replace("stat -c '%a'", "stat -f '%Lp'")
+                .replace("stat -c %Y", "stat -f %m")
+        } else {
+            common
+        }
+        return platform.replace(
             "[ \"${'$'}UCLONE_IDENTITY_OWNER\" = \"0:0\" ]",
             "[ \"${'$'}UCLONE_IDENTITY_OWNER\" = \"${'$'}(/usr/bin/id -u):${'$'}(/usr/bin/id -g)\" ]",
         )
+    }
 
     private fun prepareWorkspace(directory: File): File = directory.canonicalFile.apply {
         deleteOnExit()
