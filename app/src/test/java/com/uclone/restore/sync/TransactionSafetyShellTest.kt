@@ -2,9 +2,29 @@ package com.uclone.restore.sync
 
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class TransactionSafetyShellTest {
+    @Test
+    fun cancelCheckpointBeforeTransactionInitDoesNotReadUnsetDirectory() {
+        val process = ProcessBuilder(
+            "/bin/sh",
+            "-c",
+            """
+                set -u
+                ${TransactionSafetyShell.functions()}
+                uclone_cancel_checkpoint PRECHECK
+                printf '%s\n' CHECKPOINT_OK
+            """.trimIndent(),
+        ).start()
+        val stdout = process.inputStream.bufferedReader().readText()
+        val stderr = process.errorStream.bufferedReader().readText()
+
+        assertEquals(0, process.waitFor(), stderr)
+        assertContains(stdout, "CHECKPOINT_OK")
+    }
+
     @Test
     fun journalIsPersistedBeforeMutationAndCarriesRecoveryState() {
         val script = TransactionSafetyShell.functions()

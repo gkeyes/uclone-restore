@@ -1,5 +1,6 @@
 package com.uclone.restore.root
 
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 
@@ -28,7 +29,7 @@ interface RootShellExecutor {
 class ProcessRootShellExecutor internal constructor(
     private val runner: SuProcessRunner,
 ) : RootShellExecutor {
-    constructor() : this(SystemSuProcessRunner)
+    constructor(scriptDirectory: File? = null) : this(RootSuProcessRunner(scriptDirectory = scriptDirectory))
 
     private val modeLock = Any()
     @Volatile private var invocationMode: SuInvocationMode? = null
@@ -115,8 +116,6 @@ internal fun interface SuProcessRunner {
         onOutput: (ShellOutput) -> Unit,
     ): ShellResult
 }
-
-private val SystemSuProcessRunner: SuProcessRunner = RootSuProcessRunner()
 
 private fun ShellResult.isMountMasterUnsupported(): Boolean {
     if (exitCode == 0) return false

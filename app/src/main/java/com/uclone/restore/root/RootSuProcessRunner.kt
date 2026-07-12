@@ -1,5 +1,9 @@
 package com.uclone.restore.root
 
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -8,6 +12,7 @@ internal class RootSuProcessRunner(
     private val executablePrefix: List<String> = listOf("su"),
     private val shellPath: String = "/system/bin/sh",
     timeoutGraceSeconds: Long = DEFAULT_TIMEOUT_GRACE_SECONDS,
+    private val scriptDirectory: File? = null,
 ) : SuProcessRunner {
     private val commandRunner = ProcessCommandRunner(executablePrefix, timeoutGraceSeconds)
 
@@ -19,36 +24,73 @@ internal class RootSuProcessRunner(
     ): ShellResult {
         require(args.size >= 2 && args[args.lastIndex - 1] == "-c")
         val invocationArgs = args.dropLast(1)
+        val scriptFile = try {
+            stageRootScript(args.last())
+        } catch (error: Exception) {
+            return ShellResult(
+                exitCode = 74,
+                stdout = "",
+                stderr = "Unable to stage root script: ${error.message ?: error.javaClass.simpleName}",
+                processStarts = 0,
+            )
+        }
         val rootPid = AtomicLong(-1L)
         val pidReady = CountDownLatch(1)
         val terminator = RootProcessTreeTerminator(executablePrefix, invocationArgs, rootPid, pidReady)
-        val wrappedArgs = invocationArgs + wrapRootCommand(args.last())
-        val result = commandRunner.runManaged(
-            args = wrappedArgs,
-            standardInput = standardInput,
-            timeoutSeconds = timeoutSeconds,
-            onOutput = { output ->
-                val pid = output.controlPidOrNull()
-                if (pid != null) {
-                    rootPid.compareAndSet(-1L, pid)
-                    pidReady.countDown()
-                } else {
-                    onOutput(output)
-                }
-            },
-            processTreeTerminator = terminator::signal,
-        )
-        val diagnostics = terminator.diagnostics()
-        return result.copy(
-            stdout = result.stdout.withoutRootPidControlLine(),
-            stderr = listOf(result.stderr.withoutRootPidControlLine(), diagnostics)
-                .filter(String::isNotBlank)
-                .joinToString("\n"),
-        )
+        return try {
+            val wrappedArgs = invocationArgs + wrapRootScript(scriptFile)
+            val result = commandRunner.runManaged(
+                args = wrappedArgs,
+                standardInput = standardInput,
+                timeoutSeconds = timeoutSeconds,
+                onOutput = { output ->
+                    val pid = output.controlPidOrNull()
+                    if (pid != null) {
+                        rootPid.compareAndSet(-1L, pid)
+                        pidReady.countDown()
+                    } else {
+                        onOutput(output)
+                    }
+                },
+                processTreeTerminator = terminator::signal,
+            )
+            val diagnostics = terminator.diagnostics()
+            result.copy(
+                stdout = result.stdout.withoutRootPidControlLine(),
+                stderr = listOf(result.stderr.withoutRootPidControlLine(), diagnostics)
+                    .filter(String::isNotBlank)
+                    .joinToString("\n"),
+            )
+        } finally {
+            if (!scriptFile.delete() && scriptFile.exists()) scriptFile.deleteOnExit()
+        }
     }
 
-    private fun wrapRootCommand(command: String): String =
-        "printf '${ROOT_PID_CONTROL_PREFIX}%s\\n' \"\$\$\" >&2; exec ${shellQuote(shellPath)} -c ${shellQuote(command)}"
+    private fun stageRootScript(command: String): File {
+        val file = File.createTempFile(ROOT_SCRIPT_PREFIX, ROOT_SCRIPT_SUFFIX, scriptDirectory)
+        try {
+            if (!file.setReadable(false, false) ||
+                !file.setWritable(false, false) ||
+                !file.setExecutable(false, false) ||
+                !file.setReadable(true, true) ||
+                !file.setWritable(true, true)
+            ) {
+                throw IOException("Unable to restrict staged script permissions")
+            }
+            FileOutputStream(file).use { output ->
+                output.write(command.toByteArray(StandardCharsets.UTF_8))
+                output.write('\n'.code)
+                output.fd.sync()
+            }
+            return file
+        } catch (error: Exception) {
+            file.delete()
+            throw error
+        }
+    }
+
+    private fun wrapRootScript(scriptFile: File): String =
+        "printf '${ROOT_PID_CONTROL_PREFIX}%s\\n' \"\$\$\" >&2; exec ${shellQuote(shellPath)} ${shellQuote(scriptFile.absolutePath)}"
 }
 
 private class RootProcessTreeTerminator(
@@ -182,6 +224,8 @@ private fun String.withoutRootPidControlLine(): String {
 }
 
 private const val ROOT_PID_CONTROL_PREFIX = "__UCLONE_ROOT_SHELL_PID__="
+private const val ROOT_SCRIPT_PREFIX = "uclone-root-"
+private const val ROOT_SCRIPT_SUFFIX = ".sh"
 private const val ROOT_PID_WAIT_MILLIS = 250L
 private const val ROOT_KILLER_WAIT_SECONDS = 2L
 private const val ROOT_KILLER_FORCE_WAIT_SECONDS = 1L

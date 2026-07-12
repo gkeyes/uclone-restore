@@ -43,7 +43,7 @@ class UCloneApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         val recoveryStartedAt = System.currentTimeMillis()
-        val shell = ProcessRootShellExecutor()
+        val shell = ProcessRootShellExecutor(cacheDir)
         val logStore = TaskLogStore(
             shell = shell,
             historyFile = filesDir.resolve("task_history_v2.jsonl"),

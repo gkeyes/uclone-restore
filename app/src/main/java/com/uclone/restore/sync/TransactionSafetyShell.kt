@@ -402,6 +402,7 @@ internal object TransactionSafetyShell {
         }
         uclone_cancel_checkpoint() {
           CANCEL_STAGE="${'$'}1"
+          [ -n "${'$'}{UCLONE_TXN_DIR:-}" ] || return 0
           [ ! -f "${'$'}UCLONE_TXN_DIR/cancel.requested" ] || {
             echo "UCLONE_CANCEL_ACCEPTED:stage=${'$'}CANCEL_STAGE"
             return 2

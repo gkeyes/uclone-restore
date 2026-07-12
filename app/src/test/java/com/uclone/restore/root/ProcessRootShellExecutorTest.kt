@@ -1,6 +1,7 @@
 package com.uclone.restore.root
 
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -328,6 +329,46 @@ class ProcessRootShellExecutorTest {
         assertFalse(commandCall.first.any { "123456" in it })
     }
 
+    @Test
+    fun largeScriptIsStagedOutsideSuArgumentsAndKeepsProtectedInputOnStdin() = runBlocking {
+        val commandLength = Files.createTempFile("uclone-su-command-length-", ".txt").toFile().apply {
+            deleteOnExit()
+        }
+        val scriptDirectory = Files.createTempDirectory("uclone-root-scripts-").toFile().apply {
+            deleteOnExit()
+        }
+        val fakeSu = createFakeSu(commandLength)
+        val executor = ProcessRootShellExecutor(
+            RootSuProcessRunner(
+                executablePrefix = listOf(fakeSu.absolutePath),
+                shellPath = "/bin/sh",
+                timeoutGraceSeconds = 1,
+                scriptDirectory = scriptDirectory,
+            ),
+        )
+        val largeCommand = buildString {
+            append("#")
+            append("x".repeat(200_000))
+            appendLine()
+            appendLine("IFS= read -r secret")
+            appendLine("[ \"${'$'}secret\" = \"123456\" ] || exit 63")
+            appendLine("printf '%s\\n' LARGE_SCRIPT_OK")
+        }
+
+        try {
+            val result = executor.execStreamingWithInput(largeCommand, "123456\n", 10) {}
+
+            assertEquals(0, result.exitCode, result.stderr)
+            assertTrue("LARGE_SCRIPT_OK" in result.stdout)
+            assertTrue(commandLength.readText().trim().toInt() < 16_384)
+            assertTrue(scriptDirectory.listFiles().isNullOrEmpty())
+        } finally {
+            fakeSu.delete()
+            commandLength.delete()
+            scriptDirectory.deleteRecursively()
+        }
+    }
+
     private fun isProcessAlive(pid: Long): Boolean {
         if (pid <= 0 || ProcessBuilder("/bin/kill", "-0", pid.toString()).start().waitFor() != 0) return false
         val stateProcess = ProcessBuilder("/bin/ps", "-o", "stat=", "-p", pid.toString()).start()
@@ -336,13 +377,15 @@ class ProcessRootShellExecutorTest {
         return !state.startsWith("Z")
     }
 
-    private fun createFakeSu() = Files.createTempFile("uclone-fake-su-", ".sh").toFile().apply {
+    private fun createFakeSu(commandLengthFile: File? = null) =
+        Files.createTempFile("uclone-fake-su-", ".sh").toFile().apply {
         writeText(
             """
                 #!/bin/sh
                 if [ "${'$'}1" = "-mm" ]; then shift; fi
                 [ "${'$'}1" = "-c" ] || exit 64
                 shift
+                ${commandLengthFile?.let { "printf '%s\\n' \"${'$'}{#1}\" > ${shellQuote(it.absolutePath)}" }.orEmpty()}
                 exec /bin/sh -c "${'$'}1"
             """.trimIndent(),
         )
