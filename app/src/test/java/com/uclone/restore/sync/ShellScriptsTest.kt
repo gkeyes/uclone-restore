@@ -1170,12 +1170,15 @@ class ShellScriptsTest {
             settings = settings,
             amCommand = fakeAm.absolutePath,
             sleepCommand = "/bin/sleep",
-            stopPollLimit = 50,
+            stopPollLimit = 2,
             stopPollIntervalSeconds = 0.01,
         )
         val process = ProcessBuilder("/bin/bash", "-c", script)
             .redirectErrorStream(true)
-            .apply { environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath }
+            .apply {
+                environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath
+                environment()["TMPDIR"] = directory.toAbsolutePath().toString()
+            }
             .start()
         val output = process.inputStream.bufferedReader().readText()
         return StopScriptResult(process.waitFor(), output)
@@ -1192,12 +1195,15 @@ class ShellScriptsTest {
             settings = settings,
             amCommand = fakeAm.absolutePath,
             sleepCommand = "/bin/sleep",
-            startPollLimit = 50,
+            startPollLimit = 2,
             startPollIntervalSeconds = 0.01,
         )
         val process = ProcessBuilder("/bin/bash", "-c", script)
             .redirectErrorStream(true)
-            .apply { environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath }
+            .apply {
+                environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath
+                environment()["TMPDIR"] = directory.toAbsolutePath().toString()
+            }
             .start()
         val output = process.inputStream.bufferedReader().readText()
         return StopScriptResult(process.waitFor(), output)
