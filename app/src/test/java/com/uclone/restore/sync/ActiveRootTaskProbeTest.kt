@@ -15,9 +15,23 @@ class ActiveRootTaskProbeTest {
         val state = ActiveRootTaskProbe(shell).probe("/data/adb/uclone")
 
         assertEquals(ActiveRootTaskState("request-1", isLive = true), state)
+        assertTrue("active_task.claim" in shell.command)
+        assertTrue("active_task/state" in shell.command)
         assertTrue("kill -0" in shell.command)
         assertTrue("rm " !in shell.command)
         assertTrue("mv " !in shell.command)
+    }
+
+    @Test
+    fun probeFailureCannotBeMisreportedAsNoActiveTask() = runBlocking {
+        val shell = object : RootShellExecutor {
+            override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult =
+                ShellResult(75, "", "ERR_ACTIVE_ROOT_TASK_UNSAFE_CLAIM")
+        }
+
+        val error = runCatching { ActiveRootTaskProbe(shell).probe("/data/adb/uclone") }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
     }
 
     private class RecordingShell(private val output: String) : RootShellExecutor {

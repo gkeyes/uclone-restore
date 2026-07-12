@@ -16,6 +16,7 @@ val TaskType.userFacingLabel: String
         TaskType.RESET_SWITCH_STATE -> "重置切换状态"
         TaskType.DELETE_SNAPSHOT -> "删除主动备份"
         TaskType.DELETE_RESTORE_BACKUP -> "删除被动备份"
+        TaskType.DELETE_CLONE_ROLLBACK -> "删除分身回滚"
         TaskType.PROBE_CLONE_CE -> "检测分身 CE"
         TaskType.UNLOCK_CLONE_WITH_CREDENTIAL -> "解锁分身"
         TaskType.DEBUG_CLONE_SYSTEM -> "诊断分身系统"
@@ -25,10 +26,12 @@ val TaskType.userFacingLabel: String
         TaskType.START_CLONE_USER -> "启动分身用户"
         TaskType.SWITCH_TO_CLONE_USER -> "进入分身用户"
         TaskType.STOP_CLONE_USER -> "关闭分身用户"
+        TaskType.SCAN_WORKSPACE_OWNERSHIP -> "扫描备份容量归属"
         TaskType.REPAIR_WORKSPACE_OWNERSHIP -> "修复备份容量归属"
         TaskType.INSTALL_TO_OTHER_USER -> "安装到另一用户"
         TaskType.INSTALL_WITH_PERMISSIONS_TO_OTHER_USER -> "安装并迁移权限"
         TaskType.INSTALL_AND_SYNC_TO_OTHER_USER -> "安装并同步数据"
+        TaskType.RECOVER_INTERRUPTED_TRANSACTION -> "恢复未完成事务"
     }
 
 val TaskStatus.userFacingLabel: String
@@ -41,5 +44,6 @@ val TaskStatus.userFacingLabel: String
         TaskStatus.SUCCESS_WITH_WARNINGS -> "成功（有警告）"
         TaskStatus.FAILED -> "失败"
         TaskStatus.FAILED_FATAL -> "严重失败"
+        TaskStatus.RECOVERY_REQUIRED -> "需要安全恢复"
         TaskStatus.INTERRUPTED -> "已中断"
     }

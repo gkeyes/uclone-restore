@@ -77,6 +77,8 @@ class TaskLogStoreTest {
                 backupId = "backup-1",
                 path = "/data/adb/uclone/rollback/com.example.app/backup-1",
                 sizeKb = 512,
+                totalEntries = 2_048,
+                nonRootEntries = 64,
             ),
         )
         firstStore.finish(task, TaskStatus.SUCCESS, "deleted")
@@ -88,6 +90,8 @@ class TaskLogStoreTest {
         assertEquals("backup-1", audit.backupId)
         assertEquals("/data/adb/uclone/rollback/com.example.app/backup-1", audit.path)
         assertEquals(512L, audit.sizeKb)
+        assertEquals(2_048L, audit.totalEntries)
+        assertEquals(64L, audit.nonRootEntries)
     }
 
     @Test

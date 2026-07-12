@@ -119,6 +119,10 @@ class ExternalActionRequestTest {
         assertEquals(TaskType.RESET_WORKSPACE, taskTypeForOperation(ExternalActionContract.OPERATION_RESET_WORKSPACE))
         assertEquals(TaskType.STOP_CLONE_USER, taskTypeForOperation(ExternalActionContract.OPERATION_STOP_CLONE_USER))
         assertEquals(
+            TaskType.SCAN_WORKSPACE_OWNERSHIP,
+            taskTypeForOperation(ExternalActionContract.OPERATION_SCAN_WORKSPACE_OWNERSHIP),
+        )
+        assertEquals(
             TaskType.INSTALL_AND_SYNC_TO_OTHER_USER,
             taskTypeForOperation(ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER),
         )
@@ -144,5 +148,21 @@ class ExternalActionRequestTest {
 
         assertNull(missingTarget)
         assertEquals(10, valid?.targetUserId)
+    }
+
+    @Test
+    fun compatibilityOverridesAreCarriedOnlyAfterExplicitParsing() {
+        val request = ExternalActionRequest.parse(
+            protocolVersion = ExternalActionContract.PROTOCOL_VERSION,
+            operation = ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP,
+            packageName = "com.example.app",
+            requestId = "restore-compatibility",
+            source = ExternalActionContract.SOURCE_APP,
+            allowVersionMismatch = true,
+            allowLegacyIdentity = true,
+        )
+
+        assertEquals(true, request?.allowVersionMismatch)
+        assertEquals(true, request?.allowLegacyIdentity)
     }
 }

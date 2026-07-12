@@ -125,16 +125,18 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                     enabled = !state.busy,
                     onClick = { confirm = ConfirmAction.INSTALL_PERMISSIONS },
                 )
-                ToolDivider()
-                AppToolRow(
-                    title = "安装并同步 user$installSourceUserId 数据",
-                    description = "安装后复用现有安全同步流程；需要分身数据时才会按设置解锁 CE。同步失败也保留安装结果。",
-                    actionLabel = "执行",
-                    icon = Icons.Outlined.Sync,
-                    warning = true,
-                    enabled = !state.busy,
-                    onClick = { confirm = ConfirmAction.INSTALL_AND_SYNC },
-                )
+                if (!app.isSystemApp) {
+                    ToolDivider()
+                    AppToolRow(
+                        title = "安装并同步 user$installSourceUserId 数据",
+                        description = "安装后复用现有安全同步流程；需要分身数据时才会按设置解锁 CE。同步失败也保留安装结果。",
+                        actionLabel = "执行",
+                        icon = Icons.Outlined.Sync,
+                        warning = true,
+                        enabled = !state.busy,
+                        onClick = { confirm = ConfirmAction.INSTALL_AND_SYNC },
+                    )
+                }
             }
         }
         SectionCard("主动备份") {
@@ -192,7 +194,15 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         }
         val switched = state.selectedSwitchRollbackId != null
         val bothUsersInstalled = app.user0Installed && app.user10Installed
+        val dataActionsEnabled = !app.isSystemApp
         SectionCard("操作工具", glass = false) {
+            if (!dataActionsEnabled) {
+                Text(
+                    "系统 App 只允许高级跨用户安装，不允许备份、切换或覆盖真实数据。",
+                    color = IosOrange,
+                )
+                ToolDivider()
+            }
             InfoRow(
                 "主系统当前数据",
                 if (switched) "来自分身系统 · 可还原" else "主系统原始状态 · 可切换",
@@ -201,14 +211,18 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             AppToolRow(
                 title = if (switched) "还原切换前的主系统状态" else "切换到分身当前登录状态",
                 description = if (switched) {
-                    "使用本次切换前自动生成的 user${state.settings.mainUserId} 被动备份恢复主系统，并结束切换状态。"
+                    if (state.settings.forceUpdateCloneDataBeforeMainRestore) {
+                        "先把 user${state.settings.mainUserId} 当前分身态数据同步回 user${state.settings.cloneUserId}，成功后再恢复切换前的主数据并结束切换状态。"
+                    } else {
+                        "使用本次切换前自动生成的 user${state.settings.mainUserId} 被动备份恢复主系统，并结束切换状态。"
+                    }
                 } else {
-                    "读取 user${state.settings.cloneUserId} 当前最新数据；先保存主系统被动备份，再覆盖 user${state.settings.mainUserId}。"
+                    "读取 user${state.settings.cloneUserId} 当前最新数据；先确保主系统有长期返回点和本次任务临时回滚，再覆盖 user${state.settings.mainUserId}。"
                 },
                 actionLabel = if (switched) "还原" else "切换",
                 icon = if (switched) Icons.Outlined.Restore else Icons.Outlined.SwapHoriz,
                 primary = !switched,
-                enabled = (if (switched) app.user0Installed else bothUsersInstalled) && !state.busy,
+                enabled = dataActionsEnabled && (if (switched) app.user0Installed else bothUsersInstalled) && !state.busy,
                 onClick = { confirm = if (switched) ConfirmAction.RESTORE_SWITCH else ConfirmAction.SWITCH },
             )
             ToolDivider()
@@ -217,7 +231,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 description = "读取 user${state.settings.cloneUserId} 当前最新数据并写入 active；不会修改主系统 App 数据。",
                 actionLabel = "建立",
                 icon = Icons.Outlined.CloudUpload,
-                enabled = app.user10Installed && !state.busy,
+                enabled = dataActionsEnabled && app.user10Installed && !state.busy,
                 onClick = { confirm = ConfirmAction.CAPTURE },
             )
             ToolDivider()
@@ -226,7 +240,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 description = "只读取已保存的 active 并覆盖 user${state.settings.mainUserId}；不会读取分身当前数据。",
                 actionLabel = "恢复",
                 icon = Icons.Outlined.Restore,
-                enabled = app.user0Installed && app.lastSnapshotAt != null && !state.busy,
+                enabled = dataActionsEnabled && app.user0Installed && app.lastSnapshotAt != null && !state.busy,
                 onClick = { confirm = ConfirmAction.RESTORE },
             )
             ToolDivider()
@@ -235,7 +249,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 description = "先用 user${state.settings.cloneUserId} 当前数据更新 active，再把 active 恢复到 user${state.settings.mainUserId}。",
                 actionLabel = "执行",
                 icon = Icons.Outlined.Sync,
-                enabled = bothUsersInstalled && !state.busy,
+                enabled = dataActionsEnabled && bothUsersInstalled && !state.busy,
                 onClick = { confirm = ConfirmAction.LATEST },
             )
             ToolDivider()
@@ -279,17 +293,21 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             highRisk = state.selectedApp?.riskLevel != RiskLevel.NORMAL,
             mainUserId = state.settings.mainUserId,
             cloneUserId = state.settings.cloneUserId,
+            forceUpdateCloneDataBeforeMainRestore = state.settings.forceUpdateCloneDataBeforeMainRestore,
             installSourceUserId = installSourceUserId,
             installTargetUserId = installTargetUserId,
             systemApp = app?.isSystemApp == true,
             onDismiss = { confirm = null },
-            onConfirm = {
+            onConfirm = { allowVersionMismatch, allowLegacyIdentity ->
                 confirm = null
                 when (action) {
                     ConfirmAction.SWITCH -> viewModel.switchToCloneStateSelected()
-                    ConfirmAction.RESTORE_SWITCH -> viewModel.restoreSwitchMainStateSelected()
+                    ConfirmAction.RESTORE_SWITCH -> viewModel.restoreSwitchMainStateSelected(
+                        allowVersionMismatch,
+                        allowLegacyIdentity,
+                    )
                     ConfirmAction.CAPTURE -> viewModel.captureSelected()
-                    ConfirmAction.RESTORE -> viewModel.restoreSelected()
+                    ConfirmAction.RESTORE -> viewModel.restoreSelected(allowVersionMismatch, allowLegacyIdentity)
                     ConfirmAction.LATEST -> viewModel.restoreLatestSelected()
                     ConfirmAction.AUDIT -> viewModel.auditRestoreConsistencySelected()
                     ConfirmAction.RESET_SWITCH -> viewModel.resetSwitchStateSelected()
@@ -439,12 +457,15 @@ private fun ConfirmDialog(
     highRisk: Boolean,
     mainUserId: Int,
     cloneUserId: Int,
+    forceUpdateCloneDataBeforeMainRestore: Boolean,
     installSourceUserId: Int?,
     installTargetUserId: Int?,
     systemApp: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
+    onConfirm: (Boolean, Boolean) -> Unit,
 ) {
+    var allowVersionMismatch by remember(action) { mutableStateOf(false) }
+    var allowLegacyIdentity by remember(action) { mutableStateOf(false) }
     val title = when (action) {
         ConfirmAction.SWITCH -> "切换到分身当前登录状态"
         ConfirmAction.RESTORE_SWITCH -> "还原切换前的主系统状态"
@@ -459,8 +480,12 @@ private fun ConfirmDialog(
         ConfirmAction.INSTALL_AND_SYNC -> "安装并同步 App 数据"
     }
     val body = when (action) {
-        ConfirmAction.SWITCH -> "会先把主系统 user$mainUserId 当前数据保存为被动备份，再读取分身 user$cloneUserId 最新数据并覆盖 user$mainUserId。完成后按钮会变为“还原”。"
-        ConfirmAction.RESTORE_SWITCH -> "会读取本次切换前自动生成的 user$mainUserId 被动备份，覆盖主系统当前数据并结束切换状态。"
+        ConfirmAction.SWITCH -> "会先确保主系统 user$mainUserId 有长期返回点，并建立本次任务专属临时回滚，再读取分身 user$cloneUserId 最新数据覆盖主系统。完成后按钮会变为“还原”。"
+        ConfirmAction.RESTORE_SWITCH -> if (forceUpdateCloneDataBeforeMainRestore) {
+            "会先把 user$mainUserId 当前分身态数据同步回 user$cloneUserId；只有同步成功后，才会读取切换前的被动备份恢复主数据并结束切换状态。同步失败时主数据不会还原。"
+        } else {
+            "会读取本次切换前自动生成的 user$mainUserId 被动备份，覆盖主系统当前数据并结束切换状态。"
+        }
         ConfirmAction.CAPTURE -> "会读取分身 user$cloneUserId 当前最新数据并更新 active；不会修改主系统 user$mainUserId。旧 active 会移动到 history。"
         ConfirmAction.RESTORE -> "会读取已保存的 active 主动备份并覆盖主系统 user$mainUserId；不会读取分身 user$cloneUserId 当前数据。"
         ConfirmAction.LATEST -> "会先读取分身 user$cloneUserId 最新数据更新 active，再用 active 覆盖主系统 user$mainUserId。"
@@ -492,11 +517,23 @@ private fun ConfirmDialog(
             add("这是系统 App。你已在高级设置中允许跨用户安装，请确认目标用户和系统兼容性。")
         }
     }
-    val text = (listOf(body) + warnings).joinToString("\n\n")
+    val compatibilityOptions = action == ConfirmAction.RESTORE || action == ConfirmAction.RESTORE_SWITCH
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { Text(text) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text((listOf(body) + warnings).joinToString("\n\n"))
+                if (compatibilityOptions) {
+                    RestoreCompatibilityControls(
+                        allowVersionMismatch = allowVersionMismatch,
+                        allowLegacyIdentity = allowLegacyIdentity,
+                        onAllowVersionMismatchChange = { allowVersionMismatch = it },
+                        onAllowLegacyIdentityChange = { allowLegacyIdentity = it },
+                    )
+                }
+            }
+        },
         confirmButton = {
             IosDialogButton(
                 text = when (action) {
@@ -508,7 +545,7 @@ private fun ConfirmDialog(
                     ConfirmAction.INSTALL_AND_SYNC -> "安装并同步"
                     else -> "继续"
                 },
-                onClick = onConfirm,
+                onClick = { onConfirm(allowVersionMismatch, allowLegacyIdentity) },
                 primary = action != ConfirmAction.DELETE && action != ConfirmAction.RESET_SWITCH,
                 danger = action == ConfirmAction.DELETE,
                 semanticTint = if (action == ConfirmAction.RESET_SWITCH) IosOrange else null,

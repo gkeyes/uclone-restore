@@ -11,7 +11,6 @@ import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskStep
 import com.uclone.restore.model.TaskType
 import com.uclone.restore.model.UCloneSettings
-import com.uclone.restore.model.WorkspaceOwnershipReport
 import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.root.RootEnvironmentChecker
 import com.uclone.restore.root.RootShellExecutor
@@ -29,8 +28,12 @@ class SyncEngine(
     private val environmentChecker: RootEnvironmentChecker,
     private val logStore: TaskRepository,
     private val appPackage: String,
+    private val signingIdentityProvider: PackageSigningIdentityProvider,
 ) {
     suspend fun checkEnvironment(settings: UCloneSettings) = environmentChecker.check(settings)
+
+    suspend fun validateSettingsTarget(settings: UCloneSettings) =
+        environmentChecker.validateSettingsTarget(settings)
 
     suspend fun loadWorkspaceIndex(settings: UCloneSettings): WorkspaceIndex {
         val result = shell.exec(workspaceIndexScript(settings.rootDir), 60)
@@ -41,16 +44,23 @@ class SyncEngine(
         return WorkspaceIndexParser.parse(result.stdout)
     }
 
-    suspend fun scanWorkspaceOwnership(settings: UCloneSettings): WorkspaceOwnershipReport {
-        val result = shell.exec(WorkspaceOwnershipScripts.scan(settings.rootDir), 300)
-        check(result.isSuccess) { taskFailureMessage(result) }
-        return checkNotNull(WorkspaceOwnershipReportParser.parse(result.stdout)) {
-            "无法解析备份容量归属扫描结果"
-        }
-    }
+    suspend fun scanWorkspaceOwnership(
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.SCAN_WORKSPACE_OWNERSHIP,
+        packageName = "workspace",
+        settings = settings,
+        labels = listOf("检查工作区", "扫描文件归属", "汇总容量"),
+        script = WorkspaceOwnershipScripts.scanTask(settings.rootDir),
+        report = report,
+        requestId = requestId,
+    )
 
     suspend fun repairWorkspaceOwnership(
         settings: UCloneSettings,
+        expectedCanonicalRoot: String,
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
     ): TaskRecord = runScriptTask(
@@ -58,7 +68,7 @@ class SyncEngine(
         packageName = "workspace",
         settings = settings,
         labels = listOf("检查工作区", "扫描文件归属", "分批修复归属", "验证结果", "写入完成标记"),
-        script = WorkspaceOwnershipScripts.repair(settings.rootDir),
+        script = WorkspaceOwnershipScripts.repair(settings.rootDir, expectedCanonicalRoot),
         report = report,
         requestId = requestId,
     )
@@ -119,12 +129,14 @@ class SyncEngine(
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
+        compatibility: RestoreCompatibilityOptions = RestoreCompatibilityOptions(),
     ): TaskRecord = restoreSnapshotTask(
         type = TaskType.RESTORE_SNAPSHOT_TO_MAIN,
         packageName = packageName,
         settings = settings,
         report = report,
         requestId = requestId,
+        compatibility = compatibility,
     )
 
     suspend fun restoreFromCloneLatest(
@@ -173,12 +185,13 @@ class SyncEngine(
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
         requestId: String,
+        compatibility: RestoreCompatibilityOptions,
     ): TaskRecord = runScriptTask(
         type = type,
         packageName = packageName,
         settings = settings,
         labels = listOf("检查 root", "读取主动备份", "生成被动备份", "覆盖目录内容", "恢复权限/AppOps", "完成"),
-        script = ShellScripts.restore(packageName, settings, appPackage),
+        script = ShellScripts.restore(packageName, settings, appPackage, compatibility),
         report = report,
         requestId = requestId,
     )
@@ -224,12 +237,13 @@ class SyncEngine(
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
+        compatibility: RestoreCompatibilityOptions = RestoreCompatibilityOptions(),
     ): TaskRecord = runScriptTask(
         type = TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE,
         packageName = packageName,
         settings = settings,
         labels = listOf("检查 root", "读取分身回滚", "备份分身当前数据", "恢复到分身", "恢复权限/AppOps", "完成"),
-        script = ShellScripts.restoreCloneRollback(packageName, settings, appPackage),
+        script = ShellScripts.restoreCloneRollback(packageName, settings, appPackage, compatibility),
         report = report,
         requestId = requestId,
     )
@@ -237,20 +251,27 @@ class SyncEngine(
     suspend fun restoreSwitchMainState(
         packageName: String,
         rollbackId: String,
+        rule: AppRule,
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
+        compatibility: RestoreCompatibilityOptions = RestoreCompatibilityOptions(),
     ): TaskRecord = runScriptTask(
         type = TaskType.RESTORE_SWITCH_MAIN_STATE,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取切换前被动备份", "生成被动备份", "恢复主系统态", "清除切换标记", "完成"),
-        script = ShellScripts.rollback(
-            packageName,
-            rollbackId,
-            settings,
-            appPackage,
-            rollbackReason = "还原主系统态前生成",
+        labels = if (settings.forceUpdateCloneDataBeforeMainRestore) {
+            listOf("检查 root", "更新分系统数据", "读取切换前被动备份", "恢复主系统态", "清除切换标记", "完成")
+        } else {
+            listOf("检查 root", "读取切换前被动备份", "生成被动备份", "恢复主系统态", "清除切换标记", "完成")
+        },
+        script = ShellScripts.restoreSwitchMainState(
+            packageName = packageName,
+            rollbackId = rollbackId,
+            rule = rule,
+            settings = settings,
+            appPackage = appPackage,
+            compatibility = compatibility,
         ),
         report = report,
         requestId = requestId,
@@ -262,12 +283,19 @@ class SyncEngine(
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
+        compatibility: RestoreCompatibilityOptions = RestoreCompatibilityOptions(),
     ): TaskRecord = runScriptTask(
         type = TaskType.ROLLBACK_MAIN_DATA,
         packageName = packageName,
         settings = settings,
         labels = listOf("检查 root", "读取被动备份", "停止相关进程", "恢复旧数据", "恢复权限/AppOps", "结束切换会话", "完成"),
-        script = ShellScripts.rollback(packageName, rollbackId, settings, appPackage),
+        script = ShellScripts.rollback(
+            packageName,
+            rollbackId,
+            settings,
+            appPackage,
+            compatibility = compatibility,
+        ),
         report = report,
         requestId = requestId,
     )
@@ -325,7 +353,7 @@ class SyncEngine(
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
     ): TaskRecord = runScriptTask(
-        type = TaskType.DELETE_RESTORE_BACKUP,
+        type = TaskType.DELETE_CLONE_ROLLBACK,
         packageName = packageName,
         settings = settings,
         labels = listOf("检查 root", "读取分身回滚", "删除指定备份", "完成"),
@@ -333,6 +361,45 @@ class SyncEngine(
         report = report,
         requestId = requestId,
     )
+
+    suspend fun recoverInterruptedTransaction(
+        transactionRequestId: String,
+        packageName: String,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.RECOVER_INTERRUPTED_TRANSACTION,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查事务记录", "确认 App 门禁", "验证回滚数据", "自动回滚", "恢复 App 状态"),
+        script = TransactionRecoveryShell.build(transactionRequestId, settings),
+        report = report,
+        requestId = requestId,
+        relatedTransactionId = transactionRequestId,
+    )
+
+    suspend fun requestTransactionCancel(requestId: String, settings: UCloneSettings): Boolean {
+        require(requestId.matches(Regex("[A-Za-z0-9_.-]{1,128}")))
+        val transactionDir = "${settings.rootDir}/transactions/$requestId"
+        val result = shell.exec(
+            """
+                ${WorkspacePathGuard.require(settings.rootDir)}
+                TRANSACTION_DIR=${shellQuote(transactionDir)}
+                TRANSACTION_JSON="${'$'}TRANSACTION_DIR/transaction.json"
+                CANCEL_PATH="${'$'}TRANSACTION_DIR/cancel.requested"
+                [ -f "${'$'}TRANSACTION_JSON" ] || exit 2
+                CANCEL_TMP="${'$'}CANCEL_PATH.tmp.${'$'}${'$'}"
+                printf '%s\n' "${'$'}(/system/bin/date +%s%3N 2>/dev/null || /system/bin/date +%s)" > "${'$'}CANCEL_TMP" || exit 3
+                chmod 600 "${'$'}CANCEL_TMP" || exit 3
+                mv -f "${'$'}CANCEL_TMP" "${'$'}CANCEL_PATH" || exit 3
+                sync
+                echo "TRANSACTION_CANCEL_REQUESTED=$requestId"
+            """.trimIndent(),
+            timeoutSeconds = 5,
+        )
+        return result.isSuccess
+    }
 
     suspend fun probeCloneCe(
         settings: UCloneSettings,
@@ -402,6 +469,7 @@ class SyncEngine(
     suspend fun snapshotMetadata(settings: UCloneSettings): Map<String, SnapshotMetadata> {
         val root = "${settings.rootDir}/snapshots"
         val script = """
+            ${WorkspacePathGuard.inspect(settings.rootDir)}
             [ -d ${shellQuote(root)} ] || exit 0
             for f in ${shellQuote(root)}/*/active/manifest.json; do
               [ -f "${'$'}f" ] || continue
@@ -431,6 +499,7 @@ class SyncEngine(
         val root = settings.rootDir
         val switchRoot = "$root/switches"
         val script = """
+            ${WorkspacePathGuard.inspect(settings.rootDir)}
             [ -d ${shellQuote(switchRoot)} ] || exit 0
             for f in ${shellQuote(switchRoot)}/*/active; do
               [ -f "${'$'}f" ] || continue
@@ -457,6 +526,7 @@ class SyncEngine(
         val path = "${settings.rootDir}/rollback/$packageName"
         val result = shell.exec(
             """
+                ${WorkspacePathGuard.inspect(settings.rootDir)}
                 [ -d ${shellQuote(path)} ] || exit 0
                 for d in ${shellQuote(path)}/*; do
                   [ -f "${'$'}d/manifest.json" ] || continue
@@ -471,7 +541,7 @@ class SyncEngine(
     suspend fun listRestoreBackups(settings: UCloneSettings): List<RestoreBackupEntry> {
         val rollbackRoot = "${settings.rootDir}/rollback"
         val switchRoot = "${settings.rootDir}/switches"
-        val script = restoreBackupListScript(rollbackRoot, switchRoot)
+        val script = "${WorkspacePathGuard.inspect(settings.rootDir)}\n${restoreBackupListScript(rollbackRoot, switchRoot)}"
         val result = shell.exec(script, 30)
         return result.stdout.lineSequence().mapNotNull { line ->
             val parts = line.split("\t", limit = 7)
@@ -499,6 +569,7 @@ class SyncEngine(
     suspend fun listCloneRollbackBackups(settings: UCloneSettings): List<RestoreBackupEntry> {
         val root = "${settings.rootDir}/clone_rollback"
         val script = """
+            ${WorkspacePathGuard.inspect(settings.rootDir)}
             CLONE_ROLLBACK_ROOT=${shellQuote(root)}
             [ -d "${'$'}CLONE_ROLLBACK_ROOT" ] || exit 0
             for d in "${'$'}CLONE_ROLLBACK_ROOT"/*/latest; do
@@ -624,6 +695,7 @@ class SyncEngine(
         script: String,
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
+        relatedTransactionId: String? = null,
     ): TaskRecord {
         val timestamp = System.currentTimeMillis()
         val logPath = "${settings.rootDir}/logs/${type.name.lowercase()}_${packageName}_$timestamp.log"
@@ -636,10 +708,19 @@ class SyncEngine(
         val throttle = TaskProgressThrottle()
         var progressTask = task
         val progressLock = Any()
+        val identityBoundScript = if (type in PACKAGE_IDENTITY_TASKS) {
+            val certificateSha256 = signingIdentityProvider.certificateSha256(packageName)
+            check(SIGNING_CERTIFICATE_SET.matches(certificateSha256)) {
+                "无法确认 $packageName 的签名证书 SHA-256"
+            }
+            "UCLONE_EXPECTED_SIGNING_CERTIFICATE_SHA256=${shellQuote(certificateSha256)}\n$script"
+        } else {
+            script
+        }
         val command = RootTaskScript.wrap(
             logPath = logPath,
             header = "TASK=$type\nREQUEST_ID=$requestId\nPACKAGE=$packageName\nSTART=$timestamp\nSTART_LOCAL=${formatLocalTime(timestamp)}\n",
-            body = script,
+            body = identityBoundScript,
             startedAt = timestamp,
             activeTask = ActiveRootTask(
                 rootDir = settings.rootDir,
@@ -647,6 +728,7 @@ class SyncEngine(
                 taskType = type.name,
                 packageName = packageName,
                 startedAt = timestamp,
+                recoveryTransactionId = relatedTransactionId,
             ),
         )
         val handleOutput: (ShellOutput) -> Unit = { output ->
@@ -688,7 +770,7 @@ class SyncEngine(
         } else {
             baseStatus
         }
-        val rootUnavailable = "ERR_ROOT_UNAVAILABLE:" in result.stdout || "ERR_ROOT_UNAVAILABLE:" in result.stderr
+        val rootUnavailable = RootTaskOutput.from(result).has("ERR_ROOT_UNAVAILABLE")
         steps = if (rootUnavailable) {
             failRemaining(steps, 0)
         } else if (status.isSuccessful) {
@@ -701,7 +783,7 @@ class SyncEngine(
             TaskStatus.SUCCESS_WITH_WARNINGS,
             -> TaskResultMessages.successMessage(liveLog) + if (result.outputTruncated) "；运行输出过长，完整内容请查看任务日志" else ""
             else -> TaskResultMessages.fatalInstallMessage(liveLog)
-                ?: TaskOutcome.failureMessage(status)
+                ?: TaskOutcome.failureMessage(status, result)
                 ?: taskFailureMessage(result)
         }
         val metrics = TaskMetricsParser.parse(
@@ -711,6 +793,7 @@ class SyncEngine(
         )
         val auditedTask = task.copy(
             audit = TaskAuditParser.enrich(task.audit, type, result.stdout + "\n" + result.stderr),
+            outcomeCode = TaskOutcome.code(result, status),
         )
         val finished = logStore.finish(auditedTask, status, message, metrics)
         report(TaskProgress(finished, steps, liveLog))
@@ -718,41 +801,80 @@ class SyncEngine(
     }
 
     private fun taskFailureMessage(result: ShellResult): String {
-        val output = result.stderr + "\n" + result.stdout
+        val events = RootTaskOutput.from(result)
         return when {
-            "ERR_ROOT_UNAVAILABLE:" in output -> "Root 权限不可用"
-            "ERR_ACTIVE_ROOT_TASK:" in output -> "另一个 Root 数据任务仍在运行，请等待其结束"
-            "ERR_SELF_INSTALL" in output -> "不允许把 UClone 自身安装到另一用户"
-            "ERR_INSTALL_SOURCE_MISSING" in output -> "源用户未安装此 App，无法安装到另一侧"
-            "ERR_INSTALL_EXISTING_FAILED" in output -> "系统拒绝为目标用户启用此 App"
-            "ERR_INSTALL_VERIFY_TIMEOUT" in output -> "系统已接收安装请求，但未能确认目标用户安装"
-            "ERR_INSUFFICIENT_SPACE:" in output -> "存储空间不足，任务未停止目标 App，也未写入数据"
-            "ERR_SPACE_UNKNOWN:" in output || "ERR_SPACE_ESTIMATE:" in output -> "无法确认可用空间，任务未执行"
-            "ERR_CLONE_AUTO_UNLOCK_DISABLED" in output -> "分身未解锁，请开启分身自动解锁或先手动解锁"
-            "ERR_CLONE_PIN_MISSING" in output -> "请先在设置中填写分身锁屏 PIN/密码"
-            "ERR_CLONE_PIN_VERIFY_FAILED:BAD_CREDENTIAL" in output -> "分身 PIN 验证失败"
-            "ERR_CLONE_PIN_VERIFY_FAILED:THROTTLED" in output -> "PIN 验证被系统限流，请稍后再试"
-            "ERR_CLONE_PIN_VERIFY_FAILED:UNIFIED_CHALLENGE_UNSUPPORTED" in output -> "分身使用统一锁屏凭据，当前系统不支持后台验证"
-            "ERR_CLONE_PIN_VERIFY_FAILED:UNSUPPORTED" in output -> "当前系统不支持命令行验证分身 PIN"
-            "ERR_CLONE_UNLOCK_TIMEOUT" in output -> "分身解锁超时，请确认 PIN 和系统状态"
-            "ERR_PACKAGE_NOT_LISTED_TARGET" in output -> "分身系统未安装此 App，无法推送"
-            "ERR_PACKAGE_NOT_LISTED_SOURCE" in output -> "主系统未安装此 App，无法推送"
-            "ERR_PACKAGE_NOT_LISTED" in output -> "分身系统未安装此 App，未执行备份或切换"
-            "ERR_MAIN_STATE_BACKUP_MISSING" in output -> "缺少可返回的主系统数据备份，未更新切换状态"
-            "ERR_BACKUP_STATE_UNKNOWN" in output -> "旧备份没有主系统/分身来源标识，为避免状态错乱已停止恢复"
-            "ERR_PUSH_CE_MISSING" in output -> "主系统 CE 数据缺失，未执行推送"
-            "ERR_FORCE_STOP_FAILED" in output -> "无法停止分身 App，未读取或写入数据"
-            "ERR_UNTRUSTED_WORKSPACE" in output -> "当前保存路径不是受信任的 UClone 工作区，未修改任何文件"
-            "ERR_WORKSPACE_SYMLINK" in output || "ERR_UNSAFE_WORKSPACE_TARGET" in output ->
+            events.has("ERR_ROOT_UNAVAILABLE") -> "Root 权限不可用"
+            events.has("ERR_ACTIVE_ROOT_TASK") || events.has("ERR_ACTIVE_ROOT_TASK_INITIALIZING") ->
+                "另一个 Root 数据任务仍在运行，请等待其结束"
+            events.has("ERR_SELF_INSTALL") -> "不允许把 UClone 自身安装到另一用户"
+            events.has("ERR_INSTALL_SOURCE_MISSING") -> "源用户未安装此 App，无法安装到另一侧"
+            events.has("ERR_INSTALL_EXISTING_FAILED") -> "系统拒绝为目标用户启用此 App"
+            events.has("ERR_INSTALL_VERIFY_TIMEOUT") -> "系统已接收安装请求，但未能确认目标用户安装"
+            events.has("ERR_INSUFFICIENT_SPACE") -> "存储空间不足，任务未停止目标 App，也未写入数据"
+            events.has("ERR_SPACE_UNKNOWN") || events.has("ERR_SPACE_ESTIMATE") -> "无法确认可用空间，任务未执行"
+            events.has("ERR_CLONE_AUTO_UNLOCK_DISABLED") -> "分身未解锁，请开启分身自动解锁或先手动解锁"
+            events.has("ERR_CLONE_PIN_MISSING") -> "请先在设置中填写分身锁屏 PIN/密码"
+            events.first("ERR_CLONE_PIN_VERIFY_FAILED")?.contains(":BAD_CREDENTIAL") == true -> "分身 PIN 验证失败"
+            events.first("ERR_CLONE_PIN_VERIFY_FAILED")?.contains(":THROTTLED") == true -> "PIN 验证被系统限流，请稍后再试"
+            events.first("ERR_CLONE_PIN_VERIFY_FAILED")?.contains(":UNIFIED_CHALLENGE_UNSUPPORTED") == true ->
+                "分身使用统一锁屏凭据，当前系统不支持后台验证"
+            events.first("ERR_CLONE_PIN_VERIFY_FAILED")?.contains(":UNSUPPORTED") == true -> "当前系统不支持命令行验证分身 PIN"
+            events.has("ERR_CLONE_UNLOCK_TIMEOUT") -> "分身解锁超时，请确认 PIN 和系统状态"
+            events.has("ERR_PACKAGE_NOT_LISTED_TARGET") -> "分身系统未安装此 App，无法推送"
+            events.has("ERR_PACKAGE_NOT_LISTED_SOURCE") -> "主系统未安装此 App，无法推送"
+            events.has("ERR_PACKAGE_NOT_LISTED") -> "分身系统未安装此 App，未执行备份或切换"
+            events.has("ERR_MAIN_STATE_BACKUP_MISSING") -> "缺少可返回的主系统数据备份，未更新切换状态"
+            events.has("ERR_BACKUP_STATE_UNKNOWN") -> "旧备份没有主系统/分身来源标识，为避免状态错乱已停止恢复"
+            events.has("ERR_PUSH_CE_MISSING") -> "主系统 CE 数据缺失，未执行推送"
+            events.has("ERR_FORCE_STOP_FAILED") -> "无法停止分身 App，未读取或写入数据"
+            events.has("ERR_UNTRUSTED_WORKSPACE") -> "当前保存路径不是受信任的 UClone 工作区，未修改任何文件"
+            events.has("ERR_WORKSPACE_SYMLINK") || events.has("ERR_UNSAFE_WORKSPACE_TARGET") ->
                 "工作区包含不安全的符号链接或路径，未执行归属修复"
-            "ERR_WORKSPACE_SCAN" in output -> "无法完整扫描工作区，未执行归属修复"
-            "ERR_WORKSPACE_OWNER_REMAINING" in output -> "部分文件归属未修复，可稍后重试"
-            "ERR_WORKSPACE_OWNER_REPAIR_FAILED" in output -> "备份容量归属修复失败，可安全重试"
-            "ERR_NOTHING_PUSHED" in output || "ERR_NOTHING_COPIED" in output -> "没有找到可推送的数据"
+            events.has("ERR_WORKSPACE_SCAN") -> "无法完整扫描工作区，未执行归属修复"
+            events.has("ERR_WORKSPACE_OWNER_REMAINING") -> "部分文件归属未修复，可稍后重试"
+            events.has("ERR_WORKSPACE_OWNER_REPAIR_FAILED") -> "备份容量归属修复失败，可安全重试"
+            events.has("ERR_SOURCE_PERMISSION_CAPTURE") -> "无法可靠读取源 App 权限状态，任务未修改目标数据"
+            events.has("ERR_TRANSACTION_PERMISSION_CAPTURE") -> "无法建立完整权限回滚点，任务未修改目标数据"
+            events.has("ERR_PERMISSION_EXACT_RESTORE") -> "精确权限恢复失败，已进入事务回滚"
+            events.has("ERR_GATE_CRITICAL_PACKAGE") -> "系统关键 App 不允许进入数据恢复门禁"
+            events.has("ERR_GATE_SHARED_UID") -> "此 App 与其他包共享 UID，为避免并发访问数据，任务未执行"
+            events.has("ERR_GATE_ENABLED_STATE") ||
+                events.has("ERR_GATE_SUSPENDED_STATE") ||
+                events.has("ERR_GATE_STOPPED_STATE") -> "当前系统无法可靠读取 App 启动状态，任务未修改数据"
+            events.has("ERR_GATE_PROCESS_STILL_RUNNING") -> "无法完全停止目标 App 进程，任务未修改数据"
+            events.has("ERR_GATE_UNSTOP_UNSUPPORTED") ->
+                "当前 Android 版本无法精确恢复 App 的 stopped 状态，任务未修改数据"
+            events.has("ERR_GATE_ACQUIRE_ROLLBACK") -> "App 启动门禁未能恢复原状态，已进入安全恢复模式"
+            events.has("ERR_SOURCE_GATE_ACQUIRE") -> "无法冻结源 App，未读取可能变化中的数据"
+            events.has("ERR_TARGET_GATE_ACQUIRE") -> "无法冻结目标 App，任务未修改数据"
+            events.has("ERR_SNAPSHOT_SIGNATURE_MISMATCH") -> "备份签名证书与当前 App 不一致，已禁止恢复"
+            events.has("ERR_UNSAFE_BACKUP_MANIFEST") -> "备份清单路径不安全，已禁止读取和恢复"
+            events.has("ERR_TRANSACTION_MANIFEST_MISSING_OR_UNSAFE") ->
+                "操作前回滚清单缺失或路径不安全，目标 App 将保持冻结"
+            events.has("ERR_SNAPSHOT_VERSION_CONFIRMATION_REQUIRED") -> "备份版本与当前 App 不一致，请在主 App 中确认跨版本恢复"
+            events.has("ERR_LEGACY_PACKAGE_IDENTITY_CONFIRMATION_REQUIRED") -> "旧版备份缺少签名证书信息，请在主 App 中完成高风险确认"
+            events.has("ERR_NOTHING_PUSHED") || events.has("ERR_NOTHING_COPIED") -> "没有找到可推送的数据"
+            events.has("ERR_FORCE_UPDATE_CLONE_DATA") -> "分数据更新失败，主数据未还原；当前仍保持分身态"
+            events.has("ERR_RESTORE_MAIN_AFTER_CLONE_UPDATE") -> "分数据已更新，但主数据还原失败；请查看任务日志"
             else -> result.stderr.ifBlank { "命令失败：${result.exitCode}" }
         }
     }
 
+    private companion object {
+        val SIGNING_CERTIFICATE_SET = Regex("[0-9a-f]{64}(?:,[0-9a-f]{64})*")
+        val PACKAGE_IDENTITY_TASKS = setOf(
+            TaskType.CAPTURE_SNAPSHOT_FROM_CLONE,
+            TaskType.RESTORE_SNAPSHOT_TO_MAIN,
+            TaskType.ROLLBACK_MAIN_DATA,
+            TaskType.RESTORE_FROM_CLONE_LATEST,
+            TaskType.SWITCH_TO_CLONE_STATE,
+            TaskType.PUSH_MAIN_TO_CLONE,
+            TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE,
+            TaskType.RESTORE_SWITCH_MAIN_STATE,
+            TaskType.INSTALL_AND_SYNC_TO_OTHER_USER,
+            TaskType.RECOVER_INTERRUPTED_TRANSACTION,
+        )
+    }
     private fun formatLocalTime(millis: Long): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS Z", Locale.US).format(Date(millis))
 
@@ -793,6 +915,7 @@ private val TRANSACTIONAL_TASK_TYPES = setOf(
     TaskType.RESTORE_SWITCH_MAIN_STATE,
     TaskType.REPAIR_WORKSPACE_OWNERSHIP,
     TaskType.INSTALL_AND_SYNC_TO_OTHER_USER,
+    TaskType.RECOVER_INTERRUPTED_TRANSACTION,
 )
 
 private fun <K, V> Map<K, V>.getValueOrNull(key: K): V? = if (containsKey(key)) getValue(key) else null

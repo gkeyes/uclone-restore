@@ -61,14 +61,16 @@ class RestoreTransactionShellTest {
             uclone_now_ms() { echo 2000; }
             uclone_emit_metrics() { echo "DOWNTIME=${'$'}UCLONE_TARGET_DOWNTIME_MS"; }
             count_items() { echo 0; }
+            uclone_verify_part_metadata() { return 0; }
             validate_target_path() { :; }
+            target_mode_for() { echo 700; }
             read_target_context() { echo ''; }
             clear_target_contents() { echo "CLEARED:${'$'}1"; }
             mkdir() { :; }
             rm() { :; }
             sync() { :; }
             force_stop_package_users() { :; }
-            restore_permission_state() { :; }
+            restore_permission_state_strict() { :; }
             apply_target_security() { $applyTargetSecurityBody; }
             cleanup_switch_temp() { echo CLEANUP_CALLED; }
             ${RestoreTransactionShell.guard("UID_VALUE", includePermissions = false, manageSwitchMarker = false)}

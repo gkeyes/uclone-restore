@@ -97,7 +97,21 @@ data class TaskRecord(
     val currentStage: TaskStage? = null,
     val metrics: TaskMetrics = TaskMetrics(),
     val audit: TaskAudit = TaskAudit(),
+    val outcomeCode: TaskOutcomeCode? = null,
 )
+
+enum class TaskOutcomeCode {
+    SUCCESS,
+    SUCCESS_WITH_WARNINGS,
+    ACTIVE_ROOT_TASK,
+    ORPHANED_LOCK_RECOVERED,
+    AUTO_ROLLBACK_SUCCESS,
+    AUTO_ROLLBACK_FAILED,
+    RECOVERY_REQUIRED,
+    ROOT_TERMINATION_UNVERIFIED,
+    INTERRUPTED,
+    FAILED,
+}
 
 data class TaskAudit(
     val source: String = "unknown",
@@ -105,6 +119,8 @@ data class TaskAudit(
     val backupId: String? = null,
     val path: String? = null,
     val sizeKb: Long? = null,
+    val totalEntries: Long? = null,
+    val nonRootEntries: Long? = null,
 )
 
 enum class BackupKind {
@@ -194,11 +210,18 @@ enum class PassiveBackupStateKind {
 }
 
 data class WorkspaceOwnershipReport(
-    val rootPath: String,
+    val canonicalRoot: String,
     val totalEntries: Long,
     val nonRootEntries: Long,
     val totalSizeKb: Long,
-)
+    val scannedRootDir: String = canonicalRoot,
+    val scannedMainUserId: Int? = null,
+    val scannedCloneUserId: Int? = null,
+    val scannedAt: Long = 0L,
+) {
+    val rootPath: String
+        get() = canonicalRoot
+}
 
 data class UCloneSettings(
     val mainUserId: Int = 0,
@@ -210,15 +233,22 @@ data class UCloneSettings(
     val includeMedia: Boolean = false,
     val includeObb: Boolean = false,
     val includePermissions: Boolean = true,
+    val permissionRestoreMode: PermissionRestoreMode = PermissionRestoreMode.MERGE,
     val excludeCache: Boolean = true,
     val stopCloneAfterTask: Boolean = true,
     val autoUnlockClone: Boolean = false,
     val allowModuleControl: Boolean = false,
     val allowSystemAppInstall: Boolean = false,
     val reuseExistingPassiveBackups: Boolean = false,
+    val forceUpdateCloneDataBeforeMainRestore: Boolean = false,
     val favoritePackages: Set<String> = emptySet(),
     val cloneUnlockCredential: String = "",
 )
+
+enum class PermissionRestoreMode {
+    MERGE,
+    EXACT,
+}
 
 enum class RiskLevel {
     NORMAL,
@@ -238,6 +268,7 @@ enum class TaskType {
     RESET_SWITCH_STATE,
     DELETE_SNAPSHOT,
     DELETE_RESTORE_BACKUP,
+    DELETE_CLONE_ROLLBACK,
     PROBE_CLONE_CE,
     UNLOCK_CLONE_WITH_CREDENTIAL,
     DEBUG_CLONE_SYSTEM,
@@ -247,10 +278,12 @@ enum class TaskType {
     START_CLONE_USER,
     SWITCH_TO_CLONE_USER,
     STOP_CLONE_USER,
+    SCAN_WORKSPACE_OWNERSHIP,
     REPAIR_WORKSPACE_OWNERSHIP,
     INSTALL_TO_OTHER_USER,
     INSTALL_WITH_PERMISSIONS_TO_OTHER_USER,
     INSTALL_AND_SYNC_TO_OTHER_USER,
+    RECOVER_INTERRUPTED_TRANSACTION,
 }
 
 enum class CrossUserInstallMode {
@@ -268,6 +301,7 @@ enum class TaskStatus {
     SUCCESS_WITH_WARNINGS,
     FAILED,
     FAILED_FATAL,
+    RECOVERY_REQUIRED,
     INTERRUPTED,
 
     ;
@@ -283,6 +317,7 @@ enum class TaskStatus {
             SUCCESS_WITH_WARNINGS,
             FAILED,
             FAILED_FATAL,
+            RECOVERY_REQUIRED,
             INTERRUPTED,
             -> true
         }

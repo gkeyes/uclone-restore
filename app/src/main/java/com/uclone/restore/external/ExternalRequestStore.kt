@@ -26,6 +26,7 @@ enum class ExternalRequestStage {
     STILL_RUNNING,
     ORPHANED,
     FAILED_PROCESS_DIED,
+    RECOVERY_REQUIRED,
 }
 
 data class ExternalRequestEvent(
@@ -39,37 +40,84 @@ data class ExternalRequestEvent(
     val taskStage: TaskStage? = null,
 )
 
-class ExternalRequestStore(private val file: File) {
+class ExternalRequestStore(
+    private val file: File,
+    private val terminalFile: File = file.resolveSibling("${file.nameWithoutExtension}_terminals.jsonl"),
+    private val maxEvents: Int = MAX_EVENTS,
+) {
     private val monitor = Any()
-    private val records = load().toMutableList()
+    private val records = load(file, maxEvents).toMutableList()
+    private val loadedTerminalRecords = terminalIndex(load(terminalFile))
+    private val terminalRecords = loadedTerminalRecords.toMutableMap().apply {
+        records.asSequence()
+            .filter { it.stage.isTerminalProtocolStage }
+            .sortedBy(ExternalRequestEvent::occurredAt)
+            .forEach { event -> putIfAbsent(event.requestId, event) }
+    }
     private val recordsFlow = MutableStateFlow(records.sortedByDescending(ExternalRequestEvent::occurredAt))
     val events: StateFlow<List<ExternalRequestEvent>> = recordsFlow.asStateFlow()
+
+    init {
+        require(maxEvents > 0)
+        if (terminalRecords.size != loadedTerminalRecords.size) {
+            persist(terminalFile, terminalRecords.values.toList(), "外部请求终态索引")
+        }
+    }
 
     fun all(): List<ExternalRequestEvent> = synchronized(monitor) {
         records.sortedByDescending(ExternalRequestEvent::occurredAt)
     }
 
+    fun terminal(requestId: String): ExternalRequestEvent? = synchronized(monitor) {
+        terminalRecords[requestId]
+    }
+
     fun record(event: ExternalRequestEvent) {
         synchronized(monitor) {
-            val retained = (records + event).takeLast(MAX_EVENTS)
-            persist(retained)
+            if (event.stage.isTerminalProtocolStage && event.requestId !in terminalRecords) {
+                val nextTerminals = terminalRecords + (event.requestId to event)
+                persist(terminalFile, nextTerminals.values.toList(), "外部请求终态索引")
+                terminalRecords[event.requestId] = event
+            }
+            val retained = (records + event).takeLast(maxEvents)
+            persist(file, retained, "外部请求诊断")
             records.clear()
             records += retained
             recordsFlow.value = retained.sortedByDescending(ExternalRequestEvent::occurredAt)
         }
     }
 
-    private fun load(): List<ExternalRequestEvent> = runCatching {
-        if (!file.isFile) return@runCatching emptyList()
-        file.readLines().mapNotNull(::decode).takeLast(MAX_EVENTS)
+    fun recordReconciledTerminal(event: ExternalRequestEvent): Boolean {
+        require(event.stage.isTerminalProtocolStage)
+        return synchronized(monitor) {
+            val existing = terminalRecords[event.requestId]
+            if (existing != null && existing.stage !in RECONCILABLE_TERMINAL_STAGES) {
+                return@synchronized false
+            }
+            val nextTerminals = terminalRecords + (event.requestId to event)
+            persist(terminalFile, nextTerminals.values.toList(), "外部请求终态索引")
+            terminalRecords[event.requestId] = event
+            val retained = (records + event).takeLast(maxEvents)
+            persist(file, retained, "外部请求诊断")
+            records.clear()
+            records += retained
+            recordsFlow.value = retained.sortedByDescending(ExternalRequestEvent::occurredAt)
+            true
+        }
+    }
+
+    private fun load(source: File, limit: Int? = null): List<ExternalRequestEvent> = runCatching {
+        if (!source.isFile) return@runCatching emptyList()
+        val decoded = source.readLines().mapNotNull(::decode)
+        if (limit == null) decoded else decoded.takeLast(limit)
     }.getOrDefault(emptyList())
 
-    private fun persist(events: List<ExternalRequestEvent>) {
-        val parent = file.parentFile
+    private fun persist(target: File, events: List<ExternalRequestEvent>, label: String) {
+        val parent = target.parentFile
         if (parent != null && !parent.isDirectory && !parent.mkdirs()) {
-            throw IllegalStateException("无法创建外部请求诊断目录：${parent.absolutePath}")
+            throw IllegalStateException("无法创建${label}目录：${parent.absolutePath}")
         }
-        val temp = file.resolveSibling("${file.name}.tmp")
+        val temp = target.resolveSibling("${target.name}.tmp")
         try {
             FileOutputStream(temp).use { output ->
                 output.write(events.joinToString("\n", transform = ::encode).toByteArray(Charsets.UTF_8))
@@ -78,18 +126,26 @@ class ExternalRequestStore(private val file: File) {
             try {
                 Files.move(
                     temp.toPath(),
-                    file.toPath(),
+                    target.toPath(),
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING,
                 )
             } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
         } catch (error: Exception) {
             temp.delete()
-            throw IllegalStateException("无法持久化外部请求诊断：${file.absolutePath}", error)
+            throw IllegalStateException("无法持久化$label：${target.absolutePath}", error)
         }
     }
+
+    private fun terminalIndex(events: List<ExternalRequestEvent>): Map<String, ExternalRequestEvent> =
+        buildMap {
+            events.asSequence()
+                .filter { it.stage.isTerminalProtocolStage }
+                .sortedBy(ExternalRequestEvent::occurredAt)
+                .forEach { event -> putIfAbsent(event.requestId, event) }
+        }
 
     private fun encode(event: ExternalRequestEvent): String = JSONObject()
         .put("requestId", event.requestId)
@@ -120,5 +176,9 @@ class ExternalRequestStore(private val file: File) {
 
     private companion object {
         const val MAX_EVENTS = 500
+        val RECONCILABLE_TERMINAL_STAGES = setOf(
+            ExternalRequestStage.INTERRUPTED,
+            ExternalRequestStage.FAILED_PROCESS_DIED,
+        )
     }
 }

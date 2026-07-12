@@ -37,6 +37,7 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                     val statusColor = when (task.status) {
                         TaskStatus.FAILED,
                         TaskStatus.FAILED_FATAL,
+                        TaskStatus.RECOVERY_REQUIRED,
                         TaskStatus.INTERRUPTED,
                         -> MaterialTheme.colorScheme.error
 
@@ -52,7 +53,11 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                     }
                     InfoRow("状态", task.status.userFacingLabel, statusColor)
                     InfoRow("结果", task.message)
-                    if (task.type == TaskType.DELETE_SNAPSHOT || task.type == TaskType.DELETE_RESTORE_BACKUP) {
+                    if (
+                        task.type == TaskType.DELETE_SNAPSHOT ||
+                        task.type == TaskType.DELETE_RESTORE_BACKUP ||
+                        task.type == TaskType.DELETE_CLONE_ROLLBACK
+                    ) {
                         InfoRow("调用来源", task.audit.source.userFacingTaskSource())
                         InfoRow(
                             "备份类型",

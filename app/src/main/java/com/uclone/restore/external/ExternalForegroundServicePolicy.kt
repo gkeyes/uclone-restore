@@ -7,7 +7,7 @@ internal enum class ExternalForegroundWorkType {
 
 internal object ExternalForegroundServicePolicy {
     fun workType(source: String?, sdkInt: Int): ExternalForegroundWorkType =
-        if (sdkInt >= 34 && source != ExternalActionContract.SOURCE_APP) {
+        if (sdkInt >= 34) {
             ExternalForegroundWorkType.SPECIAL_USE
         } else {
             ExternalForegroundWorkType.DATA_SYNC

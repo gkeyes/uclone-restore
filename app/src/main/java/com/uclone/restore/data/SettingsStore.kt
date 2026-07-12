@@ -1,6 +1,7 @@
 package com.uclone.restore.data
 
 import android.content.Context
+import com.uclone.restore.model.PermissionRestoreMode
 import com.uclone.restore.model.UCloneSettings
 
 class SettingsStore private constructor(
@@ -10,9 +11,9 @@ class SettingsStore private constructor(
     constructor(context: Context) : this(context, AndroidKeystoreCredentialCipher())
 
     private val prefs = context.getSharedPreferences("uclone_settings", Context.MODE_PRIVATE)
-    private val schemaVersion = 10
+    private val schemaVersion = 12
 
-    fun load(): UCloneSettings = UCloneSettings(
+    fun load(): UCloneSettings = SettingsValidation.sanitizedForLoad(UCloneSettings(
         mainUserId = prefs.getInt("mainUserId", 0),
         cloneUserId = prefs.getInt("cloneUserId", 10),
         rootDir = prefs.getString("rootDir", "/data/adb/uclone") ?: "/data/adb/uclone",
@@ -22,35 +23,42 @@ class SettingsStore private constructor(
         includeMedia = prefs.getBoolean("includeMedia", false),
         includeObb = prefs.getBoolean("includeObb", false),
         includePermissions = prefs.getBoolean("includePermissions", true),
+        permissionRestoreMode = prefs.getString("permissionRestoreMode", PermissionRestoreMode.MERGE.name)
+            ?.let { value -> PermissionRestoreMode.entries.firstOrNull { it.name == value } }
+            ?: PermissionRestoreMode.MERGE,
         excludeCache = prefs.getBoolean("excludeCache", true),
         stopCloneAfterTask = prefs.getBoolean("stopCloneAfterTask", true),
         autoUnlockClone = prefs.getBoolean("autoUnlockClone", false),
         allowModuleControl = prefs.getBoolean("allowModuleControl", false),
         allowSystemAppInstall = prefs.getBoolean("allowSystemAppInstall", false),
         reuseExistingPassiveBackups = prefs.getBoolean("reuseExistingPassiveBackups", false),
+        forceUpdateCloneDataBeforeMainRestore = prefs.getBoolean("forceUpdateCloneDataBeforeMainRestore", false),
         favoritePackages = prefs.getStringSet("favoritePackages", emptySet()).orEmpty().toSet(),
         cloneUnlockCredential = loadCredential(),
-    )
+    ))
 
     fun save(settings: UCloneSettings) {
+        val normalized = SettingsValidation.requireValid(settings)
         prefs.edit()
-            .putInt("mainUserId", settings.mainUserId)
-            .putInt("cloneUserId", settings.cloneUserId)
-            .putString("rootDir", settings.rootDir)
-            .putBoolean("includeCe", settings.includeCe)
-            .putBoolean("includeDe", settings.includeDe)
-            .putBoolean("includeExternal", settings.includeExternal)
-            .putBoolean("includeMedia", settings.includeMedia)
-            .putBoolean("includeObb", settings.includeObb)
-            .putBoolean("includePermissions", settings.includePermissions)
-            .putBoolean("excludeCache", settings.excludeCache)
-            .putBoolean("stopCloneAfterTask", settings.stopCloneAfterTask)
-            .putBoolean("autoUnlockClone", settings.autoUnlockClone)
-            .putBoolean("allowModuleControl", settings.allowModuleControl)
-            .putBoolean("allowSystemAppInstall", settings.allowSystemAppInstall)
-            .putBoolean("reuseExistingPassiveBackups", settings.reuseExistingPassiveBackups)
-            .putStringSet("favoritePackages", settings.favoritePackages.toMutableSet())
-            .putString(ENCRYPTED_CREDENTIAL_KEY, encryptCredential(settings.cloneUnlockCredential.trim()))
+            .putInt("mainUserId", normalized.mainUserId)
+            .putInt("cloneUserId", normalized.cloneUserId)
+            .putString("rootDir", normalized.rootDir)
+            .putBoolean("includeCe", normalized.includeCe)
+            .putBoolean("includeDe", normalized.includeDe)
+            .putBoolean("includeExternal", normalized.includeExternal)
+            .putBoolean("includeMedia", normalized.includeMedia)
+            .putBoolean("includeObb", normalized.includeObb)
+            .putBoolean("includePermissions", normalized.includePermissions)
+            .putString("permissionRestoreMode", normalized.permissionRestoreMode.name)
+            .putBoolean("excludeCache", normalized.excludeCache)
+            .putBoolean("stopCloneAfterTask", normalized.stopCloneAfterTask)
+            .putBoolean("autoUnlockClone", normalized.autoUnlockClone)
+            .putBoolean("allowModuleControl", normalized.allowModuleControl)
+            .putBoolean("allowSystemAppInstall", normalized.allowSystemAppInstall)
+            .putBoolean("reuseExistingPassiveBackups", normalized.reuseExistingPassiveBackups)
+            .putBoolean("forceUpdateCloneDataBeforeMainRestore", normalized.forceUpdateCloneDataBeforeMainRestore)
+            .putStringSet("favoritePackages", normalized.favoritePackages.toMutableSet())
+            .putString(ENCRYPTED_CREDENTIAL_KEY, encryptCredential(normalized.cloneUnlockCredential))
             .remove(LEGACY_CREDENTIAL_KEY)
             .putInt("settingsSchemaVersion", schemaVersion)
             .apply()

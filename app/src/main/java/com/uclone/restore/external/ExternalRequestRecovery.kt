@@ -12,16 +12,11 @@ internal object ExternalRequestRecovery {
         liveRequestIds: Set<String> = emptySet(),
     ): List<ExternalRequestEvent> {
         val allEvents = store.all()
-        val existing = allEvents
-            .asSequence()
-            .filter { it.stage == ExternalRequestStage.FAILED_PROCESS_DIED || it.stage == ExternalRequestStage.STILL_RUNNING }
-            .map(ExternalRequestEvent::requestId)
-            .toSet()
         val recovered = tasks.asSequence()
             .filter { it.status == TaskStatus.INTERRUPTED }
             .filter { interruptedAfter == null || (it.finishedAt ?: 0L) >= interruptedAfter }
             .filter { it.audit.source.isExternalRequestSource() }
-            .filterNot { it.requestId in existing }
+            .filter { store.terminal(it.requestId) == null }
             .map { task ->
                 ExternalRequestEvent(
                     requestId = task.requestId,

@@ -31,6 +31,8 @@ fun DataScreen(
 ) {
     var confirmRestore by remember { mutableStateOf<RestoreBackupEntry?>(null) }
     var confirmCloneRestore by remember { mutableStateOf<RestoreBackupEntry?>(null) }
+    var allowVersionMismatch by remember { mutableStateOf(false) }
+    var allowLegacyIdentity by remember { mutableStateOf(false) }
     val appByPackage = state.apps.associateBy { it.packageName }
     val rootDir = state.settings.rootDir
     val activeBackups = state.apps
@@ -95,7 +97,11 @@ fun DataScreen(
                     onOpenDetail = {
                         openPassiveBackup(backup)
                     },
-                    onRestore = { confirmRestore = backup },
+                    onRestore = {
+                        allowVersionMismatch = false
+                        allowLegacyIdentity = false
+                        confirmRestore = backup
+                    },
                 )
             }
         }
@@ -117,7 +123,11 @@ fun DataScreen(
                     onOpenDetail = {
                         openPassiveBackup(backup)
                     },
-                    onRestore = { confirmCloneRestore = backup },
+                    onRestore = {
+                        allowVersionMismatch = false
+                        allowLegacyIdentity = false
+                        confirmCloneRestore = backup
+                    },
                 )
             }
         }
@@ -129,10 +139,16 @@ fun DataScreen(
             title = { Text("恢复被动备份") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("将使用以下被动备份覆盖主系统 user0 数据。")
+                    Text("将使用以下被动备份覆盖主系统 user${state.settings.mainUserId} 数据。")
                     SingleLinePathText("$rootDir/rollback/${backup.packageName}/${backup.rollbackId}")
                     Text("数据来源: ${backup.sourceLabel()}")
                     Text("生成原因: ${backup.reason}")
+                    RestoreCompatibilityControls(
+                        allowVersionMismatch = allowVersionMismatch,
+                        allowLegacyIdentity = allowLegacyIdentity,
+                        onAllowVersionMismatchChange = { allowVersionMismatch = it },
+                        onAllowLegacyIdentityChange = { allowLegacyIdentity = it },
+                    )
                 }
             },
             confirmButton = {
@@ -140,7 +156,12 @@ fun DataScreen(
                     text = "恢复",
                     onClick = {
                         confirmRestore = null
-                        viewModel.restoreBackup(backup.packageName, backup.rollbackId)
+                        viewModel.restoreBackup(
+                            backup.packageName,
+                            backup.rollbackId,
+                            allowVersionMismatch,
+                            allowLegacyIdentity,
+                        )
                     },
                     primary = true,
                 )
@@ -161,6 +182,12 @@ fun DataScreen(
                     SingleLinePathText("$rootDir/clone_rollback/${backup.packageName}/${backup.rollbackId}")
                     Text("数据来源: ${backup.sourceLabel()}")
                     Text("生成原因: ${backup.reason}")
+                    RestoreCompatibilityControls(
+                        allowVersionMismatch = allowVersionMismatch,
+                        allowLegacyIdentity = allowLegacyIdentity,
+                        onAllowVersionMismatchChange = { allowVersionMismatch = it },
+                        onAllowLegacyIdentityChange = { allowLegacyIdentity = it },
+                    )
                 }
             },
             confirmButton = {
@@ -168,7 +195,11 @@ fun DataScreen(
                     text = "恢复",
                     onClick = {
                         confirmCloneRestore = null
-                        viewModel.restoreCloneRollback(backup.packageName)
+                        viewModel.restoreCloneRollback(
+                            backup.packageName,
+                            allowVersionMismatch,
+                            allowLegacyIdentity,
+                        )
                     },
                     primary = true,
                 )

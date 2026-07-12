@@ -19,6 +19,9 @@ object ExternalActionContract {
     const val EXTRA_TASK_TYPE = "com.uclone.restore.extra.TASK_TYPE"
     const val EXTRA_ROLLBACK_ID = "com.uclone.restore.extra.ROLLBACK_ID"
     const val EXTRA_TARGET_USER_ID = "com.uclone.restore.extra.TARGET_USER_ID"
+    internal const val EXTRA_EXPECTED_WORKSPACE_ROOT = "com.uclone.restore.extra.EXPECTED_WORKSPACE_ROOT"
+    internal const val EXTRA_ALLOW_VERSION_MISMATCH = "com.uclone.restore.extra.ALLOW_VERSION_MISMATCH"
+    internal const val EXTRA_ALLOW_LEGACY_IDENTITY = "com.uclone.restore.extra.ALLOW_LEGACY_IDENTITY"
     internal const val EXTRA_INTERNAL_TOKEN = "com.uclone.restore.extra.INTERNAL_TOKEN"
 
     const val PROTOCOL_VERSION = 1
@@ -45,10 +48,12 @@ object ExternalActionContract {
     const val OPERATION_START_CLONE_USER = "START_CLONE_USER"
     const val OPERATION_SWITCH_TO_CLONE_USER = "SWITCH_TO_CLONE_USER"
     const val OPERATION_STOP_CLONE_USER = "STOP_CLONE_USER"
+    internal const val OPERATION_SCAN_WORKSPACE_OWNERSHIP = "SCAN_WORKSPACE_OWNERSHIP"
     const val OPERATION_REPAIR_WORKSPACE_OWNERSHIP = "REPAIR_WORKSPACE_OWNERSHIP"
     const val OPERATION_INSTALL_TO_OTHER_USER = "INSTALL_TO_OTHER_USER"
     const val OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER = "INSTALL_WITH_PERMISSIONS_TO_OTHER_USER"
     const val OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER = "INSTALL_AND_SYNC_TO_OTHER_USER"
+    internal const val OPERATION_RECOVER_INTERRUPTED_TRANSACTION = "RECOVER_INTERRUPTED_TRANSACTION"
 
     const val STATUS_ACCEPTED = "ACCEPTED"
     const val STATUS_SERVICE_RECEIVED = "SERVICE_RECEIVED"
@@ -63,11 +68,13 @@ object ExternalActionContract {
     const val STATUS_REJECTED = "REJECTED"
     const val STATUS_BUSY = "BUSY"
     const val STATUS_ALREADY_RUNNING = "ALREADY_RUNNING"
+    const val STATUS_RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
 
     const val SOURCE_MODULE = "module"
     const val SOURCE_LAUNCHER_MODULE = "launcher_module"
     const val SOURCE_LAUNCHER_SHORTCUT = "launcher_shortcut"
     const val SOURCE_APP = "app"
+    internal const val SOURCE_RECOVERY = "recovery"
 }
 
 internal fun hasLauncherModuleStatusRecipient(source: String): Boolean =

@@ -2,7 +2,6 @@ package com.uclone.restore.sync
 
 import com.uclone.restore.model.RestoreBackupEntry
 import com.uclone.restore.model.PassiveBackupStateKind
-import com.uclone.restore.root.shellQuote
 
 data class SnapshotMetadata(
     val updatedAt: Long,
@@ -128,7 +127,7 @@ internal object WorkspaceIndexParser {
 }
 
 internal fun workspaceIndexScript(rootDir: String): String = """
-    ROOT=${shellQuote(rootDir)}
+    ${WorkspacePathGuard.inspect(rootDir)}
     SNAPSHOT_ROOT="${'$'}ROOT/snapshots"
     SWITCH_ROOT="${'$'}ROOT/switches"
     ROLLBACK_ROOT="${'$'}ROOT/rollback"

@@ -95,9 +95,11 @@ class RootTaskScriptTest {
             ),
         )
 
-        assertTrue("ACTIVE_LOCK=\"${'$'}ACTIVE_LOCK_ROOT/active_task\"" in script)
-        assertTrue("ACTIVE_STATE_TMP=\"${'$'}ACTIVE_STATE.tmp.${'$'}${'$'}\"" in script)
-        assertTrue("mv -f \"${'$'}ACTIVE_STATE_TMP\" \"${'$'}ACTIVE_STATE\"" in script)
+        assertTrue("ACTIVE_CLAIM=\"${'$'}ACTIVE_LOCK_ROOT/active_task.claim\"" in script)
+        assertTrue("ACTIVE_LEGACY_STATE=\"${'$'}ACTIVE_LEGACY_LOCK/state\"" in script)
+        assertTrue("ACTIVE_ORPHANED_ROOT=\"${'$'}ACTIVE_LOCK_ROOT/orphaned\"" in script)
+        assertTrue("ln \"${'$'}ACTIVE_CLAIM_TMP\" \"${'$'}ACTIVE_CLAIM\"" in script)
+        assertTrue("mv -f \"${'$'}ACTIVE_STATE_TMP\" \"${'$'}ACTIVE_CLAIM\"" in script)
         assertTrue("kill -0 \"${'$'}EXISTING_PID\"" in script)
         assertTrue("bootId=${'$'}ACTIVE_BOOT_ID" in script)
         assertTrue("pidStartTicks=${'$'}ACTIVE_PID_START_TICKS" in script)
@@ -105,8 +107,12 @@ class RootTaskScriptTest {
         assertTrue("LIVE_PID_START_TICKS" in script)
         assertTrue("ERR_ACTIVE_ROOT_TASK:" in script)
         assertTrue("UCLONE_RECOVERY:ORPHANED" in script)
-        assertTrue("orphaned_${'$'}{ORPHANED_AT}_${'$'}{EXISTING_PID}" in script)
+        assertTrue("ERR_ACTIVE_ROOT_TASK_INITIALIZING:" in script)
+        assertTrue("ACTIVE_INITIALIZING_AGE" in script)
+        assertTrue("legacy_${'$'}{ORPHANED_AT}_${'$'}{EXISTING_PID}" in script)
+        assertTrue("claim_${'$'}{ORPHANED_AT}_${'$'}{EXISTING_PID}" in script)
         assertTrue("uclone_active_stage COPYING" in script)
+        assertTrue("UCLONE_REQUEST_ID=\"${'$'}ACTIVE_REQUEST_ID\"" in script)
         assertTrue("trap 'uclone_release_active_task' EXIT" in script)
     }
 

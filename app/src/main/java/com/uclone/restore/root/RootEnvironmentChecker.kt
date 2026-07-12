@@ -4,8 +4,40 @@ import com.uclone.restore.model.CheckResult
 import com.uclone.restore.model.EnvironmentStatus
 import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.model.User10CeState
+import com.uclone.restore.sync.WorkspacePathGuard
 
 class RootEnvironmentChecker(private val shell: RootShellExecutor) {
+    suspend fun validateSettingsTarget(settings: UCloneSettings): CheckResult {
+        val result = shell.exec(
+            """
+                USERS=${'$'}(/system/bin/pm list users 2>&1) || {
+                  echo "ERR_SETTINGS_USERS_UNAVAILABLE:${'$'}USERS" >&2
+                  exit 76
+                }
+                case "${'$'}USERS" in
+                  *"UserInfo{${settings.mainUserId}:"*) ;;
+                  *) echo "ERR_SETTINGS_MAIN_USER_MISSING:${settings.mainUserId}" >&2; exit 76 ;;
+                esac
+                case "${'$'}USERS" in
+                  *"UserInfo{${settings.cloneUserId}:"*) ;;
+                  *) echo "ERR_SETTINGS_CLONE_USER_MISSING:${settings.cloneUserId}" >&2; exit 76 ;;
+                esac
+                ${WorkspacePathGuard.inspect(settings.rootDir)}
+                echo "SETTINGS_TARGET_VALID:main=${settings.mainUserId} clone=${settings.cloneUserId} root=${'$'}ROOT_REAL"
+            """.trimIndent(),
+            timeoutSeconds = 20,
+        )
+        val output = result.stderr + "\n" + result.stdout
+        val detail = when {
+            "ERR_SETTINGS_MAIN_USER_MISSING:" in output -> "主系统 user${settings.mainUserId} 不存在"
+            "ERR_SETTINGS_CLONE_USER_MISSING:" in output -> "分身系统 user${settings.cloneUserId} 不存在"
+            "ERR_SETTINGS_USERS_UNAVAILABLE:" in output -> "无法读取 Android 用户列表"
+            !result.isSuccess -> "工作目录未通过安全校验：${result.stderr.lineSequence().firstOrNull(String::isNotBlank) ?: result.exitCode}"
+            else -> "用户和工作目录校验通过"
+        }
+        return CheckResult(result.isSuccess, detail)
+    }
+
     suspend fun check(settings: UCloneSettings): EnvironmentStatus {
         val id = shell.exec("id", timeoutSeconds = 15)
         val root = CheckResult(id.stdout.contains("uid=0"), id.stdout.ifBlank { id.stderr })
@@ -20,7 +52,10 @@ class RootEnvironmentChecker(private val shell: RootShellExecutor) {
             timeoutSeconds = 20,
         )
         val snapshotReady = shell.exec(
-            "mkdir -p ${shellQuote(settings.rootDir + "/snapshots")} ${shellQuote(settings.rootDir + "/rollback")} ${shellQuote(settings.rootDir + "/logs")} ${shellQuote(settings.rootDir + "/tmp")}",
+            """
+                ${WorkspacePathGuard.require(settings.rootDir)}
+                mkdir -p "${'$'}ROOT/snapshots" "${'$'}ROOT/rollback" "${'$'}ROOT/logs" "${'$'}ROOT/tmp"
+            """.trimIndent(),
             timeoutSeconds = 20,
         )
         val ceBase = if (user10Present) {
@@ -47,40 +82,8 @@ class RootEnvironmentChecker(private val shell: RootShellExecutor) {
         )
     }
 
-    private fun workspaceInitializationScript(rootDir: String): String = """
-        ROOT=${shellQuote(rootDir)}
-        [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "NOT_WRITABLE:${'$'}ROOT"; exit 1; }
-        mkdir -p "${'$'}ROOT" || { echo "NOT_WRITABLE:${'$'}ROOT"; exit 1; }
-        ROOT_REAL=${'$'}(readlink -f "${'$'}ROOT" 2>/dev/null || true)
-        [ -n "${'$'}ROOT_REAL" ] && [ -d "${'$'}ROOT_REAL" ] && [ -w "${'$'}ROOT_REAL" ] || {
-          echo "NOT_WRITABLE:${'$'}ROOT"
-          exit 1
-        }
-        case "${'$'}ROOT_REAL" in
-          /data/adb/uclone) ;;
-          *)
-            for CHILD in "${'$'}ROOT_REAL"/*; do
-              [ -e "${'$'}CHILD" ] || continue
-              case "${'$'}(basename "${'$'}CHILD")" in
-                snapshots|rollback|clone_rollback|switches|logs|tmp|audit|config) ;;
-                *) echo "UNSAFE_WORKSPACE_CHILD:${'$'}CHILD"; exit 1 ;;
-              esac
-            done
-            mkdir -p "${'$'}ROOT_REAL/config" || exit 1
-            IDENTITY="${'$'}ROOT_REAL/config/workspace.identity"
-            if [ -f "${'$'}IDENTITY" ]; then
-              [ "${'$'}(sed -n '1p' "${'$'}IDENTITY" 2>/dev/null)" = "com.uclone.restore.workspace.v1" ] || {
-                echo "BAD_WORKSPACE_IDENTITY:${'$'}IDENTITY"
-                exit 1
-              }
-            else
-              printf '%s\n' "com.uclone.restore.workspace.v1" > "${'$'}IDENTITY" || exit 1
-              chmod 600 "${'$'}IDENTITY" || exit 1
-            fi
-            ;;
-        esac
-        echo "WRITABLE:${'$'}ROOT_REAL"
-    """.trimIndent()
+    private fun workspaceInitializationScript(rootDir: String): String =
+        "${WorkspacePathGuard.require(rootDir)}\necho \"WRITABLE:${'$'}ROOT\""
 
     private suspend fun probeBasePath(path: String): CheckResult {
         val quoted = shellQuote(path)

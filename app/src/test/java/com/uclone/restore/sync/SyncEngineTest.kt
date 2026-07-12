@@ -25,6 +25,7 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = TaskLogStore(shell),
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
 
         val index = engine.loadWorkspaceIndex(UCloneSettings(rootDir = "/data/adb/uclone"))
@@ -56,6 +57,7 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = TaskLogStore(shell),
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
 
         val error = runCatching { engine.loadWorkspaceIndex(UCloneSettings()) }.exceptionOrNull()
@@ -91,6 +93,7 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = TaskLogStore(shell),
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
 
         val result = engine.restoreFromCloneLatest(
@@ -119,6 +122,7 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = repository,
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
 
         val result = engine.restoreFromCloneLatest(
@@ -139,6 +143,33 @@ class SyncEngineTest {
     }
 
     @Test
+    fun restoreSwitchMainState_usesForcedCloneUpdateInsideOneTask() = runBlocking {
+        val shell = FakeRootShell()
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
+        )
+
+        val result = engine.restoreSwitchMainState(
+            packageName = "com.example.app",
+            rollbackId = "main-state-1",
+            rule = AppRule(packageName = "com.example.app"),
+            settings = UCloneSettings(forceUpdateCloneDataBeforeMainRestore = true),
+            report = {},
+            requestId = "force-update-request",
+        )
+
+        assertEquals(TaskType.RESTORE_SWITCH_MAIN_STATE, result.type)
+        assertEquals("force-update-request", result.requestId)
+        assertEquals(1, shell.commands.size)
+        assertTrue("COMPOSITE_STEP=FORCE_UPDATE_CLONE_DATA" in shell.commands.single())
+        assertTrue("COMPOSITE_STEP=RESTORE_SWITCH_MAIN_STATE" in shell.commands.single())
+    }
+
+    @Test
     fun switchToCloneState_recordsRequestAndScriptMetrics() = runBlocking {
         val shell = MetricsRootShell()
         val settings = UCloneSettings(rootDir = "/data/adb/uclone")
@@ -147,6 +178,7 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = TaskLogStore(shell),
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
 
         val result = engine.switchToCloneState(
@@ -177,6 +209,7 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = TaskLogStore(shell),
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
 
         val result = engine.restoreSnapshot("com.example.app", UCloneSettings(), {}, "rollback-request")
@@ -194,12 +227,33 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = TaskLogStore(shell),
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
 
         val result = engine.restoreSnapshot("com.example.app", UCloneSettings(), {}, "fatal-request")
 
         assertEquals(TaskStatus.FAILED_FATAL, result.status)
         assertEquals("操作失败且自动回滚失败，请勿启动目标 App，并查看日志", result.message)
+    }
+
+    @Test
+    fun sharedUidGateRejectionExplainsWhyNoDataWasChanged() = runBlocking {
+        val shell = RollbackResultShell(
+            "ERR_GATE_SHARED_UID:user=0 uid=10123 packages=com.example.app com.example.peer",
+            77,
+        )
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
+        )
+
+        val result = engine.restoreSnapshot("com.example.app", UCloneSettings(), {}, "shared-uid-request")
+
+        assertEquals(TaskStatus.FAILED, result.status)
+        assertEquals("此 App 与其他包共享 UID，为避免并发访问数据，任务未执行", result.message)
     }
 
     @Test
@@ -210,6 +264,7 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = TaskLogStore(shell),
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
         val progress = mutableListOf<com.uclone.restore.model.TaskProgress>()
 
@@ -226,6 +281,7 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = TaskLogStore(shell),
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
 
         val result = engine.restoreSnapshot("com.example.app", UCloneSettings(), {}, "truncated-request")
@@ -242,6 +298,7 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = TaskLogStore(shell),
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
 
         engine.unlockCloneWithCredential(
@@ -261,6 +318,7 @@ class SyncEngineTest {
             environmentChecker = RootEnvironmentChecker(shell),
             logStore = TaskLogStore(shell),
             appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
         )
 
         val result = engine.captureSnapshot(
@@ -272,6 +330,37 @@ class SyncEngineTest {
 
         assertEquals(TaskStatus.FAILED, result.status)
         assertEquals("无法停止分身 App，未读取或写入数据", result.message)
+    }
+
+    @Test
+    fun interruptedTransactionRecoveryBindsSigningIdentityToTheRealPackage() = runBlocking {
+        var identityPackage: String? = null
+        val shell = object : RootShellExecutor {
+            override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult =
+                ShellResult(0, "TRANSACTION_RECOVERY_ABORTED=original-request", "")
+        }
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+            signingIdentityProvider = PackageSigningIdentityProvider { packageName ->
+                identityPackage = packageName
+                "0".repeat(64)
+            },
+        )
+
+        val result = engine.recoverInterruptedTransaction(
+            transactionRequestId = "original-request",
+            packageName = "com.example.app",
+            settings = UCloneSettings(),
+            report = {},
+            requestId = "recovery-request",
+        )
+
+        assertEquals("com.example.app", identityPackage)
+        assertEquals("com.example.app", result.packageName)
+        assertEquals(TaskType.RECOVER_INTERRUPTED_TRANSACTION, result.type)
     }
 
     private class FakeRootShell : RootShellExecutor {
@@ -407,4 +496,8 @@ class SyncEngineTest {
             )
         }
     }
+}
+
+private val TestSigningIdentityProvider = PackageSigningIdentityProvider {
+    "0".repeat(64)
 }

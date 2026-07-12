@@ -143,6 +143,7 @@ class ExternalActionNotifier(private val context: Context) {
         ExternalActionContract.OPERATION_START_CLONE_USER -> "启动分身"
         ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER -> "进入分身"
         ExternalActionContract.OPERATION_STOP_CLONE_USER -> "关闭分身"
+        ExternalActionContract.OPERATION_SCAN_WORKSPACE_OWNERSHIP -> "扫描备份容量归属"
         ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP -> "修复备份容量归属"
         ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER -> "跨用户安装"
         ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER -> "安装并迁移权限"

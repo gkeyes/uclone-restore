@@ -34,4 +34,35 @@ class TaskAuditParserTest {
         assertEquals("/data/adb/uclone", audit.path)
         assertEquals(4096L, audit.sizeKb)
     }
+
+    @Test
+    fun workspaceOwnershipScanCapturesPathCountsAndSize() {
+        val audit = TaskAuditParser.enrich(
+            base = TaskAudit(source = "app"),
+            type = TaskType.SCAN_WORKSPACE_OWNERSHIP,
+            output = "WORKSPACE_OWNER_SCAN root=/data/adb/uclone total=22513 nonRoot=1240 sizeKb=4751360",
+        )
+
+        assertEquals(BackupKind.WORKSPACE, audit.backupKind)
+        assertEquals("/data/adb/uclone", audit.path)
+        assertEquals(22_513L, audit.totalEntries)
+        assertEquals(1_240L, audit.nonRootEntries)
+        assertEquals(4_751_360L, audit.sizeKb)
+    }
+
+    @Test
+    fun workspaceOwnershipRepairUsesFinalVerificationScan() {
+        val audit = TaskAuditParser.enrich(
+            base = TaskAudit(source = "app"),
+            type = TaskType.REPAIR_WORKSPACE_OWNERSHIP,
+            output = """
+                WORKSPACE_OWNER_SCAN root=/data/adb/uclone total=22513 nonRoot=1240 sizeKb=4751360
+                WORKSPACE_OWNER_SCAN root=/data/adb/uclone total=22513 nonRoot=0 sizeKb=4751360
+            """.trimIndent(),
+        )
+
+        assertEquals(22_513L, audit.totalEntries)
+        assertEquals(0L, audit.nonRootEntries)
+        assertEquals(4_751_360L, audit.sizeKb)
+    }
 }

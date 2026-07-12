@@ -1,20 +1,26 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.WorkspaceOwnershipReport
-import com.uclone.restore.root.shellQuote
 
 internal object WorkspaceOwnershipScripts {
-    fun scan(rootDir: String): String = """
+    fun scanTask(rootDir: String): String = """
         set -u
         set -o pipefail || exit 73
-        ${guard(rootDir)}
+        ${guard(rootDir, readOnly = true)}
+        echo "UCLONE_STAGE_BEGIN:PRECHECK"
         workspace_owner_scan
+        echo "UCLONE_STAGE_BEGIN:VERIFY"
     """.trimIndent()
 
-    fun repair(rootDir: String): String = """
+    fun repair(rootDir: String, expectedCanonicalRoot: String = rootDir): String = """
         set -u
         set -o pipefail || exit 73
-        ${guard(rootDir)}
+        ${guard(rootDir, readOnly = false)}
+        EXPECTED_CANONICAL_ROOT=${com.uclone.restore.root.shellQuote(expectedCanonicalRoot)}
+        [ "${'$'}ROOT_REAL" = "${'$'}EXPECTED_CANONICAL_ROOT" ] || {
+          echo "ERR_WORKSPACE_SCAN_STALE:expected=${'$'}EXPECTED_CANONICAL_ROOT:actual=${'$'}ROOT_REAL" >&2
+          exit 75
+        }
         echo "UCLONE_STAGE_BEGIN:PRECHECK"
         workspace_owner_scan
         CHANGED=${'$'}WORKSPACE_NON_ROOT
@@ -42,20 +48,8 @@ internal object WorkspaceOwnershipScripts {
         echo "WORKSPACE_OWNER_REPAIR_DONE changed=${'$'}CHANGED"
     """.trimIndent()
 
-    private fun guard(rootDir: String): String = """
-        ROOT=${shellQuote(rootDir)}
-        ROOT_REAL=${'$'}(readlink -f "${'$'}ROOT" 2>/dev/null || true)
-        [ -n "${'$'}ROOT_REAL" ] && [ -d "${'$'}ROOT_REAL" ] || { echo "ERR_WORKSPACE_MISSING:${'$'}ROOT" >&2; exit 74; }
-        case "${'$'}ROOT_REAL" in
-          /data/adb/uclone) ;;
-          *)
-            IDENTITY="${'$'}ROOT_REAL/config/workspace.identity"
-            [ -f "${'$'}IDENTITY" ] && [ "${'$'}(sed -n '1p' "${'$'}IDENTITY" 2>/dev/null)" = "com.uclone.restore.workspace.v1" ] || {
-              echo "ERR_UNTRUSTED_WORKSPACE:${'$'}ROOT_REAL" >&2
-              exit 75
-            }
-            ;;
-        esac
+    private fun guard(rootDir: String, readOnly: Boolean): String = """
+        ${if (readOnly) WorkspacePathGuard.inspect(rootDir) else WorkspacePathGuard.require(rootDir)}
         command -v nice >/dev/null 2>&1 && WORKSPACE_LOW_PRIORITY="nice -n 10" || WORKSPACE_LOW_PRIORITY=""
         workspace_owner_target() {
           NAME="${'$'}1"
@@ -110,7 +104,7 @@ internal object WorkspaceOwnershipReportParser {
         .lastOrNull()
         ?.let { match ->
             WorkspaceOwnershipReport(
-                rootPath = match.groupValues[1],
+                canonicalRoot = match.groupValues[1],
                 totalEntries = match.groupValues[2].toLong(),
                 nonRootEntries = match.groupValues[3].toLong(),
                 totalSizeKb = match.groupValues[4].toLong(),

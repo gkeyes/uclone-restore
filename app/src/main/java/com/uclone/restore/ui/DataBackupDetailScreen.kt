@@ -38,6 +38,8 @@ fun DataBackupDetailScreen(
     onBack: () -> Unit,
 ) {
     var confirm by remember(packageName, rollbackId) { mutableStateOf<DataBackupAction?>(null) }
+    var allowVersionMismatch by remember(packageName, rollbackId) { mutableStateOf(false) }
+    var allowLegacyIdentity by remember(packageName, rollbackId) { mutableStateOf(false) }
     val rootDir = state.settings.rootDir
     val app = packageName?.let { pkg -> state.apps.firstOrNull { it.packageName == pkg } }
     val passiveBackup = if (packageName == null || rollbackId == null) {
@@ -100,7 +102,11 @@ fun DataBackupDetailScreen(
         }
         SectionCard("操作") {
             IosPrimaryButton(
-                onClick = { confirm = DataBackupAction.RESTORE },
+                onClick = {
+                    allowVersionMismatch = false
+                    allowLegacyIdentity = false
+                    confirm = DataBackupAction.RESTORE
+                },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Default.RestartAlt, contentDescription = null)
@@ -138,6 +144,12 @@ fun DataBackupDetailScreen(
                                 Text("将使用${passiveBackup?.sourceLabel() ?: "这份备份"}覆盖主系统 user${state.settings.mainUserId} 数据，并同步更新首页的切换/还原状态。")
                             }
                             SingleLinePathText(path)
+                            RestoreCompatibilityControls(
+                                allowVersionMismatch = allowVersionMismatch,
+                                allowLegacyIdentity = allowLegacyIdentity,
+                                onAllowVersionMismatchChange = { allowVersionMismatch = it },
+                                onAllowLegacyIdentityChange = { allowLegacyIdentity = it },
+                            )
                         }
                         DataBackupAction.DELETE -> if (isPassive) {
                             Text("只删除下面这一份被动备份。其他被动备份、主动快照和 App 数据不会被删除。")
@@ -159,11 +171,24 @@ fun DataBackupDetailScreen(
                             when (action) {
                                 DataBackupAction.RESTORE -> {
                                     if (passiveBackup?.isCloneRollback == true) {
-                                        viewModel.restoreCloneRollback(targetPackageName)
+                                        viewModel.restoreCloneRollback(
+                                            targetPackageName,
+                                            allowVersionMismatch,
+                                            allowLegacyIdentity,
+                                        )
                                     } else if (isPassive) {
-                                        viewModel.restoreBackup(targetPackageName, requireNotNull(rollbackId))
+                                        viewModel.restoreBackup(
+                                            targetPackageName,
+                                            requireNotNull(rollbackId),
+                                            allowVersionMismatch,
+                                            allowLegacyIdentity,
+                                        )
                                     } else {
-                                        viewModel.restoreSnapshot(targetPackageName)
+                                        viewModel.restoreSnapshot(
+                                            targetPackageName,
+                                            allowVersionMismatch,
+                                            allowLegacyIdentity,
+                                        )
                                     }
                                 }
                                 DataBackupAction.DELETE -> {

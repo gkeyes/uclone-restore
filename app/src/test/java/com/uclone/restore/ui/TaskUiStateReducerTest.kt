@@ -12,6 +12,8 @@ import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskType
 import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.sync.SnapshotMetadata
+import com.uclone.restore.sync.InterruptedTransaction
+import com.uclone.restore.sync.TransactionRecoveryState
 import com.uclone.restore.sync.WorkspaceIndex
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -35,8 +37,10 @@ class TaskUiStateReducerTest {
 
         assertFalse(credentialDiff.requiresFullRefresh)
         assertFalse(credentialDiff.requiresShortcutSync)
+        assertFalse(credentialDiff.requiresRuntimeValidation)
         assertFalse(favoriteDiff.requiresFullRefresh)
         assertTrue(favoriteDiff.requiresShortcutSync)
+        assertFalse(favoriteDiff.requiresRuntimeValidation)
     }
 
     @Test
@@ -46,6 +50,54 @@ class TaskUiStateReducerTest {
         assertTrue(SettingsDiff.between(original, original.copy(rootDir = "/data/adb/other")).requiresFullRefresh)
         assertTrue(SettingsDiff.between(original, original.copy(mainUserId = 1)).requiresFullRefresh)
         assertTrue(SettingsDiff.between(original, original.copy(cloneUserId = 11)).requiresFullRefresh)
+        assertTrue(SettingsDiff.between(original, original.copy(rootDir = "/data/adb/other")).requiresRuntimeValidation)
+        assertTrue(SettingsDiff.between(original, original.copy(mainUserId = 1)).requiresRuntimeValidation)
+        assertTrue(SettingsDiff.between(original, original.copy(cloneUserId = 11)).requiresRuntimeValidation)
+    }
+
+    @Test
+    fun runtimeTargetChangesAreBlockedByTasksAndIncompleteRecovery() {
+        val original = UCloneSettings()
+        val targetDiff = SettingsDiff.between(original, original.copy(rootDir = "/data/adb/uclone-next"))
+        val ordinaryDiff = SettingsDiff.between(original, original.copy(excludeCache = false))
+        val interrupted = InterruptedTransaction(
+            requestId = "request-1",
+            packageName = "com.example.app",
+            stage = "TARGET_MUTATING",
+            rollbackReady = true,
+            targetMutated = true,
+            committed = false,
+            gateState = "HELD",
+            targetUserId = 0,
+        )
+
+        assertNull(targetDiff.runtimeTargetChangeBlockingMessage(false, TransactionRecoveryState.Ready))
+        assertTrue(targetDiff.runtimeTargetChangeBlockingMessage(true, TransactionRecoveryState.Ready)!!.contains("任务"))
+        assertTrue(
+            targetDiff.runtimeTargetChangeBlockingMessage(
+                false,
+                TransactionRecoveryState.Required(listOf(interrupted)),
+            )!!.contains("未完成事务"),
+        )
+        assertTrue(
+            targetDiff.runtimeTargetChangeBlockingMessage(
+                false,
+                TransactionRecoveryState.Recovering(interrupted, emptyList()),
+            )!!.contains("正在恢复"),
+        )
+        assertTrue(
+            targetDiff.runtimeTargetChangeBlockingMessage(
+                false,
+                TransactionRecoveryState.RootTaskStillRunning(listOf(interrupted), interrupted.requestId),
+            )!!.contains("仍在运行"),
+        )
+        assertTrue(
+            targetDiff.runtimeTargetChangeBlockingMessage(
+                false,
+                TransactionRecoveryState.Failed("probe failed"),
+            )!!.contains("probe failed"),
+        )
+        assertNull(ordinaryDiff.runtimeTargetChangeBlockingMessage(true, TransactionRecoveryState.Scanning))
     }
 
     @Test
@@ -62,6 +114,7 @@ class TaskUiStateReducerTest {
             TaskType.RESET_SWITCH_STATE to RefreshPolicy(workspace = true, shortcuts = true),
             TaskType.DELETE_SNAPSHOT to RefreshPolicy(workspace = true),
             TaskType.DELETE_RESTORE_BACKUP to RefreshPolicy(workspace = true, shortcuts = true),
+            TaskType.DELETE_CLONE_ROLLBACK to RefreshPolicy(workspace = true),
             TaskType.PROBE_CLONE_CE to RefreshPolicy(environment = true),
             TaskType.UNLOCK_CLONE_WITH_CREDENTIAL to RefreshPolicy(environment = true),
             TaskType.DEBUG_CLONE_SYSTEM to RefreshPolicy(environment = true),
@@ -71,11 +124,13 @@ class TaskUiStateReducerTest {
             TaskType.START_CLONE_USER to RefreshPolicy(environment = true),
             TaskType.SWITCH_TO_CLONE_USER to RefreshPolicy(environment = true),
             TaskType.STOP_CLONE_USER to RefreshPolicy(environment = true),
+            TaskType.SCAN_WORKSPACE_OWNERSHIP to RefreshPolicy(),
             TaskType.REPAIR_WORKSPACE_OWNERSHIP to RefreshPolicy(),
             TaskType.INSTALL_TO_OTHER_USER to RefreshPolicy(apps = true, shortcuts = true),
             TaskType.INSTALL_WITH_PERMISSIONS_TO_OTHER_USER to RefreshPolicy(apps = true, shortcuts = true),
             TaskType.INSTALL_AND_SYNC_TO_OTHER_USER to
                 RefreshPolicy(environment = true, workspace = true, shortcuts = true, apps = true),
+            TaskType.RECOVER_INTERRUPTED_TRANSACTION to RefreshPolicy(),
         )
 
         assertEquals(TaskType.entries.toSet(), expected.keys)

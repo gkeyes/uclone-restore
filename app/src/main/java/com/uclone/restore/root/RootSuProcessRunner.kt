@@ -61,15 +61,16 @@ private class RootProcessTreeTerminator(
     private val trace = mutableListOf<String>()
 
     @Synchronized
-    fun signal(force: Boolean): Boolean {
+    fun signal(force: Boolean): ProcessTreeTerminationAttempt {
         if (rootPid.get() <= 1L) {
             runCatching { pidReady.await(ROOT_PID_WAIT_MILLIS, TimeUnit.MILLISECONDS) }
         }
-        val pid = rootPid.get().takeIf { it > 1L } ?: return false
+        val pid = rootPid.get().takeIf { it > 1L }
+            ?: return ProcessTreeTerminationAttempt(verified = false, signaled = false)
         val signal = if (force) 9 else 15
         val script = rootTreeSignalScript(pid, trackedProcesses.joinToString(" "), signal)
         val process = runCatching { ProcessBuilder(executablePrefix + invocationArgs + script).start() }.getOrNull()
-            ?: return false
+            ?: return ProcessTreeTerminationAttempt(verified = false, signaled = false)
         runCatching { process.outputStream.close() }
         if (!runCatching { process.waitFor(ROOT_KILLER_WAIT_SECONDS, TimeUnit.SECONDS) }.getOrDefault(false)) {
             process.destroyForcibly()
@@ -83,7 +84,10 @@ private class RootProcessTreeTerminator(
                 ?.split(' ')
                 ?.filterTo(trackedProcesses) { PROCESS_TOKEN.matches(it) }
         }
-        return lines.any { it == "SIGNALED=1" }
+        return ProcessTreeTerminationAttempt(
+            verified = lines.any { it == "TREE_VERIFIED=1" },
+            signaled = lines.any { it == "SIGNALED=1" },
+        )
     }
 
     @Synchronized
@@ -92,6 +96,7 @@ private class RootProcessTreeTerminator(
 
 private fun rootTreeSignalScript(rootPid: Long, knownPids: String, signal: Int): String = """
     ROOT_PID=$rootPid
+    printf 'ROOT_RESOLVED=1\n'
     KNOWN_PIDS=${shellQuote(knownPids)}
     process_token() {
       TOKEN_PID="${'$'}1"
@@ -138,6 +143,31 @@ private fun rootTreeSignalScript(rootPid: Long, knownPids: String, signal: Int):
       fi
     done
     printf 'SIGNALED=%s\\n' "${'$'}SIGNALED"
+    TREE_VERIFIED=0
+    VERIFY_ATTEMPT=0
+    while [ "${'$'}VERIFY_ATTEMPT" -lt 20 ]; do
+      TREE_ALIVE=0
+      for TOKEN in ${'$'}ALL_PIDS; do
+        TARGET=${'$'}{TOKEN%%:*}
+        EXPECTED_START=${'$'}{TOKEN#*:}
+        case "${'$'}TARGET" in ''|*[!0-9]*) continue ;; esac
+        [ "${'$'}TARGET" -gt 1 ] || continue
+        kill -0 "${'$'}TARGET" 2>/dev/null || continue
+        if [ "${'$'}EXPECTED_START" != "0" ] && [ -r "/proc/${'$'}TARGET/stat" ]; then
+          CURRENT_START=${'$'}(awk '{ sub(/^[^)]*[)] /, ""); print ${'$'}20 }' "/proc/${'$'}TARGET/stat" 2>/dev/null)
+          [ "${'$'}CURRENT_START" = "${'$'}EXPECTED_START" ] || continue
+        fi
+        TREE_ALIVE=1
+        break
+      done
+      if [ "${'$'}TREE_ALIVE" = "0" ]; then
+        TREE_VERIFIED=1
+        break
+      fi
+      sleep 0.05
+      VERIFY_ATTEMPT=${'$'}((VERIFY_ATTEMPT + 1))
+    done
+    printf 'TREE_VERIFIED=%s\\n' "${'$'}TREE_VERIFIED"
 """.trimIndent()
 
 private fun ShellOutput.controlPidOrNull(): Long? =

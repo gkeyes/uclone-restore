@@ -21,11 +21,15 @@ class ExternalForegroundServicePolicyTest {
     }
 
     @Test
-    fun inAppAndOlderAndroidActionsUseDataSyncType() {
+    fun allLongRootActionsUseSpecialTypeOnAndroid14AndNewer() {
         assertEquals(
-            ExternalForegroundWorkType.DATA_SYNC,
+            ExternalForegroundWorkType.SPECIAL_USE,
             ExternalForegroundServicePolicy.workType(ExternalActionContract.SOURCE_APP, sdkInt = 36),
         )
+    }
+
+    @Test
+    fun olderAndroidActionsUseDataSyncType() {
         assertEquals(
             ExternalForegroundWorkType.DATA_SYNC,
             ExternalForegroundServicePolicy.workType(ExternalActionContract.SOURCE_MODULE, sdkInt = 33),

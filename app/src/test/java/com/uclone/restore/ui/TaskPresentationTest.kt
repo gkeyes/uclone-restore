@@ -21,6 +21,7 @@ class TaskPresentationTest {
             TaskType.RESET_SWITCH_STATE to "重置切换状态",
             TaskType.DELETE_SNAPSHOT to "删除主动备份",
             TaskType.DELETE_RESTORE_BACKUP to "删除被动备份",
+            TaskType.DELETE_CLONE_ROLLBACK to "删除分身回滚",
             TaskType.PROBE_CLONE_CE to "检测分身 CE",
             TaskType.UNLOCK_CLONE_WITH_CREDENTIAL to "解锁分身",
             TaskType.DEBUG_CLONE_SYSTEM to "诊断分身系统",
@@ -30,10 +31,12 @@ class TaskPresentationTest {
             TaskType.START_CLONE_USER to "启动分身用户",
             TaskType.SWITCH_TO_CLONE_USER to "进入分身用户",
             TaskType.STOP_CLONE_USER to "关闭分身用户",
+            TaskType.SCAN_WORKSPACE_OWNERSHIP to "扫描备份容量归属",
             TaskType.REPAIR_WORKSPACE_OWNERSHIP to "修复备份容量归属",
             TaskType.INSTALL_TO_OTHER_USER to "安装到另一用户",
             TaskType.INSTALL_WITH_PERMISSIONS_TO_OTHER_USER to "安装并迁移权限",
             TaskType.INSTALL_AND_SYNC_TO_OTHER_USER to "安装并同步数据",
+            TaskType.RECOVER_INTERRUPTED_TRANSACTION to "恢复未完成事务",
         )
 
         assertEquals(TaskType.entries.toSet(), expected.keys)
@@ -54,6 +57,7 @@ class TaskPresentationTest {
             TaskStatus.SUCCESS_WITH_WARNINGS to "成功（有警告）",
             TaskStatus.FAILED to "失败",
             TaskStatus.FAILED_FATAL to "严重失败",
+            TaskStatus.RECOVERY_REQUIRED to "需要安全恢复",
             TaskStatus.INTERRUPTED to "已中断",
         )
 

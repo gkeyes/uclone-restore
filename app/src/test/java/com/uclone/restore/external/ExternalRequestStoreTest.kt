@@ -24,6 +24,45 @@ class ExternalRequestStoreTest {
     }
 
     @Test
+    fun terminalRequestIdsSurviveDiagnosticHistoryEvictionAndStoreRecreation() {
+        val file = Files.createTempDirectory("uclone-external-dedupe")
+            .resolve("external_requests_v1.jsonl")
+            .toFile()
+        val store = ExternalRequestStore(file, maxEvents = 2)
+        store.record(event("completed-request", ExternalRequestStage.SUCCESS))
+        store.record(event("new-request-1", ExternalRequestStage.SERVICE_RECEIVED))
+        store.record(event("new-request-2", ExternalRequestStage.SERVICE_RECEIVED))
+        store.record(event("new-request-3", ExternalRequestStage.SERVICE_RECEIVED))
+
+        val restored = ExternalRequestStore(file, maxEvents = 2)
+
+        assertEquals(
+            ExternalRequestStage.SUCCESS,
+            restored.terminal("completed-request")?.stage,
+        )
+        assertEquals(
+            listOf("new-request-3", "new-request-2"),
+            restored.all().map(ExternalRequestEvent::requestId),
+        )
+    }
+
+    @Test
+    fun postmortemTerminalCorrectsProcessDeathButNotACompletedBusinessResult() {
+        val file = Files.createTempDirectory("uclone-external-terminal-reconcile")
+            .resolve("external_requests_v1.jsonl")
+            .toFile()
+        val store = ExternalRequestStore(file)
+        store.record(event("request-1", ExternalRequestStage.FAILED_PROCESS_DIED))
+
+        val corrected = store.recordReconciledTerminal(event("request-1", ExternalRequestStage.SUCCESS))
+        val rejected = store.recordReconciledTerminal(event("request-1", ExternalRequestStage.FAILED))
+
+        assertEquals(true, corrected)
+        assertEquals(false, rejected)
+        assertEquals(ExternalRequestStage.SUCCESS, store.terminal("request-1")?.stage)
+    }
+
+    @Test
     fun processDeathRecoveryIsExternalOnlyAndIdempotent() {
         val file = Files.createTempDirectory("uclone-external-recovery")
             .resolve("external_requests_v1.jsonl")
@@ -103,6 +142,30 @@ class ExternalRequestStoreTest {
 
         assertEquals(ExternalRequestStage.STILL_RUNNING, recovered.single().stage)
         assertEquals("UClone 界面进程已重启，Root 数据任务仍在运行", recovered.single().message)
+    }
+
+    @Test
+    fun priorStillRunningEventDoesNotSuppressLaterProcessDeathTerminal() {
+        val file = Files.createTempDirectory("uclone-live-then-dead-recovery")
+            .resolve("external_requests_v1.jsonl")
+            .toFile()
+        val store = ExternalRequestStore(file)
+        val task = interruptedTask("live-request", ExternalActionContract.SOURCE_MODULE)
+        ExternalRequestRecovery.recordProcessDeaths(
+            tasks = listOf(task),
+            store = store,
+            occurredAt = 10L,
+            liveRequestIds = setOf("live-request"),
+        )
+
+        val terminal = ExternalRequestRecovery.recordProcessDeaths(
+            tasks = listOf(task),
+            store = store,
+            occurredAt = 20L,
+        )
+
+        assertEquals(ExternalRequestStage.FAILED_PROCESS_DIED, terminal.single().stage)
+        assertEquals(ExternalRequestStage.FAILED_PROCESS_DIED, store.terminal("live-request")?.stage)
     }
 
     private fun event(requestId: String, stage: ExternalRequestStage) = ExternalRequestEvent(

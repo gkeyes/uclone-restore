@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskStep
+import com.uclone.restore.sync.TransactionRecoveryState
 import com.uclone.restore.util.Formatters
 
 @Composable
@@ -82,9 +83,14 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
                 }
             }
         }
+        if (state.transactionRecovery !is TransactionRecoveryState.Ready) {
+            item {
+                TransactionRecoveryCard(state.transactionRecovery, viewModel::retryInterruptedTransactionRecovery)
+            }
+        }
         if (state.currentTask.task != null) {
             item {
-                CurrentTaskCard(state)
+                CurrentTaskCard(state, viewModel::cancelCurrentTaskSafely)
             }
         }
         item {
@@ -120,6 +126,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
     confirm?.let { action ->
         HomeConfirmDialog(
             action = action,
+            forceUpdateCloneDataBeforeMainRestore = state.settings.forceUpdateCloneDataBeforeMainRestore,
             onDismiss = { confirm = null },
             onConfirm = {
                 confirm = null
@@ -134,7 +141,41 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
 }
 
 @Composable
-private fun CurrentTaskCard(state: UiState) {
+private fun TransactionRecoveryCard(
+    recovery: TransactionRecoveryState,
+    onRetry: () -> Unit,
+) {
+    SectionCard("数据安全恢复") {
+        val message = when (recovery) {
+            TransactionRecoveryState.Scanning -> "正在检查上次任务是否完整结束。"
+            TransactionRecoveryState.Ready -> "事务状态正常。"
+            is TransactionRecoveryState.RootTaskStillRunning -> "上次 Root 数据任务仍在运行，完成前不会启动新的覆盖任务。"
+            is TransactionRecoveryState.Required -> "检测到 ${recovery.transactions.size} 个未完成事务，目标 App 会保持冻结，直到回滚完成。"
+            is TransactionRecoveryState.Recovering -> "正在恢复 ${recovery.transaction.packageName} 的操作前数据。"
+            is TransactionRecoveryState.Failed -> "无法完成安全恢复：${recovery.message}"
+        }
+        Text(
+            message,
+            color = if (recovery is TransactionRecoveryState.Failed || recovery is TransactionRecoveryState.Required) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        if (recovery is TransactionRecoveryState.Scanning || recovery is TransactionRecoveryState.Recovering) {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+        if (recovery is TransactionRecoveryState.Required || recovery is TransactionRecoveryState.Failed) {
+            IosPrimaryButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Refresh, contentDescription = null)
+                Text("重新执行安全恢复")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CurrentTaskCard(state: UiState, onCancel: () -> Unit) {
     val task = state.currentTask.task ?: return
     val activeStep = state.currentTask.task?.currentStage?.let { TaskStep(it.displayLabel, StepStatus.RUNNING) }
         ?: state.currentTask.steps.firstOrNull { it.status == StepStatus.RUNNING }
@@ -161,6 +202,9 @@ private fun CurrentTaskCard(state: UiState) {
         }
         if (state.busy) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
+            IosSecondaryButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                Text("安全停止")
+            }
         }
     }
 }
@@ -223,16 +267,25 @@ private sealed class HomeConfirm {
 }
 
 @Composable
-private fun HomeConfirmDialog(action: HomeConfirm, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun HomeConfirmDialog(
+    action: HomeConfirm,
+    forceUpdateCloneDataBeforeMainRestore: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
     val title = when (action) {
         is HomeConfirm.Push -> "推送到分身"
         is HomeConfirm.Switch -> "切换到分身态"
         is HomeConfirm.Restore -> "还原主系统态"
     }
     val body = when (action) {
-        is HomeConfirm.Push -> "会把主系统当前 ${action.label} 数据覆盖到分身。执行前会把分身当前数据保存为独立的最新分身回滚，不影响首页切换/还原状态。"
-        is HomeConfirm.Switch -> "会先保存当前主系统数据为被动备份，再使用分身最新状态恢复 ${action.label}。"
-        is HomeConfirm.Restore -> "会用切换前保存的被动备份恢复 ${action.label}，并清除首页还原标记。"
+        is HomeConfirm.Push -> "会把主系统当前 ${action.label} 数据覆盖到分身。执行前确保分身有长期回滚点，并另外建立本次任务专属临时回滚；不影响首页切换/还原状态。"
+        is HomeConfirm.Switch -> "会先确保主系统有长期返回点，并建立本次任务专属临时回滚，再使用分身最新状态恢复 ${action.label}。"
+        is HomeConfirm.Restore -> if (forceUpdateCloneDataBeforeMainRestore) {
+            "会先把 ${action.label} 当前分身态数据同步回分系统；只有同步成功后，才会恢复切换前的主数据并清除还原标记。同步失败时仍保持分身态。"
+        } else {
+            "会用切换前保存的被动备份恢复 ${action.label}，并清除首页还原标记。"
+        }
     }
     AlertDialog(
         onDismissRequest = onDismiss,

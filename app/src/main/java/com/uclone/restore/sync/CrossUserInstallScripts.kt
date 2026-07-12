@@ -17,6 +17,11 @@ internal object CrossUserInstallScripts {
     ): String {
         require(targetUserId == settings.mainUserId || targetUserId == settings.cloneUserId)
         val sourceUserId = if (targetUserId == settings.mainUserId) settings.cloneUserId else settings.mainUserId
+        val permissionFunctions = if (mode == CrossUserInstallMode.INSTALL_WITH_PERMISSIONS) {
+            PermissionStateShell.functions()
+        } else {
+            ":"
+        }
         val followUp = when (mode) {
             CrossUserInstallMode.INSTALL_ONLY -> """
                 install_stage COMMIT
@@ -39,6 +44,8 @@ internal object CrossUserInstallScripts {
             REQUEST_ID=${shellQuote(requestId)}
             SRC_USER=$sourceUserId
             DST_USER=$targetUserId
+            UCLONE_REQUEST_ID="${'$'}REQUEST_ID"
+            $permissionFunctions
             install_stage() {
               command -v uclone_active_stage >/dev/null 2>&1 && uclone_active_stage "${'$'}1"
               echo "UCLONE_STAGE_BEGIN:${'$'}1"
@@ -98,65 +105,18 @@ internal object CrossUserInstallScripts {
         install_stage RESTORE_PERMISSIONS
         PERM_DIR="${'$'}ROOT/tmp/install_permissions_${'$'}{PKG}_${'$'}{REQUEST_ID}"
         rm -rf "${'$'}PERM_DIR"
-        if mkdir -p "${'$'}PERM_DIR"; then
-          RUNTIME_CAPTURE_OK=0
-          if dumpsys package "${'$'}PKG" 2>/dev/null | awk -v user="User ${'$'}SRC_USER:" '
-            ${'$'}0 ~ "^    User [0-9]+:" { in_user=(${'$'}0 ~ user); in_runtime=0 }
-            in_user && ${'$'}0 ~ "^      runtime permissions:" { in_runtime=1; next }
-            in_runtime && ${'$'}0 ~ "^        android\\.permission\\." {
-              name=${'$'}1; sub(":", "", name); if (${'$'}0 ~ "granted=true") print name; next
-            }
-            in_runtime && ${'$'}0 !~ "^        " { in_runtime=0 }
-          ' | sort -u > "${'$'}PERM_DIR/runtime_grants.tmp"; then
-            mv "${'$'}PERM_DIR/runtime_grants.tmp" "${'$'}PERM_DIR/runtime_grants.txt"
-            RUNTIME_CAPTURE_OK=1
+        if uclone_capture_permission_state "${'$'}PERM_DIR" "${'$'}SRC_USER"; then
+          if uclone_restore_permission_state "${'$'}PERM_DIR" "${'$'}DST_USER" MERGE; then
+            echo "INSTALL_PERMISSIONS_DONE targetUser=${'$'}DST_USER mode=MERGE"
           else
-            rm -f "${'$'}PERM_DIR/runtime_grants.tmp"
-            echo "WARN_INSTALL_PERMISSIONS_CAPTURE_FAILED:runtime"
+            echo "WARN_INSTALL_PERMISSIONS_RESTORE_FAILED:user=${'$'}DST_USER"
+            echo "INSTALL_PERMISSIONS_DONE targetUser=${'$'}DST_USER mode=MERGE status=partial"
           fi
-          APPOPS_CAPTURE_OK=0
-          if /system/bin/cmd appops get --user "${'$'}SRC_USER" "${'$'}PKG" 2>/dev/null | awk '
-            /^[A-Z0-9_()]+: (allow|ignore|deny|default|foreground|ask)/ {
-              op=${'$'}1; sub(":", "", op); mode=${'$'}2; sub(";", "", mode); print op " " mode
-            }
-          ' | sort -u > "${'$'}PERM_DIR/appops.tmp"; then
-            mv "${'$'}PERM_DIR/appops.tmp" "${'$'}PERM_DIR/appops.txt"
-            APPOPS_CAPTURE_OK=1
-          else
-            rm -f "${'$'}PERM_DIR/appops.tmp"
-            echo "WARN_INSTALL_PERMISSIONS_CAPTURE_FAILED:appops"
-          fi
-          GRANT_COUNT=0
-          if [ "${'$'}RUNTIME_CAPTURE_OK" = "1" ]; then
-            while IFS= read -r PERMISSION; do
-              [ -n "${'$'}PERMISSION" ] || continue
-              if /system/bin/cmd package grant --user "${'$'}DST_USER" "${'$'}PKG" "${'$'}PERMISSION" >/dev/null 2>&1 ||
-                 /system/bin/pm grant --user "${'$'}DST_USER" "${'$'}PKG" "${'$'}PERMISSION" >/dev/null 2>&1; then
-                GRANT_COUNT=${'$'}((GRANT_COUNT + 1))
-              else
-                echo "WARN_GRANT_FAILED:${'$'}PERMISSION"
-              fi
-            done < "${'$'}PERM_DIR/runtime_grants.txt"
-          fi
-          APPOPS_COUNT=0
-          if [ "${'$'}APPOPS_CAPTURE_OK" = "1" ]; then
-            /system/bin/cmd appops reset --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || echo "WARN_APPOPS_RESET_FAILED"
-            while read -r OP MODE; do
-              [ -n "${'$'}OP" ] && [ -n "${'$'}MODE" ] || continue
-              if /system/bin/cmd appops set --user "${'$'}DST_USER" "${'$'}PKG" "${'$'}OP" "${'$'}MODE" >/dev/null 2>&1; then
-                APPOPS_COUNT=${'$'}((APPOPS_COUNT + 1))
-              else
-                echo "WARN_APPOPS_FAILED:${'$'}OP:${'$'}MODE"
-              fi
-            done < "${'$'}PERM_DIR/appops.txt"
-            /system/bin/cmd appops write-settings >/dev/null 2>&1 || echo "WARN_APPOPS_WRITE_SETTINGS_FAILED"
-          fi
-          rm -rf "${'$'}PERM_DIR"
-          echo "INSTALL_PERMISSIONS_DONE targetUser=${'$'}DST_USER grants=${'$'}GRANT_COUNT appops=${'$'}APPOPS_COUNT"
         else
-          echo "WARN_INSTALL_PERMISSIONS_CAPTURE_FAILED:workspace"
-          echo "INSTALL_PERMISSIONS_DONE targetUser=${'$'}DST_USER grants=0 appops=0"
+          echo "WARN_INSTALL_PERMISSIONS_CAPTURE_FAILED:user=${'$'}SRC_USER"
+          echo "INSTALL_PERMISSIONS_DONE targetUser=${'$'}DST_USER mode=MERGE status=partial"
         fi
+        rm -rf "${'$'}PERM_DIR"
         install_stage COMMIT
     """.trimIndent()
 

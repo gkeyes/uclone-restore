@@ -114,4 +114,5 @@ private fun ExternalRequestStage.userFacingLabel(): String = when (this) {
     ExternalRequestStage.STILL_RUNNING -> "Root 任务仍在运行"
     ExternalRequestStage.ORPHANED -> "发现孤儿任务"
     ExternalRequestStage.FAILED_PROCESS_DIED -> "进程终止"
+    ExternalRequestStage.RECOVERY_REQUIRED -> "需要安全恢复"
 }

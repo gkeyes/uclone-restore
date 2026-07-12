@@ -131,6 +131,24 @@ class ProcessRootShellExecutorTest {
     }
 
     @Test
+    fun timeoutReportsUnverifiedRootTreeWhenRootPidWasNeverObserved() {
+        val runner = ProcessCommandRunner(listOf("/bin/sh"), timeoutGraceSeconds = 0)
+
+        val result = runner.runManaged(
+            args = listOf("-c", "trap '' TERM; while :; do :; done"),
+            standardInput = null,
+            timeoutSeconds = 1,
+            onOutput = {},
+            processTreeTerminator = {
+                ProcessTreeTerminationAttempt(verified = false, signaled = false)
+            },
+        )
+
+        assertEquals(124, result.exitCode)
+        assertTrue(ROOT_TREE_TERMINATION_UNVERIFIED in result.stderr)
+    }
+
+    @Test
     fun cancellingCoroutineTerminatesRealProcessPromptly() = runBlocking {
         val processStarted = CountDownLatch(1)
         val processId = AtomicLong(-1)

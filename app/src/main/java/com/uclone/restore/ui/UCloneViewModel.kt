@@ -7,12 +7,19 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.uclone.restore.AppContainer
 import com.uclone.restore.external.ExternalActionService
+import com.uclone.restore.external.taskTypeForOperation
+import com.uclone.restore.data.SettingsValidation
 import com.uclone.restore.launcher.FavoriteShortcutEntry
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.model.WorkspaceOwnershipReport
 import com.uclone.restore.sync.WorkspaceIndex
+import com.uclone.restore.sync.TransactionRecoveryState
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -29,11 +36,20 @@ class UCloneViewModel(
     private val taskCoordinator = container.taskCoordinator
     private val launcherShortcutController = container.launcherShortcutController
     private val externalRequestStore = container.externalRequestStore
-    private val _state = MutableStateFlow(UiState(settings = settingsStore.load()))
+    private val transactionRecovery = container.transactionRecovery
+    private val _state = MutableStateFlow(
+        UiState(
+            settings = settingsStore.load(),
+            transactionRecovery = transactionRecovery.state.value,
+        ),
+    )
     val state: StateFlow<UiState> = _state
+    private val _settingsMessages = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val settingsMessages: SharedFlow<String> = _settingsMessages.asSharedFlow()
     private var refreshedTerminalRequestId: String? = null
     private val refreshMutex = Mutex()
     private var workspaceCache: WorkspaceCache? = null
+    private var settingsSaveGeneration = 0L
 
     init {
         observeTasks()
@@ -141,13 +157,96 @@ class UCloneViewModel(
     }
 
     fun saveSettings(settings: UCloneSettings) {
-        val diff = SettingsDiff.between(_state.value.settings, settings)
-        settingsStore.save(settings)
-        _state.update { it.copy(settings = settings, message = "设置已保存") }
+        val generation = ++settingsSaveGeneration
+        val previous = _state.value.settings
+        val normalized = runCatching { SettingsValidation.requireValid(settings) }
+            .onFailure { error -> publishSettingsMessage(error.message ?: "设置无效") }
+            .getOrNull() ?: return
+        val diff = SettingsDiff.between(previous, normalized)
+        diff.runtimeTargetChangeBlockingMessage(
+            taskBusy = taskCoordinator.isBusy(),
+            recoveryState = transactionRecovery.state.value,
+        )?.let { reason ->
+            publishSettingsMessage(reason)
+            return
+        }
+        if (diff.requiresRuntimeValidation) {
+            launchRefresh {
+                runBusy("验证用户和工作目录") {
+                    val validation = runCatching { syncEngine.validateSettingsTarget(normalized) }
+                        .onFailure { error -> publishSettingsMessage(error.message ?: "设置验证失败") }
+                        .getOrNull() ?: return@runBusy
+                    if (!validation.ok) {
+                        publishSettingsMessage(validation.detail)
+                        return@runBusy
+                    }
+                    runCatching {
+                        persistRuntimeTargetSettings(previous, normalized, diff, generation)
+                    }.onFailure { error ->
+                        publishSettingsMessage(error.message ?: "设置保存失败")
+                    }
+                }
+            }
+            return
+        }
+        runCatching { persistSettings(previous, normalized, diff, generation) }
+            .onFailure { error -> publishSettingsMessage(error.message ?: "设置保存失败") }
+    }
+
+    private fun persistRuntimeTargetSettings(
+        previous: UCloneSettings,
+        normalized: UCloneSettings,
+        diff: SettingsDiff,
+        generation: Long,
+    ) {
+        var rejection: String? = null
+        val admitted = taskCoordinator.tryRunWhileIdle {
+            rejection = diff.runtimeTargetChangeBlockingMessage(
+                taskBusy = false,
+                recoveryState = transactionRecovery.state.value,
+            )
+            if (rejection == null) {
+                persistSettings(previous, normalized, diff, generation)
+            }
+        }
+        if (!admitted) {
+            rejection = diff.runtimeTargetChangeBlockingMessage(
+                taskBusy = true,
+                recoveryState = transactionRecovery.state.value,
+            )
+        }
+        rejection?.let(::publishSettingsMessage)
+    }
+
+    private fun persistSettings(
+        previous: UCloneSettings,
+        normalized: UCloneSettings,
+        diff: SettingsDiff,
+        generation: Long,
+    ) {
+        if (generation != settingsSaveGeneration) return
+        settingsStore.save(normalized)
+        _state.update {
+            it.copy(
+                settings = normalized,
+                workspaceOwnership = WorkspaceOwnershipReportPolicy.retainAfterSettingsChange(
+                    it.workspaceOwnership,
+                    previous,
+                    normalized,
+                ),
+                message = "设置已保存",
+            )
+        }
+        _settingsMessages.tryEmit("设置已保存")
         when {
             diff.requiresFullRefresh -> refreshAll()
             diff.requiresShortcutSync -> syncLauncherShortcuts()
         }
+    }
+
+    private fun publishSettingsMessage(message: String) {
+        _state.update { it.copy(message = message) }
+        _settingsMessages.tryEmit(message)
     }
 
     fun toggleFavorite(packageName: String) {
@@ -165,14 +264,24 @@ class UCloneViewModel(
         submitTask(UiTaskAction.CAPTURE, packageName, "正在建立分身快照")
     }
 
-    fun restoreSelected() {
+    fun restoreSelected(allowVersionMismatch: Boolean = false, allowLegacyIdentity: Boolean = false) {
         val packageName = _state.value.selectedPackage ?: return
-        restoreSnapshot(packageName)
+        restoreSnapshot(packageName, allowVersionMismatch, allowLegacyIdentity)
     }
 
-    fun restoreSnapshot(packageName: String) {
+    fun restoreSnapshot(
+        packageName: String,
+        allowVersionMismatch: Boolean = false,
+        allowLegacyIdentity: Boolean = false,
+    ) {
         _state.update { it.copy(selectedPackage = packageName) }
-        submitTask(UiTaskAction.RESTORE_ACTIVE, packageName, "正在恢复到主系统")
+        submitTask(
+            UiTaskAction.RESTORE_ACTIVE,
+            packageName,
+            "正在恢复到主系统",
+            allowVersionMismatch = allowVersionMismatch,
+            allowLegacyIdentity = allowLegacyIdentity,
+        )
     }
 
     fun restoreLatestSelected() {
@@ -195,19 +304,42 @@ class UCloneViewModel(
         submitTask(UiTaskAction.PUSH_MAIN, packageName, "正在推送到分身")
     }
 
-    fun restoreCloneRollback(packageName: String) {
+    fun restoreCloneRollback(
+        packageName: String,
+        allowVersionMismatch: Boolean = false,
+        allowLegacyIdentity: Boolean = false,
+    ) {
         _state.update { it.copy(selectedPackage = packageName) }
-        submitTask(UiTaskAction.RESTORE_CLONE_ROLLBACK, packageName, "正在恢复分身回滚")
+        submitTask(
+            UiTaskAction.RESTORE_CLONE_ROLLBACK,
+            packageName,
+            "正在恢复分身回滚",
+            allowVersionMismatch = allowVersionMismatch,
+            allowLegacyIdentity = allowLegacyIdentity,
+        )
     }
 
-    fun restoreSwitchMainState(packageName: String) {
+    fun restoreSwitchMainState(
+        packageName: String,
+        allowVersionMismatch: Boolean = false,
+        allowLegacyIdentity: Boolean = false,
+    ) {
         _state.update { it.copy(selectedPackage = packageName) }
-        submitTask(UiTaskAction.RESTORE_MAIN, packageName, "正在还原主系统态")
+        submitTask(
+            UiTaskAction.RESTORE_MAIN,
+            packageName,
+            "正在还原主系统态",
+            allowVersionMismatch = allowVersionMismatch,
+            allowLegacyIdentity = allowLegacyIdentity,
+        )
     }
 
-    fun restoreSwitchMainStateSelected() {
+    fun restoreSwitchMainStateSelected(
+        allowVersionMismatch: Boolean = false,
+        allowLegacyIdentity: Boolean = false,
+    ) {
         val packageName = _state.value.selectedPackage ?: return
-        restoreSwitchMainState(packageName)
+        restoreSwitchMainState(packageName, allowVersionMismatch, allowLegacyIdentity)
     }
 
     fun handleLauncherFavoriteShortcut(packageName: String) {
@@ -221,14 +353,30 @@ class UCloneViewModel(
         submitTask(UiTaskAction.SWITCH_OR_RESTORE, packageName, "正在从桌面快捷入口切换/还原")
     }
 
-    fun rollbackSelected(rollbackId: String) {
+    fun rollbackSelected(
+        rollbackId: String,
+        allowVersionMismatch: Boolean = false,
+        allowLegacyIdentity: Boolean = false,
+    ) {
         val packageName = _state.value.selectedPackage ?: return
-        restoreBackup(packageName, rollbackId)
+        restoreBackup(packageName, rollbackId, allowVersionMismatch, allowLegacyIdentity)
     }
 
-    fun restoreBackup(packageName: String, rollbackId: String) {
+    fun restoreBackup(
+        packageName: String,
+        rollbackId: String,
+        allowVersionMismatch: Boolean = false,
+        allowLegacyIdentity: Boolean = false,
+    ) {
         _state.update { it.copy(selectedPackage = packageName) }
-        submitTask(UiTaskAction.RESTORE_ROLLBACK, packageName, "正在恢复被动备份", rollbackId)
+        submitTask(
+            UiTaskAction.RESTORE_ROLLBACK,
+            packageName,
+            "正在恢复被动备份",
+            rollbackId,
+            allowVersionMismatch = allowVersionMismatch,
+            allowLegacyIdentity = allowLegacyIdentity,
+        )
     }
 
     fun resetSwitchStateSelected() {
@@ -287,26 +435,7 @@ class UCloneViewModel(
     }
 
     fun scanWorkspaceOwnership() {
-        if (_state.value.busy || taskCoordinator.isBusy()) {
-            _state.update { it.copy(message = "已有任务正在执行") }
-            return
-        }
-        launchRefresh {
-            val settings = _state.value.settings
-            runBusy("正在扫描备份容量归属") {
-                val report = syncEngine.scanWorkspaceOwnership(settings)
-                _state.update {
-                    it.copy(
-                        workspaceOwnership = report,
-                        message = if (report.nonRootEntries == 0L) {
-                            "备份容量归属正常"
-                        } else {
-                            "发现 ${report.nonRootEntries} 个文件或目录需要修复"
-                        },
-                    )
-                }
-            }
-        }
+        submitTask(UiTaskAction.SCAN_WORKSPACE_OWNERSHIP, "workspace", "正在扫描备份容量归属")
     }
 
     fun repairWorkspaceOwnership() {
@@ -315,7 +444,16 @@ class UCloneViewModel(
             _state.update { it.copy(message = "备份容量归属已经正常") }
             return
         }
-        submitTask(UiTaskAction.REPAIR_WORKSPACE_OWNERSHIP, "workspace", "正在修复备份容量归属")
+        if (!WorkspaceOwnershipReportPolicy.canRepair(report, _state.value.settings)) {
+            _state.update { it.copy(workspaceOwnership = null, message = "工作目录或用户设置已变化，请重新扫描后再修复") }
+            return
+        }
+        submitTask(
+            action = UiTaskAction.REPAIR_WORKSPACE_OWNERSHIP,
+            packageName = "workspace",
+            message = "正在修复备份容量归属",
+            expectedWorkspaceRoot = report.canonicalRoot,
+        )
     }
 
     internal fun installSelectedToOtherUser(action: UiTaskAction) {
@@ -356,6 +494,22 @@ class UCloneViewModel(
 
     private fun observeTasks() {
         viewModelScope.launch {
+            transactionRecovery.state.collect { recovery ->
+                _state.update { state ->
+                    state.copy(
+                        transactionRecovery = recovery,
+                        message = when (recovery) {
+                            is TransactionRecoveryState.Required -> "检测到未完成事务，必须先执行安全恢复"
+                            is TransactionRecoveryState.Recovering -> "正在恢复未完成事务"
+                            is TransactionRecoveryState.RootTaskStillRunning -> "上次 Root 数据任务仍在运行"
+                            is TransactionRecoveryState.Failed -> "事务状态检查失败：${recovery.message}"
+                            else -> state.message
+                        },
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
             externalRequestStore.events.collect { events ->
                 _state.update { it.copy(externalRequests = events) }
             }
@@ -383,7 +537,14 @@ class UCloneViewModel(
         message: String,
         rollbackId: String? = null,
         targetUserId: Int? = null,
+        expectedWorkspaceRoot: String? = null,
+        allowVersionMismatch: Boolean = false,
+        allowLegacyIdentity: Boolean = false,
     ) {
+        transactionRecovery.blockingMessage(taskTypeForOperation(action.operation))?.let { reason ->
+            _state.update { it.copy(message = reason) }
+            return
+        }
         if (_state.value.busy || taskCoordinator.isBusy()) {
             _state.update { it.copy(message = "已有任务正在执行") }
             return
@@ -395,7 +556,49 @@ class UCloneViewModel(
             packageName,
             rollbackId,
             targetUserId,
+            expectedWorkspaceRoot,
+            allowVersionMismatch,
+            allowLegacyIdentity,
         )
+    }
+
+    fun retryInterruptedTransactionRecovery() {
+        viewModelScope.launch {
+            val settings = _state.value.settings
+            val activeRootTaskResult = runCatching { container.activeRootTaskProbe.probe(settings.rootDir) }
+                .onFailure { error -> transactionRecovery.markFailed(error.message ?: "Root 任务锁检查失败") }
+            if (activeRootTaskResult.isFailure) return@launch
+            val activeRootTask = activeRootTaskResult.getOrNull()
+            val pending = runCatching { container.transactionRecoveryProbe.scan(settings.rootDir) }
+                .onFailure { error -> transactionRecovery.markFailed(error.message ?: "事务扫描失败") }
+                .getOrNull() ?: return@launch
+            transactionRecovery.updateScan(
+                pending,
+                liveRequestId = activeRootTask?.takeIf { it.isLive }
+                    ?.let { it.recoveryTransactionId ?: it.requestId },
+            )
+            val required = transactionRecovery.state.value as? TransactionRecoveryState.Required ?: return@launch
+            val transaction = required.transactions.firstOrNull() ?: return@launch
+            transactionRecovery.markRecovering(transaction, required.transactions.drop(1))
+            runCatching { ExternalActionService.startRecovery(getApplication(), transaction) }
+                .onFailure { error -> transactionRecovery.markFailed(error.message ?: "无法启动事务恢复") }
+        }
+    }
+
+    fun cancelCurrentTaskSafely() {
+        val task = _state.value.currentTask.task?.takeIf { !it.status.isTerminal } ?: return
+        viewModelScope.launch {
+            val requested = syncEngine.requestTransactionCancel(task.requestId, _state.value.settings)
+            _state.update {
+                it.copy(
+                    message = if (requested) {
+                        "已请求安全停止；写入阶段会先自动回滚，提交和回滚阶段不会被强制中断"
+                    } else {
+                        "当前任务尚未进入可安全停止的事务阶段"
+                    },
+                )
+            }
+        }
     }
 
     private suspend fun refreshAfterTask(task: TaskRecord) {
@@ -432,9 +635,25 @@ class UCloneViewModel(
                     apps = apps,
                 )
                 _state.update { TaskUiStateReducer.refreshed(it, task, snapshot) }
-                if (task.type == com.uclone.restore.model.TaskType.REPAIR_WORKSPACE_OWNERSHIP) {
-                    val ownership = syncEngine.scanWorkspaceOwnership(settings)
-                    _state.update { it.copy(workspaceOwnership = ownership) }
+                if (
+                    task.status.isSuccessful &&
+                    task.type in setOf(
+                        com.uclone.restore.model.TaskType.SCAN_WORKSPACE_OWNERSHIP,
+                        com.uclone.restore.model.TaskType.REPAIR_WORKSPACE_OWNERSHIP,
+                    )
+                ) {
+                    workspaceOwnershipFrom(task, settings)?.let { ownership ->
+                        _state.update {
+                            it.copy(
+                                workspaceOwnership = ownership,
+                                message = if (ownership.nonRootEntries == 0L) {
+                                    "备份容量归属正常"
+                                } else {
+                                    "发现 ${ownership.nonRootEntries} 个文件或目录需要修复"
+                                },
+                            )
+                        }
+                    }
                 }
                 if (policy.shortcuts) syncLauncherShortcuts()
             }.onFailure { error ->
@@ -454,6 +673,24 @@ class UCloneViewModel(
         return syncEngine.loadWorkspaceIndex(settings).also {
             workspaceCache = WorkspaceCache(settings.rootDir, it)
         }
+    }
+
+    private fun workspaceOwnershipFrom(task: TaskRecord, settings: UCloneSettings): WorkspaceOwnershipReport? {
+        val audit = task.audit
+        val canonicalRoot = audit.path ?: return null
+        val totalEntries = audit.totalEntries ?: return null
+        val nonRootEntries = audit.nonRootEntries ?: return null
+        val totalSizeKb = audit.sizeKb ?: return null
+        return WorkspaceOwnershipReportPolicy.bind(
+            report = WorkspaceOwnershipReport(
+                canonicalRoot = canonicalRoot,
+                totalEntries = totalEntries,
+                nonRootEntries = nonRootEntries,
+                totalSizeKb = totalSizeKb,
+            ),
+            settings = settings,
+            scannedAt = task.finishedAt ?: task.startedAt,
+        )
     }
 
     private fun cloneUserLabel(): String = "user${_state.value.settings.cloneUserId}"

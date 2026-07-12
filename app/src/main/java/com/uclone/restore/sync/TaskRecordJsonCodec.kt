@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.TaskMetrics
+import com.uclone.restore.model.TaskOutcomeCode
 import com.uclone.restore.model.BackupKind
 import com.uclone.restore.model.TaskAudit
 import com.uclone.restore.model.TaskRecord
@@ -27,6 +28,7 @@ internal object TaskRecordJsonCodec {
         .put("currentStage", record.currentStage?.name ?: JSONObject.NULL)
         .put("metrics", encodeMetrics(record.metrics))
         .put("audit", encodeAudit(record.audit))
+        .put("outcomeCode", record.outcomeCode?.name ?: JSONObject.NULL)
         .toString()
 
     fun decode(line: String, interruptedAt: Long = System.currentTimeMillis()): TaskRecord? = runCatching {
@@ -46,6 +48,7 @@ internal object TaskRecordJsonCodec {
             currentStage = json.optString("currentStage").toEnumOrNull<TaskStage>(),
             metrics = json.optJSONObject("metrics")?.let(::decodeMetrics) ?: TaskMetrics(),
             audit = json.optJSONObject("audit")?.let(::decodeAudit) ?: TaskAudit(),
+            outcomeCode = json.optString("outcomeCode").toEnumOrNull<TaskOutcomeCode>(),
         )
     }.getOrNull()
 
@@ -99,6 +102,8 @@ internal object TaskRecordJsonCodec {
         .put("backupId", audit.backupId ?: JSONObject.NULL)
         .put("path", audit.path ?: JSONObject.NULL)
         .put("sizeKb", audit.sizeKb ?: JSONObject.NULL)
+        .put("totalEntries", audit.totalEntries ?: JSONObject.NULL)
+        .put("nonRootEntries", audit.nonRootEntries ?: JSONObject.NULL)
 
     private fun decodeAudit(json: JSONObject): TaskAudit = TaskAudit(
         source = json.optString("source").ifBlank { "unknown" },
@@ -106,6 +111,8 @@ internal object TaskRecordJsonCodec {
         backupId = json.optString("backupId").takeIf(String::isNotBlank),
         path = json.optString("path").takeIf(String::isNotBlank),
         sizeKb = json.optLongOrNull("sizeKb"),
+        totalEntries = json.optLongOrNull("totalEntries"),
+        nonRootEntries = json.optLongOrNull("nonRootEntries"),
     )
 
     private fun decodeMetrics(json: JSONObject): TaskMetrics {
@@ -144,7 +151,7 @@ internal object TaskRecordJsonCodec {
         TaskStatus.RUNNING,
         TaskStatus.AUTO_ROLLING_BACK,
     )
-    private const val SCHEMA_VERSION = 3
+    private const val SCHEMA_VERSION = 4
     private const val LEGACY_FIELD_COUNT = 8
     private const val UTF_8 = "UTF-8"
 }

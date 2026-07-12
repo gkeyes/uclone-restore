@@ -22,6 +22,25 @@ class TaskResultMessagesTest {
     }
 
     @Test
+    fun fatalInstallExitReportsUnsafeTargetWhenRollbackMarkerIsMissing() {
+        val output = """
+            INSTALL_VERIFIED:user=10 package:com.example.app uid:1010001
+            WARN_INSTALL_SYNC_FAILED:targetUser=10:exit=91
+            INSTALL_PARTIAL_FATAL targetUser=10
+            EXIT=91
+        """.trimIndent()
+
+        assertEquals(
+            "App 已安装到 user10，但数据同步与自动回滚均失败；请勿启动目标 App，并查看任务日志",
+            TaskResultMessages.fatalInstallMessage(output),
+        )
+        assertEquals(
+            "App 已安装到 user10，但数据同步与自动回滚均失败；请勿启动目标 App，并查看任务日志",
+            TaskResultMessages.successMessage(output),
+        )
+    }
+
+    @Test
     fun successMessageReportsPermissionWarnings() {
         val output = """
             STDOUT:
@@ -58,6 +77,28 @@ class TaskResultMessagesTest {
     }
 
     @Test
+    fun forcedCloneUpdateReportsBothCompletedDataTransitions() {
+        val message = TaskResultMessages.successMessage(
+            "FORCE_UPDATE_CLONE_DATA_AND_MAIN_RESTORE_DONE=1",
+        )
+
+        assertEquals("分数据已更新，主数据已还原", message)
+    }
+
+    @Test
+    fun forcedCloneUpdateKeepsPermissionWarningsVisible() {
+        val output = """
+            FORCE_UPDATE_CLONE_DATA_AND_MAIN_RESTORE_DONE=1
+            WARN_GRANT_FAILED:android.permission.CAMERA
+        """.trimIndent()
+
+        assertEquals(
+            "分数据已更新，主数据已还原，但权限部分未完全恢复（权限授予 1 项）",
+            TaskResultMessages.successMessage(output),
+        )
+    }
+
+    @Test
     fun successMessageReportsCloneAutoStopFailure() {
         val message = TaskResultMessages.successMessage("WARN_STOP_CLONE_PENDING:RUNNING_UNLOCKED")
 
@@ -89,6 +130,26 @@ class TaskResultMessagesTest {
         assertEquals(
             "App 已安装到 user0，但部分权限/AppOps 未能迁移",
             TaskResultMessages.successMessage(output),
+        )
+    }
+
+    @Test
+    fun compatibilityOverridesProduceExplicitHighRiskCompletionMessages() {
+        assertEquals(
+            "完成，但备份与当前 App 版本不同；请立即验证 App 数据和登录状态",
+            TaskResultMessages.successMessage("WARN_VERSION_MISMATCH_ALLOWED:expected=10:actual=11"),
+        )
+        assertEquals(
+            "完成，但使用了缺少签名证书信息的旧版备份；请立即验证 App 数据和登录状态",
+            TaskResultMessages.successMessage("WARN_LEGACY_PACKAGE_IDENTITY_ALLOWED:/old"),
+        )
+    }
+
+    @Test
+    fun markerTextEmbeddedInAPathDoesNotProduceAWarningSummary() {
+        assertEquals(
+            "完成",
+            TaskResultMessages.successMessage("LOG_PATH=/tmp/WARN_GRANT_FAILED:old.log"),
         )
     }
 }

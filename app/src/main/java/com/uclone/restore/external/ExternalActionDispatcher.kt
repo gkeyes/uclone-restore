@@ -6,6 +6,7 @@ import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.sync.RestoreCompatibilityOptions
 
 internal class ExternalActionDispatcher(private val container: AppContainer) {
     suspend fun execute(
@@ -16,18 +17,37 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
         ExternalActionContract.OPERATION_BACKUP_DEFAULT ->
             container.syncEngine.captureSnapshot(request.packageName, ruleFor(request.packageName, settings), settings, report, request.requestId)
         ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP ->
-            container.syncEngine.restoreSnapshot(request.packageName, settings, report, request.requestId)
+            container.syncEngine.restoreSnapshot(
+                request.packageName,
+                settings,
+                report,
+                request.requestId,
+                request.restoreCompatibility(),
+            )
         ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST ->
             container.syncEngine.restoreFromCloneLatest(request.packageName, ruleFor(request.packageName, settings), settings, report, request.requestId)
         ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE ->
             container.syncEngine.pushMainToClone(request.packageName, ruleFor(request.packageName, settings), settings, report, request.requestId)
         ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK ->
-            container.syncEngine.restoreCloneRollback(request.packageName, settings, report, request.requestId)
+            container.syncEngine.restoreCloneRollback(
+                request.packageName,
+                settings,
+                report,
+                request.requestId,
+                request.restoreCompatibility(),
+            )
         ExternalActionContract.OPERATION_SWITCH_TO_CLONE -> switchToClone(request, settings, report)
         ExternalActionContract.OPERATION_RESTORE_MAIN -> restoreMain(request, settings, report)
         ExternalActionContract.OPERATION_SWITCH_OR_RESTORE -> switchOrRestore(request, settings, report)
         ExternalActionContract.OPERATION_RESTORE_ROLLBACK ->
-            container.syncEngine.rollback(request.packageName, requireRollbackId(request), settings, report, request.requestId)
+            container.syncEngine.rollback(
+                request.packageName,
+                requireRollbackId(request),
+                settings,
+                report,
+                request.requestId,
+                request.restoreCompatibility(),
+            )
         ExternalActionContract.OPERATION_RESET_SWITCH_STATE ->
             container.syncEngine.resetSwitchState(request.packageName, settings, report, request.requestId)
         ExternalActionContract.OPERATION_DELETE_SNAPSHOT ->
@@ -54,14 +74,31 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
             container.syncEngine.switchToCloneUser(settings, report, request.requestId)
         ExternalActionContract.OPERATION_STOP_CLONE_USER ->
             container.syncEngine.stopCloneUserByExplicitUserRequest(settings, report, request.requestId)
+        ExternalActionContract.OPERATION_SCAN_WORKSPACE_OWNERSHIP ->
+            container.syncEngine.scanWorkspaceOwnership(settings, report, request.requestId)
         ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP ->
-            container.syncEngine.repairWorkspaceOwnership(settings, report, request.requestId)
+            container.syncEngine.repairWorkspaceOwnership(
+                settings = settings,
+                expectedCanonicalRoot = requireNotNull(request.expectedWorkspaceRoot) {
+                    "缺少扫描时确认的工作目录"
+                },
+                report = report,
+                requestId = request.requestId,
+            )
         ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER ->
             installAcrossUsers(request, settings, CrossUserInstallMode.INSTALL_ONLY, report)
         ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER ->
             installAcrossUsers(request, settings, CrossUserInstallMode.INSTALL_WITH_PERMISSIONS, report)
         ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER ->
             installAcrossUsers(request, settings, CrossUserInstallMode.INSTALL_AND_SYNC, report)
+        ExternalActionContract.OPERATION_RECOVER_INTERRUPTED_TRANSACTION ->
+            container.syncEngine.recoverInterruptedTransaction(
+                transactionRequestId = requireRollbackId(request),
+                packageName = request.packageName,
+                settings = settings,
+                report = report,
+                requestId = request.requestId,
+            )
         else -> error("不支持的任务操作：${request.operation}")
     }
 
@@ -87,7 +124,15 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
     ): TaskRecord {
         val rollbackId = container.syncEngine.switchMarkerId(request.packageName, settings)
         return if (rollbackId == null) switchToClone(request, settings, report) else {
-            container.syncEngine.restoreSwitchMainState(request.packageName, rollbackId, settings, report, request.requestId)
+            container.syncEngine.restoreSwitchMainState(
+                request.packageName,
+                rollbackId,
+                ruleFor(request.packageName, settings),
+                settings,
+                report,
+                request.requestId,
+                request.restoreCompatibility(),
+            )
         }
     }
 
@@ -115,7 +160,15 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
     ): TaskRecord {
         val rollbackId = container.syncEngine.switchMarkerId(request.packageName, settings)
             ?: error("没有可用的切换回滚点")
-        return container.syncEngine.restoreSwitchMainState(request.packageName, rollbackId, settings, report, request.requestId)
+        return container.syncEngine.restoreSwitchMainState(
+            request.packageName,
+            rollbackId,
+            ruleFor(request.packageName, settings),
+            settings,
+            report,
+            request.requestId,
+            request.restoreCompatibility(),
+        )
     }
 
     private fun ruleFor(packageName: String, settings: UCloneSettings): AppRule = AppRule(
@@ -131,5 +184,10 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
 
     private fun requireRollbackId(request: ExternalActionRequest): String =
         requireNotNull(request.rollbackId) { "缺少回滚 ID" }
+
+    private fun ExternalActionRequest.restoreCompatibility() = RestoreCompatibilityOptions(
+        allowVersionMismatch = allowVersionMismatch,
+        allowLegacyIdentity = allowLegacyIdentity,
+    )
 
 }

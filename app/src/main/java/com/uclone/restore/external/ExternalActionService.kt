@@ -11,7 +11,11 @@ import android.util.Log
 import com.uclone.restore.UCloneApplication
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
+import com.uclone.restore.model.TaskOutcomeCode
+import com.uclone.restore.sync.InterruptedTransaction
+import com.uclone.restore.sync.TransactionRecoveryState
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,9 +24,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 class ExternalActionService : Service() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val requestScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lifecycleLock = Any()
     private val lifecyclePolicy = ExternalServiceLifecyclePolicy()
+    private val activeTasks = ConcurrentHashMap<Int, ActiveServiceTask>()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -34,7 +39,6 @@ class ExternalActionService : Service() {
         if (needsBootstrapForeground && !startBootstrapForeground(intent, startId, notifier)) {
             return START_NOT_STICKY
         }
-        val container = (application as UCloneApplication).container
         recordIntentEvent(intent, startId, ExternalRequestStage.SERVICE_RECEIVED, "前台服务已收到请求")
         intent?.let {
             broadcastStatus(
@@ -43,47 +47,61 @@ class ExternalActionService : Service() {
                 "前台服务已收到请求",
             )
         }
+        requestScope.launch { processStart(intent, startId) }
+        return START_NOT_STICKY
+    }
+
+    private suspend fun processStart(intent: Intent?, startId: Int) {
+        val container = (application as UCloneApplication).container
         if (intent?.action != ExternalActionContract.ACTION_EXECUTE) {
             reject(intent ?: Intent(), ExternalActionContract.STATUS_REJECTED, "请求 action 无效")
             finishRejectedStart(startId)
-            return START_NOT_STICKY
+            return
         }
         val request = ExternalActionRequest.from(intent)
         if (request == null) {
             reject(intent, ExternalActionContract.STATUS_REJECTED, "请求参数无效")
             finishRejectedStart(startId)
-            return START_NOT_STICKY
+            return
         }
+        container.transactionRecovery.awaitScanned()
         val settings = container.settingsStore.load()
         ExternalRequestPolicy.rejection(this, request, settings, container.internalRequestToken)?.let { reason ->
             reject(request, ExternalActionContract.STATUS_REJECTED, reason)
             finishRejectedStart(startId)
-            return START_NOT_STICKY
+            return
         }
-        return when (val admission = admitExternalTask(container.taskCoordinator, request)) {
+        when (val admission = admitExternalTask(container.taskCoordinator, request, container.externalRequestStore)) {
             is ExternalTaskAdmission.Rejected -> {
                 reject(request, admission.status, admission.message)
                 finishRejectedStart(startId)
-                START_NOT_STICKY
             }
             is ExternalTaskAdmission.Accepted -> {
                 startAcceptedTask(request, settings, startId)
-                START_NOT_STICKY
             }
         }
     }
 
     override fun onDestroy() {
-        scope.cancel()
+        requestScope.cancel()
         super.onDestroy()
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
         Log.e(TAG, "event=FOREGROUND_SERVICE_TIMEOUT startId=$startId type=$fgsType")
-        scope.cancel("Foreground service time limit reached")
+        activeTasks[startId]?.let { active ->
+            val container = (application as UCloneApplication).container
+            container.taskScope.launch {
+                val requested = container.syncEngine.requestTransactionCancel(active.request.requestId, active.settings)
+                Log.w(
+                    TAG,
+                    "event=FOREGROUND_SERVICE_TIMEOUT_CANCEL_REQUEST startId=$startId request=${active.request.requestId} persisted=$requested",
+                )
+            }
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
         ExternalActionNotifier(this).clearRunning()
-        stopSelf()
+        stopSelfResult(startId)
     }
 
     private fun startAcceptedTask(
@@ -117,14 +135,25 @@ class ExternalActionService : Service() {
             }
             return
         }
-        scope.launch {
+        activeTasks[startId] = ActiveServiceTask(request, settings)
+        container.taskScope.launch {
+            var completedRecord: TaskRecord? = null
             try {
-                executeAccepted(request, settings, notifier)
+                completedRecord = executeAccepted(request, settings, notifier)
             } finally {
                 try {
                     container.taskCoordinator.complete(request.requestId)
                 } finally {
                     finishAcceptedStart(startId, notifier)
+                }
+                activeTasks.remove(startId)
+                if (request.operation == ExternalActionContract.OPERATION_RECOVER_INTERRUPTED_TRANSACTION) {
+                    try {
+                        refreshRecoveryState(completedRecord)
+                    } catch (error: Exception) {
+                        container.transactionRecovery.markFailed(error.message ?: "事务恢复状态刷新失败")
+                        Log.e(TAG, "event=TRANSACTION_RECOVERY_FINALIZATION_FAILED", error)
+                    }
                 }
             }
         }
@@ -224,7 +253,7 @@ class ExternalActionService : Service() {
         request: ExternalActionRequest,
         settings: com.uclone.restore.model.UCloneSettings,
         notifier: ExternalActionNotifier,
-    ) {
+    ): TaskRecord? {
         val container = (application as UCloneApplication).container
         broadcastStatus(request, ExternalActionContract.STATUS_ACCEPTED, "任务已接收")
         recordRequestEvent(request, ExternalRequestStage.ACCEPTED, "任务已接收")
@@ -256,7 +285,9 @@ class ExternalActionService : Service() {
             )
         }
         try {
-            finishTask(request, ExternalActionDispatcher(container).execute(request, settings, report), notifier)
+            val record = ExternalActionDispatcher(container).execute(request, settings, report)
+            finishTask(request, record, notifier)
+            return record
         } catch (cancelled: CancellationException) {
             val message = "任务已中断"
             val interrupted = container.taskCoordinator.interrupt(request.requestId, message)
@@ -271,6 +302,38 @@ class ExternalActionService : Service() {
             Log.e(TAG, "failed operation=${request.operation} package=${request.packageName}", error)
             broadcastStatus(request, ExternalActionContract.STATUS_FAILED, message, failed)
             notifier.notifyResult(request.packageName, request.operation, ExternalActionContract.STATUS_FAILED, message)
+            return failed
+        }
+    }
+
+    private suspend fun refreshRecoveryState(completedRecord: TaskRecord?) {
+        val container = (application as UCloneApplication).container
+        val settings = container.settingsStore.load()
+        val pending = runCatching { container.transactionRecoveryProbe.scan(settings.rootDir) }
+            .onFailure { error ->
+                container.transactionRecovery.markFailed(error.message ?: "事务恢复后扫描失败")
+                Log.e(TAG, "event=TRANSACTION_RECOVERY_RESCAN_FAILED", error)
+            }
+            .getOrNull() ?: return
+        val activeRootTaskResult = runCatching {
+            container.activeRootTaskProbe.probe(settings.rootDir)
+        }.onFailure { error ->
+            container.transactionRecovery.markFailed(error.message ?: "Root 任务锁检查失败")
+            Log.e(TAG, "event=ACTIVE_ROOT_TASK_RESCAN_FAILED", error)
+        }
+        if (activeRootTaskResult.isFailure) return
+        val activeRootTask = activeRootTaskResult.getOrNull()
+        container.transactionRecovery.updateScan(
+            transactions = pending,
+            liveRequestId = activeRootTask?.takeIf { it.isLive }
+                ?.let { it.recoveryTransactionId ?: it.requestId },
+        )
+        val state = container.transactionRecovery.state.value
+        if (completedRecord?.status?.isSuccessful == true && state is TransactionRecoveryState.Required) {
+            state.transactions.firstOrNull()?.let { transaction ->
+                container.transactionRecovery.markRecovering(transaction, state.transactions.drop(1))
+                startRecovery(this, transaction)
+            }
         }
     }
 
@@ -279,8 +342,8 @@ class ExternalActionService : Service() {
         record: TaskRecord,
         notifier: ExternalActionNotifier,
     ) {
-        val rootTaskStillRunning = record.message.contains("另一个 Root 数据任务仍在运行")
-        val orphanRecovered = record.message.contains("已隔离上次进程遗留的孤儿任务标记")
+        val rootTaskStillRunning = record.outcomeCode == TaskOutcomeCode.ACTIVE_ROOT_TASK
+        val orphanRecovered = record.outcomeCode == TaskOutcomeCode.ORPHANED_LOCK_RECOVERED
         if (orphanRecovered) {
             recordRequestEvent(request, ExternalRequestStage.ORPHANED, "已隔离上次进程遗留的孤儿任务标记")
             broadcastStatus(request, ExternalActionContract.STATUS_ORPHANED, "已隔离上次进程遗留的孤儿任务标记", record)
@@ -297,6 +360,7 @@ class ExternalActionService : Service() {
                 record.status == com.uclone.restore.model.TaskStatus.SUCCESS -> ExternalRequestStage.SUCCESS
                 record.status == com.uclone.restore.model.TaskStatus.SUCCESS_WITH_WARNINGS -> ExternalRequestStage.SUCCESS_WITH_WARNINGS
                 record.status == com.uclone.restore.model.TaskStatus.INTERRUPTED -> ExternalRequestStage.INTERRUPTED
+                record.status == com.uclone.restore.model.TaskStatus.RECOVERY_REQUIRED -> ExternalRequestStage.RECOVERY_REQUIRED
                 else -> ExternalRequestStage.FAILED
             },
             record.message,
@@ -310,12 +374,18 @@ class ExternalActionService : Service() {
     }
 
     private fun reject(request: ExternalActionRequest, status: String, message: String) {
+        if (request.source == ExternalActionContract.SOURCE_RECOVERY) {
+            (application as UCloneApplication).container.transactionRecovery.markFailed(message)
+        }
         recordRequestEvent(request, status.toExternalRequestStage(), message)
         broadcastStatus(request, status, message)
         ExternalActionNotifier(this).notifyRejected(request.packageName, request.operation, status, message)
     }
 
     private fun reject(intent: Intent, status: String, message: String) {
+        if (intent.getStringExtra(ExternalActionContract.EXTRA_SOURCE) == ExternalActionContract.SOURCE_RECOVERY) {
+            (application as UCloneApplication).container.transactionRecovery.markFailed(message)
+        }
         recordIntentEvent(intent, startId = 0, status.toExternalRequestStage(), message)
         broadcastStatus(intent, status, message)
         ExternalActionNotifier(this).notifyRejected(
@@ -361,6 +431,8 @@ class ExternalActionService : Service() {
         .putExtra(ExternalActionContract.EXTRA_SOURCE, source)
         .putExtra(ExternalActionContract.EXTRA_ROLLBACK_ID, rollbackId)
         .putExtra(ExternalActionContract.EXTRA_INTERNAL_TOKEN, internalToken)
+        .putExtra(ExternalActionContract.EXTRA_ALLOW_VERSION_MISMATCH, allowVersionMismatch)
+        .putExtra(ExternalActionContract.EXTRA_ALLOW_LEGACY_IDENTITY, allowLegacyIdentity)
         .apply {
             this@toIntent.targetUserId?.let { putExtra(ExternalActionContract.EXTRA_TARGET_USER_ID, it) }
         }
@@ -422,11 +494,17 @@ class ExternalActionService : Service() {
         ExternalActionContract.STATUS_STILL_RUNNING -> ExternalRequestStage.STILL_RUNNING
         ExternalActionContract.STATUS_ORPHANED -> ExternalRequestStage.ORPHANED
         ExternalActionContract.STATUS_FAILED_PROCESS_DIED -> ExternalRequestStage.FAILED_PROCESS_DIED
+        ExternalActionContract.STATUS_RECOVERY_REQUIRED -> ExternalRequestStage.RECOVERY_REQUIRED
         ExternalActionContract.STATUS_FAILED -> ExternalRequestStage.FAILED
         else -> ExternalRequestStage.REJECTED
     }
 
     private fun Boolean?.orFalse(): Boolean = this == true
+
+    private data class ActiveServiceTask(
+        val request: ExternalActionRequest,
+        val settings: com.uclone.restore.model.UCloneSettings,
+    )
 
     companion object {
         private const val TAG = "UCloneTaskService"
@@ -450,6 +528,9 @@ class ExternalActionService : Service() {
             packageName: String,
             rollbackId: String? = null,
             targetUserId: Int? = null,
+            expectedWorkspaceRoot: String? = null,
+            allowVersionMismatch: Boolean = false,
+            allowLegacyIdentity: Boolean = false,
         ) {
             start(
                 context,
@@ -462,7 +543,29 @@ class ExternalActionService : Service() {
                     .putExtra(ExternalActionContract.EXTRA_ROLLBACK_ID, rollbackId)
                     .apply {
                         targetUserId?.let { putExtra(ExternalActionContract.EXTRA_TARGET_USER_ID, it) }
+                        expectedWorkspaceRoot?.let {
+                            putExtra(ExternalActionContract.EXTRA_EXPECTED_WORKSPACE_ROOT, it)
+                        }
+                        putExtra(ExternalActionContract.EXTRA_ALLOW_VERSION_MISMATCH, allowVersionMismatch)
+                        putExtra(ExternalActionContract.EXTRA_ALLOW_LEGACY_IDENTITY, allowLegacyIdentity)
                     }
+                    .putExtra(
+                        ExternalActionContract.EXTRA_INTERNAL_TOKEN,
+                        (context.applicationContext as UCloneApplication).container.internalRequestToken,
+                    ),
+            )
+        }
+
+        fun startRecovery(context: Context, transaction: InterruptedTransaction) {
+            start(
+                context,
+                Intent()
+                    .putExtra(ExternalActionContract.EXTRA_PROTOCOL_VERSION, ExternalActionContract.PROTOCOL_VERSION)
+                    .putExtra(ExternalActionContract.EXTRA_OPERATION, ExternalActionContract.OPERATION_RECOVER_INTERRUPTED_TRANSACTION)
+                    .putExtra(ExternalActionContract.EXTRA_PACKAGE_NAME, transaction.packageName)
+                    .putExtra(ExternalActionContract.EXTRA_REQUEST_ID, UUID.randomUUID().toString())
+                    .putExtra(ExternalActionContract.EXTRA_SOURCE, ExternalActionContract.SOURCE_RECOVERY)
+                    .putExtra(ExternalActionContract.EXTRA_ROLLBACK_ID, transaction.requestId)
                     .putExtra(
                         ExternalActionContract.EXTRA_INTERNAL_TOKEN,
                         (context.applicationContext as UCloneApplication).container.internalRequestToken,

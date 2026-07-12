@@ -19,7 +19,7 @@ internal class ProcessCommandRunner(
         standardInput: String?,
         timeoutSeconds: Long,
         onOutput: (ShellOutput) -> Unit,
-        processTreeTerminator: ((force: Boolean) -> Boolean)?,
+        processTreeTerminator: ((force: Boolean) -> ProcessTreeTerminationAttempt)?,
     ): ShellResult {
         val startedAt = System.nanoTime()
         val process = try {
@@ -91,6 +91,7 @@ internal class ProcessCommandRunner(
                     capturedStderr = captured.stderr,
                     timeoutSeconds = timeoutSeconds,
                     forced = !termination.gracefully,
+                    treeVerified = termination.treeVerified,
                 ),
                 durationMs = elapsedMs(startedAt),
                 outputTruncated = captured.truncated,
@@ -125,30 +126,37 @@ internal class ProcessCommandRunner(
         process: Process,
         gracefulTimeout: Long,
         unit: TimeUnit,
-        processTreeTerminator: ((force: Boolean) -> Boolean)?,
+        processTreeTerminator: ((force: Boolean) -> ProcessTreeTerminationAttempt)?,
     ): ProcessTermination {
-        if (processTreeTerminator == null) {
+        val gracefulTree = runCatching { processTreeTerminator?.invoke(false) }
+            .getOrNull()
+            ?: ProcessTreeTerminationAttempt.NOT_APPLICABLE
+        if (processTreeTerminator == null || !gracefulTree.signaled) {
             process.destroy()
-        } else {
-            runCatching { processTreeTerminator(false) }
         }
         val gracefulWait = waitForTermination(process, gracefulTimeout, unit)
         if (gracefulWait.terminated) {
-            val forcedDescendant = runCatching { processTreeTerminator?.invoke(true) }.getOrNull() == true
+            val finalTree = runCatching { processTreeTerminator?.invoke(true) }
+                .getOrNull()
+                ?: ProcessTreeTerminationAttempt.NOT_APPLICABLE
             return ProcessTermination(
-                gracefully = !forcedDescendant,
+                gracefully = !finalTree.signaled,
                 terminated = true,
                 interrupted = gracefulWait.interrupted,
+                treeVerified = processTreeTerminator == null || finalTree.verified,
             )
         }
         process.destroy()
-        runCatching { processTreeTerminator?.invoke(true) }
+        val forcedTree = runCatching { processTreeTerminator?.invoke(true) }
+            .getOrNull()
+            ?: ProcessTreeTerminationAttempt.NOT_APPLICABLE
         process.destroyForcibly()
         val forcedWait = waitForTermination(process, FORCED_TERMINATION_WAIT_SECONDS, TimeUnit.SECONDS)
         return ProcessTermination(
             gracefully = false,
             terminated = forcedWait.terminated || !process.isAlive,
             interrupted = gracefulWait.interrupted || forcedWait.interrupted,
+            treeVerified = processTreeTerminator == null || forcedTree.verified,
         )
     }
 
@@ -214,6 +222,7 @@ internal class ProcessCommandRunner(
         val gracefully: Boolean,
         val terminated: Boolean,
         val interrupted: Boolean,
+        val treeVerified: Boolean = true,
     )
 
     private data class TerminationWait(
@@ -229,6 +238,7 @@ internal class ProcessCommandRunner(
         "Command interrupted",
         when {
             !termination.terminated -> "Process remained alive after forced interruption wait"
+            !termination.treeVerified -> ROOT_TREE_TERMINATION_UNVERIFIED
             termination.gracefully -> "Interruption termination completed during grace period"
             else -> "Interruption termination required forced process destruction"
         },
@@ -238,11 +248,17 @@ internal class ProcessCommandRunner(
 
 }
 
-internal fun mergeTimeoutError(capturedStderr: String, timeoutSeconds: Long, forced: Boolean = false): String =
+internal fun mergeTimeoutError(
+    capturedStderr: String,
+    timeoutSeconds: Long,
+    forced: Boolean = false,
+    treeVerified: Boolean = true,
+): String =
     listOf(
         capturedStderr.trimEnd(),
         "Command timed out after ${timeoutSeconds}s",
         if (forced) "Timeout termination required SIGKILL after rollback grace period" else "Timeout termination completed during rollback grace period",
+        if (treeVerified) "" else ROOT_TREE_TERMINATION_UNVERIFIED,
     )
         .filter(String::isNotBlank)
         .joinToString("\n")
@@ -254,3 +270,13 @@ private const val INTERRUPTION_GRACE_MILLIS = 250L
 private const val STREAM_DRAIN_WAIT_MILLIS = 1_000L
 private const val STREAM_CLOSE_WAIT_MILLIS = 100L
 internal const val INTERRUPTED_EXIT_CODE = 130
+internal const val ROOT_TREE_TERMINATION_UNVERIFIED = "ROOT_TREE_TERMINATION_UNVERIFIED"
+
+internal data class ProcessTreeTerminationAttempt(
+    val verified: Boolean,
+    val signaled: Boolean,
+) {
+    companion object {
+        val NOT_APPLICABLE = ProcessTreeTerminationAttempt(verified = false, signaled = false)
+    }
+}

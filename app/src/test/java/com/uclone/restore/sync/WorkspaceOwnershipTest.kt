@@ -5,6 +5,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class WorkspaceOwnershipTest {
     @Test
@@ -29,11 +30,38 @@ class WorkspaceOwnershipTest {
 
     @Test
     fun customWorkspaceRequiresIdentityMarker() {
-        val script = WorkspaceOwnershipScripts.scan("/data/adb/custom")
+        val script = WorkspaceOwnershipScripts.scanTask("/data/adb/custom")
 
         assertContains(script, "config/workspace.identity")
         assertContains(script, "com.uclone.restore.workspace.v1")
         assertContains(script, "ERR_UNTRUSTED_WORKSPACE")
+    }
+
+    @Test
+    fun readOnlyScanClaimsTheRootTaskAdmissionLockBeforeScanning() {
+        val script = RootTaskScript.wrap(
+            logPath = "/data/adb/uclone/logs/workspace_scan.log",
+            header = "TASK=SCAN_WORKSPACE_OWNERSHIP\n",
+            body = WorkspaceOwnershipScripts.scanTask("/data/adb/uclone"),
+            startedAt = 1_000L,
+            activeTask = ActiveRootTask(
+                rootDir = "/data/adb/uclone",
+                requestId = "scan-1",
+                taskType = "SCAN_WORKSPACE_OWNERSHIP",
+                packageName = "workspace",
+                startedAt = 1_000L,
+            ),
+        )
+
+        val claimIndex = script.indexOf("uclone_claim_active_task")
+        val scanIndex = script.lastIndexOf("workspace_owner_scan")
+        assertTrue(claimIndex >= 0)
+        assertTrue(scanIndex > claimIndex)
+        assertContains(script, "locks/active_task")
+        assertContains(script, "ERR_ACTIVE_ROOT_TASK")
+        assertContains(script, "taskType=SCAN_WORKSPACE_OWNERSHIP")
+        assertContains(script, "trap 'uclone_release_active_task' EXIT")
+        assertFalse(script.contains("xargs -0 -n 500"))
     }
 
     @Test
@@ -47,7 +75,7 @@ class WorkspaceOwnershipTest {
         )
 
         assertNotNull(report)
-        assertEquals("/data/adb/uclone", report.rootPath)
+        assertEquals("/data/adb/uclone", report.canonicalRoot)
         assertEquals(200L, report.totalEntries)
         assertEquals(0L, report.nonRootEntries)
         assertEquals(4096L, report.totalSizeKb)

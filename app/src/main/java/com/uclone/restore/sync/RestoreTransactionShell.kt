@@ -7,6 +7,7 @@ internal object RestoreTransactionShell {
         manageSwitchMarker: Boolean,
     ): String = """
         TRANSACTION_COMMITTED=0
+        TRANSACTION_ROLLED_BACK=0
         TARGET_MUTATED=0
         ROLLBACK_READY=1
         TRANSACTION_APP_UID="${'$'}$appUidVariable"
@@ -17,6 +18,10 @@ internal object RestoreTransactionShell {
           RB_KIND="${'$'}3"
           RB_NAME="${'$'}4"
           validate_target_path "${'$'}RB_TARGET"
+          uclone_verify_part_metadata "${'$'}ROLLBACK" "${'$'}RB_NAME" >/dev/null || {
+            echo "ERR_ROLLBACK_INTEGRITY:${'$'}RB_NAME" >&2
+            return 1
+          }
           RB_STATE_FILE="${'$'}ROLLBACK/.state/${'$'}RB_NAME"
           [ -f "${'$'}RB_STATE_FILE" ] || { echo "ERR_ROLLBACK_STATE_MISSING:${'$'}RB_NAME" >&2; return 1; }
           RB_STATE=${'$'}(sed -n '1p' "${'$'}RB_STATE_FILE" | tr -d '\r')
@@ -34,33 +39,50 @@ internal object RestoreTransactionShell {
               ;;
             *) echo "ERR_ROLLBACK_STATE_INVALID:${'$'}RB_NAME:${'$'}RB_STATE" >&2; return 1 ;;
           esac
+          RB_MODE=${'$'}(uclone_part_root_mode "${'$'}ROLLBACK" "${'$'}RB_NAME") || {
+            echo "ERR_ROLLBACK_ROOT_MODE_MISSING:${'$'}RB_NAME" >&2
+            return 1
+          }
           mkdir -p "${'$'}RB_TARGET" || return 1
           RB_CONTEXT=${'$'}(read_target_context "${'$'}RB_TARGET")
           case "${'$'}RB_CONTEXT" in u:object_r:*) ;; *) RB_CONTEXT="" ;; esac
           case "${'$'}RB_KIND" in
             app) RB_OWNER="${'$'}TRANSACTION_APP_UID:${'$'}TRANSACTION_APP_UID" ;;
             media) RB_OWNER="${'$'}TRANSACTION_APP_UID:1078" ;;
+            obb) RB_OWNER="${'$'}TRANSACTION_APP_UID:1079" ;;
             *) return 1 ;;
           esac
           clear_target_contents "${'$'}RB_TARGET"
           if [ "${'$'}RB_STATE" = "data" ]; then
             (cd "${'$'}RB_SRC" && tar -cpf - .) | (cd "${'$'}RB_TARGET" && tar -xpf -) || return 1
           fi
-          apply_target_security "${'$'}RB_TARGET" "${'$'}RB_OWNER" "${'$'}RB_CONTEXT"
+          apply_target_security "${'$'}RB_TARGET" "${'$'}RB_OWNER" "${'$'}RB_CONTEXT" "${'$'}RB_MODE" "${'$'}RB_KIND"
           echo "AUTO_ROLLBACK_PART:${'$'}RB_TARGET"
         }
         auto_rollback_target() {
           echo "AUTO_ROLLBACK_BEGIN rollback=${'$'}ROLLBACK"
+          uclone_transaction_stage ROLLING_BACK || return 1
           force_stop_package_users || return 1
           (restore_rollback_part "${'$'}ROLLBACK/ce" "/data/user/${'$'}DST_USER/${'$'}PKG" "app" "ce") || return 1
           (restore_rollback_part "${'$'}ROLLBACK/de" "/data/user_de/${'$'}DST_USER/${'$'}PKG" "app" "de") || return 1
           (restore_rollback_part "${'$'}ROLLBACK/external" "/data/media/${'$'}DST_USER/Android/data/${'$'}PKG" "media" "external") || return 1
           (restore_rollback_part "${'$'}ROLLBACK/media" "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG" "media" "media") || return 1
-          (restore_rollback_part "${'$'}ROLLBACK/obb" "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG" "media" "obb") || return 1
-          ${if (includePermissions) "(restore_permission_state \"${'$'}ROLLBACK/permissions\") || return 1" else ":"}
+          (restore_rollback_part "${'$'}ROLLBACK/obb" "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG" "obb" "obb") || return 1
+          ${if (includePermissions) "(restore_transaction_permission_state \"${'$'}ROLLBACK/permissions\") || return 1" else ":"}
           ${if (manageSwitchMarker) "restore_previous_switch_marker || return 1" else ":"}
           sync
           force_stop_package_users || return 1
+          uclone_transaction_rolled_back || return 1
+          if [ -n "${'$'}{TARGET_GATE_DIR:-}" ]; then
+            uclone_gate_release "${'$'}TARGET_GATE_DIR" || return 1
+            TARGET_GATE_DIR=""
+          fi
+          uclone_transaction_finish_rolled_back || return 1
+          TRANSACTION_ROLLED_BACK=1
+          if command -v cleanup_transaction_undo >/dev/null 2>&1; then
+            cleanup_transaction_undo
+            TRANSACTION_UNDO=""
+          fi
           return 0
         }
         transaction_on_exit() {
@@ -75,8 +97,16 @@ internal object RestoreTransactionShell {
               echo "AUTO_ROLLBACK_SUCCESS originalExit=${'$'}TRANSACTION_EXIT_CODE"
               TRANSACTION_EXIT_CODE=90
             else
+              uclone_transaction_recovery_required
               echo "AUTO_ROLLBACK_FAILED originalExit=${'$'}TRANSACTION_EXIT_CODE" >&2
               TRANSACTION_EXIT_CODE=91
+            fi
+          elif [ "${'$'}TRANSACTION_EXIT_CODE" -ne 0 ] && [ "${'$'}TARGET_MUTATED" != "1" ] && [ -n "${'$'}{TARGET_GATE_DIR:-}" ]; then
+            if uclone_gate_release "${'$'}TARGET_GATE_DIR"; then
+              TARGET_GATE_DIR=""
+            else
+              uclone_transaction_recovery_required
+              TRANSACTION_EXIT_CODE=92
             fi
           fi
           if [ "${'$'}TRANSACTION_EMIT_FAILURE_METRICS" = "1" ]; then
@@ -107,6 +137,11 @@ internal object RestoreTransactionShell {
               SWITCH_MARKER_BEFORE_VALUE=${'$'}(sed -n '1p' "${'$'}SWITCH_MARKER_PATH" | tr -d '\r')
               validate_rollback_id "${'$'}SWITCH_MARKER_BEFORE_VALUE"
               SWITCH_MARKER_BEFORE_EXISTS=1
+            fi
+            if [ "${'$'}SWITCH_MARKER_BEFORE_EXISTS" = "1" ]; then
+              uclone_transaction_switch_marker_before true "${'$'}SWITCH_MARKER_BEFORE_VALUE" || exit 77
+            else
+              uclone_transaction_switch_marker_before false "" || exit 77
             fi
             write_switch_marker_atomic() {
               MARKER_PATH="${'$'}1"

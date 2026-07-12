@@ -18,7 +18,13 @@ interface TaskRepository {
     fun clearHistoryPreservingProgress()
     fun accepted(type: TaskType, packageName: String, requestId: String, audit: TaskAudit = TaskAudit()): TaskRecord
     fun running(type: TaskType, packageName: String, logPath: String, requestId: String, audit: TaskAudit? = null): TaskRecord
-    fun finish(task: TaskRecord, status: TaskStatus, message: String, metrics: TaskMetrics = task.metrics): TaskRecord
+    fun finish(
+        task: TaskRecord,
+        status: TaskStatus,
+        message: String,
+        metrics: TaskMetrics = task.metrics,
+        finishedAt: Long = System.currentTimeMillis(),
+    ): TaskRecord
     fun find(requestId: String): TaskRecord?
     fun publish(progress: TaskProgress)
     suspend fun append(logPath: String, text: String): ShellResult

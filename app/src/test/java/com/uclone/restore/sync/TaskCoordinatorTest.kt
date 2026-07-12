@@ -7,7 +7,9 @@ import com.uclone.restore.root.RootShellExecutor
 import com.uclone.restore.root.ShellResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class TaskCoordinatorTest {
     @Test
@@ -99,6 +101,21 @@ class TaskCoordinatorTest {
         assertIs<TaskSubmissionResult.Accepted>(
             coordinator.accept("request-2", TaskType.PUSH_MAIN_TO_CLONE, "com.other.app"),
         )
+    }
+
+    @Test
+    fun shortStateMutationCannotRaceAnAcceptedTask() {
+        val repository = TaskLogStore(NoopShell)
+        val coordinator = TaskCoordinator(repository)
+        var mutations = 0
+
+        assertTrue(coordinator.tryRunWhileIdle { mutations += 1 })
+        coordinator.accept("request-1", TaskType.SWITCH_TO_CLONE_STATE, "com.example.app")
+        assertFalse(coordinator.tryRunWhileIdle { mutations += 1 })
+        coordinator.complete("request-1")
+        assertTrue(coordinator.tryRunWhileIdle { mutations += 1 })
+
+        assertEquals(2, mutations)
     }
 
     private object NoopShell : RootShellExecutor {

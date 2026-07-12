@@ -59,6 +59,7 @@ class ExternalServicePolicyTest {
             ExternalActionContract.OPERATION_START_CLONE_USER,
             ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER,
             ExternalActionContract.OPERATION_STOP_CLONE_USER,
+            ExternalActionContract.OPERATION_SCAN_WORKSPACE_OWNERSHIP,
             ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP,
             ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER,
             ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER,
@@ -78,6 +79,37 @@ class ExternalServicePolicyTest {
             "桌面快捷入口不允许执行此操作",
             shortcut.copy(operation = ExternalActionContract.OPERATION_BACKUP_DEFAULT).sourceOperationRejection(),
         )
+    }
+
+    @Test
+    fun compatibilityOverridesAreInternalAppOnly() {
+        val app = request(ExternalActionContract.SOURCE_APP, "secret")
+            .copy(allowVersionMismatch = true, allowLegacyIdentity = true)
+        val module = request(ExternalActionContract.SOURCE_MODULE, null)
+            .copy(allowVersionMismatch = true)
+
+        assertEquals(null, app.compatibilityOverrideRejection())
+        assertEquals("兼容性恢复豁免只能由主 App 二次确认后使用", module.compatibilityOverrideRejection())
+    }
+
+    @Test
+    fun trustedRecoveryBypassesOrdinaryTargetPolicyAfterTokenAndOperationChecks() {
+        val app = request(ExternalActionContract.SOURCE_APP, "secret")
+        val recovery = app.copy(
+            source = ExternalActionContract.SOURCE_RECOVERY,
+            operation = ExternalActionContract.OPERATION_RECOVER_INTERRUPTED_TRANSACTION,
+            rollbackId = "interrupted-request",
+        )
+        val install = app.copy(operation = ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER)
+        val maintenance = app.copy(operation = ExternalActionContract.OPERATION_CLEAR_LOGS)
+        val module = request(ExternalActionContract.SOURCE_MODULE, null)
+
+        assertEquals(true, app.requiresTargetPackagePolicy())
+        assertEquals(false, recovery.requiresTargetPackagePolicy())
+        assertEquals(true, install.requiresTargetPackagePolicy())
+        assertEquals(false, maintenance.requiresTargetPackagePolicy())
+        assertEquals(true, module.requiresTargetPackagePolicy())
+        assertEquals(null, recovery.sourceOperationRejection())
     }
 
     @Test

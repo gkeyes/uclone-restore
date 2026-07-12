@@ -100,9 +100,10 @@ class TaskLogStore(
         status: TaskStatus,
         message: String,
         metrics: TaskMetrics,
+        finishedAt: Long,
     ): TaskRecord {
         val finished = task.copy(
-            finishedAt = System.currentTimeMillis(),
+            finishedAt = finishedAt,
             status = status,
             message = message,
             currentStage = null,

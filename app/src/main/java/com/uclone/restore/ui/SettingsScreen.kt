@@ -24,6 +24,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,11 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
     var confirmClearLogs by remember { mutableStateOf(false) }
     var confirmOwnershipRepair by remember { mutableStateOf(false) }
     var resetConfirmStage by remember { mutableStateOf(0) }
+    LaunchedEffect(viewModel) {
+        viewModel.settingsMessages.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
     Column(
         modifier
             .fillMaxSize()
@@ -114,15 +120,28 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        SectionCard("切换同步") {
+            ToggleRow("强制更新分数据", draft.forceUpdateCloneDataBeforeMainRestore) {
+                draft = draft.copy(forceUpdateCloneDataBeforeMainRestore = it)
+            }
+            Text(
+                if (draft.forceUpdateCloneDataBeforeMainRestore) {
+                    "主系统处于分身态时，点击还原会先把 user${draft.mainUserId} 当前分身数据同步回 user${draft.cloneUserId}，成功后再恢复主数据。同步失败时不会继续还原。"
+                } else {
+                    "还原只恢复主数据，user${draft.cloneUserId} 保留原分数据；在主系统分身态期间产生的新数据不会自动回写。"
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         SectionCard("被动备份") {
-            ToggleRow("复用已有状态备份", draft.reuseExistingPassiveBackups) {
+            ToggleRow("复用长期状态备份", draft.reuseExistingPassiveBackups) {
                 draft = draft.copy(reuseExistingPassiveBackups = it)
             }
             Text(
                 if (draft.reuseExistingPassiveBackups) {
-                    "主状态、分身状态和推送回滚各保留一份。已有备份校验有效时不重复复制；缺失或损坏时仍会重新建立。"
+                    "校验有效时复用数据页中的长期状态备份，减少重复记录。每次覆盖前仍会临时保存操作前数据，用于精确自动回滚；任务成功后删除该临时副本。"
                 } else {
-                    "每次覆盖前刷新对应状态备份，数据更新但耗时更长。开启复用后，请留意数据页显示的备份时间。"
+                    "每次覆盖前更新数据页中的对应状态备份，并同时保留本次任务专属回滚保护。耗时更长，但长期恢复点与当前状态一致。"
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -137,10 +156,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             ToggleRow("排除 cache/code_cache", draft.excludeCache) { draft = draft.copy(excludeCache = it) }
         }
         IosPrimaryButton(
-            onClick = {
-                viewModel.saveSettings(draft)
-                Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show()
-            },
+            onClick = { viewModel.saveSettings(draft) },
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Default.Save, contentDescription = null)
@@ -200,7 +216,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("将把 UClone 备份工作区中 ${ownership?.nonRootEntries ?: 0} 个文件或目录的 owner 修正为 root:root。")
-                    Text("只修改 UID/GID，不删除文件，不修改 mode、SELinux context 或备份内容。任务可中断并安全重试。")
+                    Text("只修改 UID/GID，不主动执行 chmod，不修改 SELinux context 或备份内容。任务异常中断后可安全重试。")
                     SingleLinePathText(ownership?.rootPath ?: state.settings.rootDir)
                 }
             },
