@@ -149,11 +149,16 @@ class ShellScriptsTest {
         )
 
         scripts.forEach { script ->
-            val process = ProcessBuilder("/bin/sh", "-n").start()
-            process.outputStream.bufferedWriter().use { it.write(script) }
-            val stderr = process.errorStream.bufferedReader().readText()
+            val scriptFile = Files.createTempFile("uclone-generated-script", ".sh")
+            try {
+                Files.write(scriptFile, script.toByteArray())
+                val process = ProcessBuilder("/bin/sh", "-n", scriptFile.toString()).start()
+                val stderr = process.errorStream.bufferedReader().readText()
 
-            assertEquals(0, process.waitFor(), stderr)
+                assertEquals(0, process.waitFor(), stderr)
+            } finally {
+                Files.deleteIfExists(scriptFile)
+            }
         }
     }
 

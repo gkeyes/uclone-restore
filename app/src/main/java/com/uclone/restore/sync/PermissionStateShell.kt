@@ -204,7 +204,7 @@ internal object PermissionStateShell {
           if [ "${'$'}APPOPS_STATUS" = "PACKAGE_VALID" ] && [ -f "${'$'}PERMISSION_DIR/appops.txt" ] && [ ! -L "${'$'}PERMISSION_DIR/appops.txt" ]; then
             while read -r OP MODE EXTRA; do
               [ -n "${'$'}OP" ] && [ -z "${'$'}EXTRA" ] || continue
-              case "${'$'}OP" in *[!A-Z0-9_()]*|'') continue ;; esac
+              case "${'$'}OP" in *[!A-Z0-9_\(\)]*|'') continue ;; esac
               case "${'$'}MODE" in allow|ignore|deny|default|foreground|ask) ;; *) continue ;; esac
               if cmd appops set --user "${'$'}PERMISSION_USER" "${'$'}PKG" "${'$'}OP" "${'$'}MODE" >/dev/null 2>&1; then
                 APPOPS_COUNT=${'$'}((APPOPS_COUNT + 1))

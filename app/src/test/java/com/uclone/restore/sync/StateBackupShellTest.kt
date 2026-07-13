@@ -30,7 +30,7 @@ class StateBackupShellTest {
             "com.uclone.restore",
         )
 
-        assertContains(script, "backupKind\":\"transaction_undo")
+        assertContains(script, """\"backupKind\":\"transaction_undo\"""")
         assertContains(script, "ROLLBACK_READY=1")
         assertContains(script, "TRANSACTION_COMMITTED=1")
         assertContains(script, "STATE_BACKUP_COMMITTED:state=${'$'}CURRENT_TARGET_STATE")
