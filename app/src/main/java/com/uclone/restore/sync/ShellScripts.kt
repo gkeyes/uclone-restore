@@ -346,8 +346,12 @@ object ShellScripts {
           esac
           CLONE_STATE_EXIT=0
           CLONE_STATE_OUTPUT=${'$'}("${'$'}CLONE_STATE_AM_COMMAND" get-started-user-state "${'$'}CLONE_STATE_QUERY_USER" 2>&1) || CLONE_STATE_EXIT=${'$'}?
+          CLONE_STATE_CR=${'$'}(printf '\r')
           case "${'$'}CLONE_STATE_OUTPUT" in
-            *RUNNING*|*"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*)
+            *"${'$'}CLONE_STATE_CR") CLONE_STATE_OUTPUT=${'$'}{CLONE_STATE_OUTPUT%"${'$'}CLONE_STATE_CR"} ;;
+          esac
+          case "${'$'}CLONE_STATE_OUTPUT" in
+            BOOTING|RUNNING_UNLOCKING|RUNNING_UNLOCKED|RUNNING_LOCKED|RUNNING|SHUTDOWN|STOPPING|"User is not started: ${'$'}CLONE_STATE_QUERY_USER"|"User is stopping: ${'$'}CLONE_STATE_QUERY_USER")
               printf '%s\n' "${'$'}CLONE_STATE_OUTPUT"
               ;;
             "")
@@ -388,8 +392,25 @@ object ShellScripts {
                 WAIT_STATE=${'$'}(clone_state)
                 echo "${'$'}{WAIT_LABEL}_${'$'}{WAIT_INDEX}=${'$'}WAIT_STATE"
                 case "${'$'}WAIT_STATE" in
-                  *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*) return 2 ;;
-                  *RUNNING_UNLOCKED*) return 0 ;;
+                  CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*) return 2 ;;
+                  RUNNING_UNLOCKED) return 0 ;;
+                esac
+                sleep 0.25
+                WAIT_INDEX=${'$'}((WAIT_INDEX + 1))
+              done
+              return 1
+            }
+            wait_for_clone_stable_state() {
+              WAIT_LABEL="${'$'}1"
+              WAIT_LIMIT="${'$'}2"
+              WAIT_INDEX=0
+              while [ "${'$'}WAIT_INDEX" -lt "${'$'}WAIT_LIMIT" ]; do
+                WAIT_STATE=${'$'}(clone_state)
+                echo "${'$'}{WAIT_LABEL}_${'$'}{WAIT_INDEX}=${'$'}WAIT_STATE"
+                case "${'$'}WAIT_STATE" in
+                  CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*) return 2 ;;
+                  BOOTING|RUNNING_UNLOCKING) ;;
+                  *) return 0 ;;
                 esac
                 sleep 0.25
                 WAIT_INDEX=${'$'}((WAIT_INDEX + 1))
@@ -415,11 +436,11 @@ object ShellScripts {
             STATE_BEFORE_UNLOCK=${'$'}(clone_state)
             echo "STATE_BEFORE_UNLOCK=${'$'}STATE_BEFORE_UNLOCK"
             case "${'$'}STATE_BEFORE_UNLOCK" in
-              *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+              CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*)
                 echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_UNLOCK" >&2
                 exit 86
                 ;;
-              *RUNNING_UNLOCKED*)
+              RUNNING_UNLOCKED)
                 echo "ENSURE_CLONE_UNLOCK_RESULT=READY_ALREADY"
                 ;;
               *)
@@ -428,7 +449,7 @@ object ShellScripts {
                   exit 82
                 fi
                 case "${'$'}STATE_BEFORE_UNLOCK" in
-                  *"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*)
+                  "User is not started: ${'$'}CLONE_USER"|"User is stopping: ${'$'}CLONE_USER"|SHUTDOWN|STOPPING)
                     ${startCloneUserRequestScript(
                         amCommand = "/system/bin/am",
                         sleepCommand = "sleep",
@@ -444,11 +465,26 @@ object ShellScripts {
                 STATE_BEFORE_VERIFY=${'$'}(clone_state)
                 echo "STATE_BEFORE_VERIFY=${'$'}STATE_BEFORE_VERIFY"
                 case "${'$'}STATE_BEFORE_VERIFY" in
-                  *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                  BOOTING|RUNNING_UNLOCKING)
+                    wait_for_clone_stable_state "WAIT_AFTER_START_TRANSITION" 40
+                    WAIT_STABLE_RESULT=${'$'}?
+                    case "${'$'}WAIT_STABLE_RESULT" in
+                      0) STATE_BEFORE_VERIFY=${'$'}(clone_state); echo "STATE_AFTER_START_TRANSITION=${'$'}STATE_BEFORE_VERIFY" ;;
+                      2) STATE_BEFORE_VERIFY="${'$'}WAIT_STATE"; echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_VERIFY" >&2; exit 86 ;;
+                      *) echo "ERR_CLONE_START_TRANSITION_TIMEOUT:${'$'}STATE_BEFORE_VERIFY" >&2; exit 80 ;;
+                    esac
+                    ;;
+                esac
+                case "${'$'}STATE_BEFORE_VERIFY" in
+                  CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*)
                     echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_VERIFY" >&2
                     exit 86
                     ;;
-                  *RUNNING_UNLOCKED*)
+                  "User is not started: ${'$'}CLONE_USER"|"User is stopping: ${'$'}CLONE_USER"|SHUTDOWN|STOPPING)
+                    echo "ERR_CLONE_START_TRANSITION_LOST:${'$'}STATE_BEFORE_VERIFY" >&2
+                    exit 80
+                    ;;
+                  RUNNING_UNLOCKED)
                     echo "ENSURE_CLONE_UNLOCK_RESULT=READY_AFTER_START"
                     ;;
                   *)
@@ -517,11 +553,11 @@ object ShellScripts {
             START_STATE_BEFORE_REQUEST=${'$'}(clone_state)
             echo "START_STATE_BEFORE_REQUEST=${'$'}START_STATE_BEFORE_REQUEST"
             case "${'$'}START_STATE_BEFORE_REQUEST" in
-              *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+              CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*)
                 echo "ERR_CLONE_STATE_QUERY:${'$'}START_STATE_BEFORE_REQUEST" >&2
                 exit $failureExitCode
                 ;;
-              *RUNNING*)
+              RUNNING_UNLOCKED|RUNNING_LOCKED|RUNNING)
                 START_CLONE_READY=1
                 echo "START_CLONE_CONFIRMED=${'$'}START_STATE_BEFORE_REQUEST"
                 echo "START_CLONE_OWNERSHIP=preexisting"
@@ -547,11 +583,11 @@ object ShellScripts {
                   START_WAIT_STATE=${'$'}(clone_state)
                   echo "WAIT_AFTER_START_${'$'}START_WAIT_INDEX=${'$'}START_WAIT_STATE"
                   case "${'$'}START_WAIT_STATE" in
-                    *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                    CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*)
                       echo "ERR_CLONE_STATE_QUERY:${'$'}START_WAIT_STATE" >&2
                       exit $failureExitCode
                       ;;
-                    *RUNNING*)
+                    RUNNING_UNLOCKED|RUNNING_LOCKED|RUNNING)
                       ${if (markStartedByTask) "CLONE_STARTED_BY_TASK=1" else ":"}
                       START_CLONE_READY=1
                       echo "START_CLONE_CONFIRMED=${'$'}START_WAIT_STATE"
@@ -564,7 +600,9 @@ object ShellScripts {
                 done
                 START_CLIENT_TERMINATED=0
                 START_CLIENT_DETACHED=0
+                START_CLIENT_TERMINATION_REQUESTED=0
                 if start_user_client_running; then
+                  START_CLIENT_TERMINATION_REQUESTED=1
                   kill "${'$'}START_USER_PID" 2>/dev/null || true
                   START_KILL_WAIT=0
                   while start_user_client_running && [ "${'$'}START_KILL_WAIT" -lt 8 ]; do
@@ -574,7 +612,7 @@ object ShellScripts {
                   if start_user_client_running; then
                     kill -9 "${'$'}START_USER_PID" 2>/dev/null || true
                   fi
-                  if ! start_user_client_running; then
+                  if [ "${'$'}START_CLIENT_TERMINATION_REQUESTED" = "1" ] && ! start_user_client_running; then
                     START_CLIENT_TERMINATED=1
                   fi
                 fi
@@ -653,15 +691,16 @@ object ShellScripts {
             STOP_USER_EXIT=0
             STOP_USER_CLIENT_TERMINATED=0
             STOP_USER_CLIENT_DETACHED=0
+            STOP_USER_CLIENT_TERMINATION_REQUESTED=0
             STOP_USER_REAPED=0
             STOP_STATE_BEFORE_REQUEST=${'$'}(clone_state)
             echo "STATE_BEFORE_STOP=${'$'}STOP_STATE_BEFORE_REQUEST"
             case "${'$'}STOP_STATE_BEFORE_REQUEST" in
-              *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+              CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*)
                 echo "ERR_CLONE_STATE_QUERY:${'$'}STOP_STATE_BEFORE_REQUEST" >&2
                 exit 88
                 ;;
-              *"User is not started"*|*"not started"*|*SHUTDOWN*)
+              "User is not started: ${'$'}CLONE_USER"|SHUTDOWN)
                 STOP_CLONE_CONFIRMED=1
                 echo "STOP_CLONE_CONFIRMED=1"
                 ;;
@@ -684,12 +723,12 @@ object ShellScripts {
                   STOP_WAIT_STATE=${'$'}(clone_state)
                   echo "WAIT_AFTER_STOP_${'$'}STOP_WAIT_INDEX=${'$'}STOP_WAIT_STATE"
                   case "${'$'}STOP_WAIT_STATE" in
-                    *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                    CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*)
                       STOP_USER_EXIT=88
                       echo "ERR_CLONE_STATE_QUERY:${'$'}STOP_WAIT_STATE" >&2
                       break
                       ;;
-                    *"User is not started"*|*"not started"*|*SHUTDOWN*)
+                    "User is not started: ${'$'}CLONE_USER"|SHUTDOWN)
                       STOP_CLONE_CONFIRMED=1
                       echo "STOP_CLONE_CONFIRMED=1"
                       break
@@ -701,7 +740,7 @@ object ShellScripts {
                     if [ "${'$'}STOP_USER_EXIT" -ne 0 ]; then
                       STOP_FINAL_STATE=${'$'}(clone_state)
                       case "${'$'}STOP_FINAL_STATE" in
-                        *"User is not started"*|*"not started"*|*SHUTDOWN*)
+                        "User is not started: ${'$'}CLONE_USER"|SHUTDOWN)
                           STOP_CLONE_CONFIRMED=1
                           echo "STOP_CLONE_CONFIRMED=1"
                           ;;
@@ -714,6 +753,7 @@ object ShellScripts {
                 done
                 if [ "${'$'}STOP_USER_REAPED" != "1" ]; then
                   if stop_user_client_running; then
+                    STOP_USER_CLIENT_TERMINATION_REQUESTED=1
                     kill "${'$'}STOP_USER_PID" 2>/dev/null || true
                     STOP_KILL_WAIT=0
                     while stop_user_client_running && [ "${'$'}STOP_KILL_WAIT" -lt 8 ]; do
@@ -729,7 +769,9 @@ object ShellScripts {
                   else
                     wait "${'$'}STOP_USER_PID" 2>/dev/null || STOP_USER_EXIT=${'$'}?
                     STOP_USER_REAPED=1
-                    STOP_USER_CLIENT_TERMINATED=1
+                    if [ "${'$'}STOP_USER_CLIENT_TERMINATION_REQUESTED" = "1" ]; then
+                      STOP_USER_CLIENT_TERMINATED=1
+                    fi
                   fi
                 fi
                 STOP_USER_OUTPUT=${'$'}(cat "${'$'}STOP_USER_LOG" 2>/dev/null || true)
@@ -797,12 +839,12 @@ object ShellScripts {
           STATE=${'$'}(clone_state)
           echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
           case "${'$'}STATE" in
-            *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+            CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*)
               echo "ERR_CLONE_STATE_QUERY:${'$'}STATE" >&2
               uclone_remove_tree "${'$'}TRY_TMP" || exit 11
               exit 86
               ;;
-            *RUNNING_UNLOCKED*) ;;
+            RUNNING_UNLOCKED) ;;
             *)
               if [ "${'$'}CAPTURE_REQUIRE_CE" = "1" ]; then
                 echo "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" >&2
@@ -1429,7 +1471,6 @@ object ShellScripts {
     fun probeCloneCe(settings: UCloneSettings): String = """
         set -u
         CLONE_USER=${settings.cloneUserId}
-        UCLONE_STATE_TEMP_ROOT=/data/local/tmp
         ${cloneStateFunction("/system/bin/am")}
         echo "PROBE_CLONE_USER=${'$'}CLONE_USER"
         echo "ROOT_ID=${'$'}(id 2>&1)"
@@ -1451,16 +1492,21 @@ object ShellScripts {
         probe_base_path "CE_BASE" "/data/user/${'$'}CLONE_USER"
         probe_base_path "DE_BASE" "/data/user_de/${'$'}CLONE_USER"
         case "${'$'}STATE" in
-          *RUNNING_UNLOCKED*)
+          RUNNING_UNLOCKED)
             echo "USER10_CE_STATE=RUNNING_UNLOCKED"
             echo "USER10_CE_READY=1"
             ;;
-          *RUNNING_LOCKED*|RUNNING)
+          RUNNING_LOCKED|RUNNING)
             echo "USER10_CE_STATE=STARTED_LOCKED"
             echo "ERR_USER10_CE_LOCKED:${'$'}STATE" >&2
             exit 80
             ;;
-          *"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*)
+          BOOTING|RUNNING_UNLOCKING)
+            echo "USER10_CE_STATE=STARTING"
+            echo "ERR_USER10_CE_STARTING:${'$'}STATE" >&2
+            exit 80
+            ;;
+          "User is not started: ${'$'}CLONE_USER"|"User is stopping: ${'$'}CLONE_USER"|SHUTDOWN|STOPPING)
             echo "USER10_CE_STATE=NOT_STARTED"
             echo "ERR_USER10_NOT_STARTED:${'$'}STATE" >&2
             exit 81
@@ -1510,11 +1556,12 @@ object ShellScripts {
         STATE_BEFORE_START=${'$'}(clone_state)
         echo "STATE_BEFORE_START=${'$'}STATE_BEFORE_START"
         case "${'$'}STATE_BEFORE_START" in
-          *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+          CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*)
             echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_START" >&2
             exit 88
             ;;
-          *RUNNING*) echo "START_CLONE_ALREADY_STARTED=${'$'}STATE_BEFORE_START"; exit 0 ;;
+          BOOTING|RUNNING_UNLOCKING) echo "START_CLONE_ALREADY_STARTING=${'$'}STATE_BEFORE_START"; exit 0 ;;
+          RUNNING_UNLOCKED|RUNNING_LOCKED|RUNNING) echo "START_CLONE_ALREADY_STARTED=${'$'}STATE_BEFORE_START"; exit 0 ;;
         esac
         ${startCloneUserRequestScript(
             amCommand = amCommand,
@@ -1541,11 +1588,11 @@ object ShellScripts {
         STATE_BEFORE_STOP=${'$'}(clone_state)
         echo "STATE_BEFORE_STOP=${'$'}STATE_BEFORE_STOP"
         case "${'$'}STATE_BEFORE_STOP" in
-          *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+          CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*)
             echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_STOP" >&2
             exit 88
             ;;
-          *"User is not started"*|*"not started"*|*SHUTDOWN*) echo "STOP_CLONE_ALREADY_STOPPED=1"; exit 0 ;;
+          "User is not started: ${'$'}CLONE_USER"|SHUTDOWN) echo "STOP_CLONE_ALREADY_STOPPED=1"; exit 0 ;;
         esac
         ${stopCloneUserRequestScript(
             amCommand = amCommand,
@@ -1571,7 +1618,6 @@ object ShellScripts {
         set -u
         MAIN_USER=${settings.mainUserId}
         CLONE_USER=${settings.cloneUserId}
-        UCLONE_STATE_TEMP_ROOT=/data/local/tmp
         ${cloneStateFunction("/system/bin/am")}
         APP_PKG=${shellQuote(appPackage)}
         ROOT_DIR=${shellQuote(settings.rootDir)}
@@ -1681,9 +1727,10 @@ object ShellScripts {
 
         echo "DIRECT_BOOT_HINT_BEGIN"
         case "${'$'}(user_state "${'$'}CLONE_USER")" in
-          *RUNNING_UNLOCKED*) echo "CLONE_CE_GATE=READY" ;;
-          *RUNNING_LOCKED*|RUNNING) echo "CLONE_CE_GATE=LOCKED" ;;
-          *"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*) echo "CLONE_CE_GATE=NOT_STARTED" ;;
+          RUNNING_UNLOCKED) echo "CLONE_CE_GATE=READY" ;;
+          RUNNING_LOCKED|RUNNING) echo "CLONE_CE_GATE=LOCKED" ;;
+          BOOTING|RUNNING_UNLOCKING) echo "CLONE_CE_GATE=STARTING" ;;
+          "User is not started: ${'$'}CLONE_USER"|"User is stopping: ${'$'}CLONE_USER"|SHUTDOWN|STOPPING) echo "CLONE_CE_GATE=NOT_STARTED" ;;
           *) echo "CLONE_CE_GATE=UNKNOWN" ;;
         esac
         echo "DIRECT_BOOT_HINT_END"
@@ -1715,7 +1762,6 @@ object ShellScripts {
         APP_PKG=${shellQuote(appPackage)}
         TARGET_USER=${settings.mainUserId}
         CLONE_USER=${settings.cloneUserId}
-        UCLONE_STATE_TEMP_ROOT=/data/local/tmp
         ${cloneStateFunction("/system/bin/am")}
         ${uniqueStampScript()}
         TS=${'$'}(uclone_unique_stamp) || { echo "ERR_UNIQUE_STAMP" >&2; exit 10; }
@@ -2117,12 +2163,12 @@ object ShellScripts {
           STATE=${'$'}(clone_state)
           echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
           case "${'$'}STATE" in
-            *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+            CLONE_STATE_QUERY_UNAVAILABLE:*|CLONE_STATE_QUERY_EMPTY:*)
               echo "ERR_CLONE_STATE_QUERY:${'$'}STATE" >&2
               uclone_remove_tree "${'$'}TRY_TMP" || exit 11
               exit 86
               ;;
-            *RUNNING_UNLOCKED*) ;;
+            RUNNING_UNLOCKED) ;;
             *)
               echo "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" >&2
               uclone_remove_tree "${'$'}TRY_TMP" || exit 11

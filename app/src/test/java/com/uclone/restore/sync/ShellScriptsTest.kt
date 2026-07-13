@@ -1148,8 +1148,9 @@ class ShellScriptsTest {
         val script = ShellScripts.probeCloneCe(settings)
 
         assertContains(script, "get-started-user-state")
-        assertContains(script, "UCLONE_STATE_TEMP_ROOT=/data/local/tmp")
         assertContains(script, "CLONE_STATE_QUERY_UNAVAILABLE:unexpected_output")
+        assertContains(script, "CLONE_STATE_CR=${'$'}(printf '\\r')")
+        assertContains(script, "BOOTING|RUNNING_UNLOCKING|RUNNING_UNLOCKED")
         assertContains(script, "USER10_CE_READY=1")
         assertFalse(script.contains("am start-user"))
         assertFalse(script.contains("am unlock-user"))
@@ -1166,6 +1167,9 @@ class ShellScriptsTest {
         assertContains(script, "clone_state \"${'$'}CLONE_USER\"")
         assertFalse(script.contains("CLONE_STATE_QUERY_TIMEOUT"))
         assertFalse(script.contains("CLONE_STATE_TEMP_DIR"))
+        assertFalse(script.contains("tr -d '\\r'"))
+        assertFalse(script.contains("*RUNNING*"))
+        assertFalse(script.contains("*\"not started\"*"))
         assertFalse(script.contains("start-user"))
         assertFalse(script.contains("stop-user"))
     }
@@ -1439,6 +1443,89 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun explicitStartRejectsUnexpectedStateProbeOutputBeforeStarting() {
+        val result = runExplicitStartScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state) echo "Activity manager rejected state request"; exit 2 ;;
+                  start-user) echo SHOULD_NOT_START; exit 9 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(88, result.exitCode, result.output)
+        assertContains(result.output, "ERR_CLONE_STATE_QUERY:CLONE_STATE_QUERY_UNAVAILABLE:unexpected_output:exit=2:bytes=")
+        assertFalse(result.output.contains("SHOULD_NOT_START"))
+        assertTrue(result.executionDurationMs < 2_000, "state probe did not fail promptly after an unexpected result")
+    }
+
+    @Test
+    fun explicitStartRejectsNonCanonicalRunningStateBeforeStarting() {
+        val result = runExplicitStartScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state) echo RUNNING_BOGUS; exit 0 ;;
+                  start-user) echo SHOULD_NOT_START; exit 9 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(88, result.exitCode, result.output)
+        assertContains(result.output, "ERR_CLONE_STATE_QUERY:CLONE_STATE_QUERY_UNAVAILABLE:unexpected_output:exit=0:bytes=")
+        assertFalse(result.output.contains("SHOULD_NOT_START"))
+    }
+
+    @Test
+    fun explicitStartAcceptsOnlyOneTrailingCarriageReturn() {
+        val result = runExplicitStartScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state) printf 'RUNNING_UNLOCKED\r\n'; exit 0 ;;
+                  start-user) echo SHOULD_NOT_START; exit 9 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "START_CLONE_ALREADY_STARTED=RUNNING_UNLOCKED")
+        assertFalse(result.output.contains("SHOULD_NOT_START"))
+    }
+
+    @Test
+    fun explicitStartRejectsAnInternalCarriageReturn() {
+        val result = runExplicitStartScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state) printf 'RUNNING_\rUNLOCKED\n'; exit 0 ;;
+                  start-user) echo SHOULD_NOT_START; exit 9 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(88, result.exitCode, result.output)
+        assertContains(result.output, "ERR_CLONE_STATE_QUERY:CLONE_STATE_QUERY_UNAVAILABLE:unexpected_output:exit=0:bytes=")
+        assertFalse(result.output.contains("SHOULD_NOT_START"))
+    }
+
+    @Test
+    fun explicitStartAcceptsKnownTransitionStatesWithoutSubmittingAnotherStart() {
+        listOf("BOOTING", "RUNNING_UNLOCKING").forEach { state ->
+            val result = runExplicitStartScript(
+                """
+                    case "${'$'}1" in
+                      get-started-user-state) echo ${'$'}state; exit 0 ;;
+                      start-user) echo SHOULD_NOT_START; exit 9 ;;
+                    esac
+                """.trimIndent(),
+            )
+
+            assertEquals(0, result.exitCode, result.output)
+            assertContains(result.output, "START_CLONE_ALREADY_STARTING=${'$'}state")
+            assertFalse(result.output.contains("SHOULD_NOT_START"))
+        }
+    }
+
+    @Test
     fun explicitStartFailsWhenCloneUserNeverLeavesStoppedState() {
         val result = runExplicitStartScript(
             """
@@ -1489,7 +1576,6 @@ class ShellScriptsTest {
         assertContains(script, "appops_uid.txt")
         assertContains(script, "summary.md")
         assertContains(script, "capture_user_states")
-        assertContains(script, "UCLONE_STATE_TEMP_ROOT=/data/local/tmp")
         assertContains(script, "restorecon: not run in this read-only audit")
         assertFalse(script.contains("rm -rf"))
         assertFalse(script.contains("restorecon -"))
@@ -1520,7 +1606,6 @@ class ShellScriptsTest {
                 environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath
                 environment()["UCLONE_TEST_STOP_PID_FILE"] = stopPidFile.absolutePath
                 environment()["TMPDIR"] = directory.toAbsolutePath().toString()
-                environment()["UCLONE_STATE_TEMP_ROOT"] = directory.toAbsolutePath().toString()
             }
             .start()
         val startedAt = System.nanoTime()
@@ -1534,7 +1619,7 @@ class ShellScriptsTest {
             ?.readText()
             ?.trim()
             ?.toLongOrNull()
-            ?.let { ProcessHandle.of(it).ifPresent { handle -> handle.destroyForcibly() } }
+            ?.let(::terminateTestClient)
         return result
     }
 
@@ -1562,7 +1647,6 @@ class ShellScriptsTest {
                 environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath
                 environment()["UCLONE_TEST_START_PID_FILE"] = startPidFile.absolutePath
                 environment()["TMPDIR"] = directory.toAbsolutePath().toString()
-                environment()["UCLONE_STATE_TEMP_ROOT"] = directory.toAbsolutePath().toString()
             }
             .start()
         val startedAt = System.nanoTime()
@@ -1576,8 +1660,16 @@ class ShellScriptsTest {
             ?.readText()
             ?.trim()
             ?.toLongOrNull()
-            ?.let { ProcessHandle.of(it).ifPresent { handle -> handle.destroyForcibly() } }
+            ?.let(::terminateTestClient)
         return result
+    }
+
+    private fun terminateTestClient(pid: Long) {
+        runCatching {
+            ProcessBuilder("/bin/kill", "-9", pid.toString())
+                .start()
+                .waitFor()
+        }
     }
 
     private data class StopScriptResult(
