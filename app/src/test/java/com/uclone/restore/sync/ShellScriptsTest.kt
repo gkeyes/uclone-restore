@@ -1513,7 +1513,7 @@ class ShellScriptsTest {
             val result = runExplicitStartScript(
                 """
                     case "${'$'}1" in
-                      get-started-user-state) echo ${'$'}state; exit 0 ;;
+                      get-started-user-state) echo $state; exit 0 ;;
                       start-user) echo SHOULD_NOT_START; exit 9 ;;
                     esac
                 """.trimIndent(),
