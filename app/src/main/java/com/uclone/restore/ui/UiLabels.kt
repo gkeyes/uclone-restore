@@ -53,3 +53,13 @@ internal val User10CeState.userFacingLabel: String
         User10CeState.NotStarted -> "未启动"
         is User10CeState.Unknown -> "状态未知"
     }
+
+internal val User10CeState.cloneLifecycleLabel: String
+    get() = when (this) {
+        User10CeState.StartedLocked,
+        User10CeState.RunningUnlocked,
+        -> "已启动"
+        User10CeState.NotStarted -> "未启动"
+        User10CeState.Unavailable -> "不可用"
+        is User10CeState.Unknown -> "状态未知"
+    }

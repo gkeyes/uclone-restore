@@ -53,17 +53,17 @@ class ModuleSettingsActivity : Activity() {
 
     private val isDarkMode: Boolean
         get() = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-    private val SURFACE: Int get() = if (isDarkMode) Color.rgb(17, 19, 24) else Color.rgb(247, 248, 250)
-    private val CARD_SURFACE: Int get() = if (isDarkMode) Color.rgb(29, 32, 39) else Color.WHITE
-    private val TEXT_PRIMARY: Int get() = if (isDarkMode) Color.rgb(226, 226, 233) else Color.rgb(25, 28, 32)
-    private val TEXT_SECONDARY: Int get() = if (isDarkMode) Color.rgb(196, 198, 207) else Color.rgb(68, 71, 78)
-    private val TEXT_TERTIARY: Int get() = if (isDarkMode) Color.rgb(142, 144, 153) else Color.rgb(116, 119, 127)
-    private val BLUE: Int get() = if (isDarkMode) Color.rgb(169, 199, 255) else Color.rgb(23, 105, 224)
-    private val ON_PRIMARY: Int get() = if (isDarkMode) Color.rgb(0, 48, 98) else Color.WHITE
-    private val GREEN: Int get() = if (isDarkMode) Color.rgb(135, 217, 147) else Color.rgb(20, 108, 46)
-    private val ORANGE: Int get() = if (isDarkMode) Color.rgb(255, 185, 95) else Color.rgb(139, 80, 0)
-    private val RED: Int get() = if (isDarkMode) Color.rgb(255, 180, 171) else Color.rgb(186, 26, 26)
-    private val SEPARATOR: Int get() = if (isDarkMode) Color.rgb(68, 71, 78) else Color.rgb(196, 198, 207)
+    private val SURFACE: Int get() = if (isDarkMode) Color.BLACK else Color.rgb(242, 242, 247)
+    private val CARD_SURFACE: Int get() = if (isDarkMode) Color.rgb(28, 28, 30) else Color.WHITE
+    private val TEXT_PRIMARY: Int get() = if (isDarkMode) Color.WHITE else Color.BLACK
+    private val TEXT_SECONDARY: Int get() = if (isDarkMode) Color.rgb(152, 152, 157) else Color.rgb(108, 108, 112)
+    private val TEXT_TERTIARY: Int get() = if (isDarkMode) Color.rgb(99, 99, 102) else Color.rgb(142, 142, 147)
+    private val BLUE: Int get() = if (isDarkMode) Color.rgb(10, 132, 255) else Color.rgb(0, 122, 255)
+    private val ON_PRIMARY: Int get() = Color.WHITE
+    private val GREEN: Int get() = if (isDarkMode) Color.rgb(48, 209, 88) else Color.rgb(52, 199, 89)
+    private val ORANGE: Int get() = if (isDarkMode) Color.rgb(255, 159, 10) else Color.rgb(255, 149, 0)
+    private val RED: Int get() = if (isDarkMode) Color.rgb(255, 69, 58) else Color.rgb(255, 59, 48)
+    private val SEPARATOR: Int get() = if (isDarkMode) Color.rgb(56, 56, 58) else Color.rgb(198, 198, 200)
     private val CONTROL_BORDER: Int get() = colorWithAlpha(TEXT_TERTIARY, if (isDarkMode) 112 else 80)
     private val GLASS_BORDER: Int get() = colorWithAlpha(TEXT_TERTIARY, if (isDarkMode) 96 else 72)
 
@@ -93,7 +93,7 @@ class ModuleSettingsActivity : Activity() {
     private fun buildContent(): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), statusBarHeight() + dp(10), dp(12), navigationBarHeight() + dp(12))
+            setPadding(dp(16), statusBarHeight() + dp(12), dp(16), navigationBarHeight() + dp(14))
             background = softBackground()
 
             addView(headerCard(), matchWrap())
@@ -126,7 +126,7 @@ class ModuleSettingsActivity : Activity() {
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 setTextColor(ON_PRIMARY)
-                background = roundedSolid(BLUE, dp(8))
+                background = roundedSolid(BLUE, dp(13))
             }
             top.addView(mark, LinearLayout.LayoutParams(dp(48), dp(48)))
 
@@ -134,8 +134,8 @@ class ModuleSettingsActivity : Activity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(12), 0, dp(8), 0)
             }
-            titleGroup.addView(text("UClone Module", 22f, TEXT_PRIMARY, true))
-            headerSubtitle = text("桌面长按入口控制", 12f, TEXT_SECONDARY, true)
+            titleGroup.addView(text("UClone Module", 24f, TEXT_PRIMARY, true))
+            headerSubtitle = text("桌面长按入口控制", 13f, TEXT_SECONDARY, false)
             titleGroup.addView(headerSubtitle)
             top.addView(titleGroup, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
@@ -152,7 +152,7 @@ class ModuleSettingsActivity : Activity() {
                     persistHookEnabled(checked)
                 }
             }
-            top.addView(hookSwitch, LinearLayout.LayoutParams(dp(58), dp(44)))
+            top.addView(hookSwitch, LinearLayout.LayoutParams(dp(58), dp(48)))
             addView(top, matchWrap())
         }
 
@@ -161,7 +161,7 @@ class ModuleSettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassDrawable(dp(8), alpha = 244)
+            background = glassDrawable(dp(24), alpha = 238)
             SettingsPage.entries.forEach { page ->
                 val item = TextView(this@ModuleSettingsActivity).apply {
                     text = page.label
@@ -255,7 +255,7 @@ class ModuleSettingsActivity : Activity() {
                 gravity = Gravity.CENTER_VERTICAL
                 val title = LinearLayout(this@ModuleSettingsActivity).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(text("App", 24f, TEXT_PRIMARY, true))
+                    addView(text("App", 28f, TEXT_PRIMARY, true))
                     addView(bodyText("为桌面长按菜单启用目标应用。"))
                 }
                 addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -299,7 +299,7 @@ class ModuleSettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassDrawable(dp(8), alpha = 244)
+            background = glassDrawable(dp(22))
             AppFilter.entries.forEach { filter ->
                 val button = TextView(this@ModuleSettingsActivity).apply {
                     text = filter.label
@@ -335,7 +335,7 @@ class ModuleSettingsActivity : Activity() {
                     addView(bodyText("桌面长按入口"))
                 }
                 row.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                row.addView(hookSwitchMirror(), LinearLayout.LayoutParams(dp(58), dp(44)))
+                row.addView(hookSwitchMirror(), LinearLayout.LayoutParams(dp(58), dp(48)))
                 addView(row, matchWrap())
                 addView(space(10))
                 addView(infoStrip("只负责把快捷入口注入桌面。真实备份、恢复和 Root 操作仍由 UClone Restore 执行。"))
@@ -377,7 +377,7 @@ class ModuleSettingsActivity : Activity() {
                 gravity = Gravity.CENTER_VERTICAL
                 val title = LinearLayout(this@ModuleSettingsActivity).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(text("日志", 24f, TEXT_PRIMARY, true))
+                    addView(text("日志", 28f, TEXT_PRIMARY, true))
                     addView(bodyText("Hook、Relay 事件与诊断。"))
                 }
                 addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -428,7 +428,7 @@ class ModuleSettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassDrawable(dp(8), alpha = 244)
+            background = glassDrawable(dp(22))
             LogFilter.entries.forEach { filter ->
                 val button = TextView(this@ModuleSettingsActivity).apply {
                     text = filter.label
@@ -548,8 +548,8 @@ class ModuleSettingsActivity : Activity() {
             setPadding(0, dp(10), 0, dp(10))
             alpha = if (app.isSystem) 0.48f else 1f
             background = clippedRipple(
-                content = roundedSolid(Color.TRANSPARENT, dp(8)),
-                radius = dp(8),
+                content = roundedSolid(Color.TRANSPARENT, dp(14)),
+                radius = dp(14),
                 rippleColor = colorWithAlpha(BLUE, 18),
             )
             setOnClickListener {
@@ -558,7 +558,7 @@ class ModuleSettingsActivity : Activity() {
 
             addView(ImageView(this@ModuleSettingsActivity).apply {
                 setImageDrawable(app.icon)
-                background = roundedSolid(CARD_SURFACE, dp(8))
+                background = roundedSolid(CARD_SURFACE, dp(11))
                 clipToOutline = true
                 setPadding(dp(3), dp(3), dp(3), dp(3))
             }, LinearLayout.LayoutParams(dp(40), dp(40)))
@@ -585,7 +585,7 @@ class ModuleSettingsActivity : Activity() {
                 })
             }
             addView(labelGroup, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(toggle, LinearLayout.LayoutParams(dp(58), dp(44)))
+            addView(toggle, LinearLayout.LayoutParams(dp(58), dp(48)))
         }
     }
 
@@ -643,7 +643,7 @@ class ModuleSettingsActivity : Activity() {
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(12))
-            background = glassDrawable(dp(8), alpha = 244)
+            background = glassDrawable(dp(22), alpha = 238)
 
             selectedCountText = text("", 13f, TEXT_SECONDARY, true).apply {
                 gravity = Gravity.CENTER
@@ -680,7 +680,7 @@ class ModuleSettingsActivity : Activity() {
             button.isSelected = selected
             button.contentDescription = if (selected) "${page.label}，当前页面" else "打开${page.label}页面"
             button.setTextColor(if (selected) BLUE else TEXT_SECONDARY)
-            button.background = segmentedButtonBackground(selected, dp(8))
+            button.background = segmentedButtonBackground(selected, dp(18))
         }
     }
 
@@ -690,7 +690,7 @@ class ModuleSettingsActivity : Activity() {
             button.isSelected = selected
             button.contentDescription = if (selected) "${filter.label}筛选，已选中" else "使用${filter.label}筛选"
             button.setTextColor(if (selected) BLUE else TEXT_SECONDARY)
-            button.background = segmentedButtonBackground(selected, dp(8))
+            button.background = segmentedButtonBackground(selected, dp(18))
         }
     }
 
@@ -700,7 +700,7 @@ class ModuleSettingsActivity : Activity() {
             button.isSelected = selected
             button.contentDescription = if (selected) "${filter.label}日志，已选中" else "显示${filter.label}日志"
             button.setTextColor(if (selected) BLUE else TEXT_SECONDARY)
-            button.background = segmentedButtonBackground(selected, dp(8))
+            button.background = segmentedButtonBackground(selected, dp(18))
         }
     }
 
@@ -761,23 +761,23 @@ class ModuleSettingsActivity : Activity() {
     private fun sectionHeader(title: String, subtitle: String): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(text(title, 24f, TEXT_PRIMARY, true))
+            addView(text(title, 28f, TEXT_PRIMARY, true))
             addView(bodyText(subtitle))
         }
 
     private fun glassCard(compact: Boolean = false): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), if (compact) dp(10) else dp(12), dp(14), if (compact) dp(10) else dp(12))
+            setPadding(dp(16), if (compact) dp(12) else dp(16), dp(16), if (compact) dp(12) else dp(16))
             background = glassDrawable()
             elevation = 0f
         }
 
     private fun cardTitle(value: String): TextView =
-        text(value, 18f, TEXT_PRIMARY, true)
+        text(value, 17f, TEXT_PRIMARY, true)
 
     private fun bodyText(value: String): TextView =
-        text(value, 13f, TEXT_SECONDARY, false).apply {
+        text(value, 15f, TEXT_SECONDARY, false).apply {
             setLineSpacing(dp(2).toFloat(), 1.0f)
         }
 
@@ -790,7 +790,7 @@ class ModuleSettingsActivity : Activity() {
     private fun infoStrip(value: String): TextView =
         bodyText(value).apply {
             setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = roundedSolid(colorWithAlpha(CARD_SURFACE, if (isDarkMode) 220 else 244), dp(8))
+            background = roundedSolid(if (isDarkMode) Color.rgb(44, 44, 46) else Color.rgb(247, 247, 250), dp(12))
         }
 
     private fun emptyState(value: String): TextView =
@@ -803,7 +803,7 @@ class ModuleSettingsActivity : Activity() {
         glassCard().apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = clippedRipple(glassDrawable(), dp(8), colorWithAlpha(BLUE, 18))
+            background = clippedRipple(glassDrawable(), dp(18), colorWithAlpha(BLUE, 18))
             setOnClickListener { onClick() }
             val label = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -820,7 +820,7 @@ class ModuleSettingsActivity : Activity() {
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = roundedSolid(colorWithAlpha(color, 24), dp(8))
+            background = roundedSolid(colorWithAlpha(color, 24), dp(14))
             addView(text(value, 18f, color, true))
             addView(text(label, 12f, TEXT_SECONDARY, true))
         }
@@ -882,7 +882,7 @@ class ModuleSettingsActivity : Activity() {
             setTextColor(ON_PRIMARY)
             background = primaryButtonDrawable()
             setOnClickListener { onClick() }
-            layoutParams = params.apply { height = dp(48) }
+            layoutParams = params.apply { height = dp(50) }
         }
 
     private fun secondaryButton(label: String, onClick: () -> Unit): TextView =
@@ -903,15 +903,15 @@ class ModuleSettingsActivity : Activity() {
             setTextColor(if (danger) RED else BLUE)
             background = clippedRipple(
                 content = glassDrawable(
-                    radius = dp(8),
-                    alpha = 244,
+                    radius = dp(14),
+                    alpha = 255,
                     strokeColor = if (danger) colorWithAlpha(RED, 52) else CONTROL_BORDER,
                 ),
-                radius = dp(8),
+                radius = dp(14),
                 rippleColor = colorWithAlpha(if (danger) RED else BLUE, 28),
             )
             setOnClickListener { onClick() }
-            layoutParams = params.apply { height = dp(48) }
+            layoutParams = params.apply { height = dp(50) }
         }
 
     private fun iconButton(symbol: String, description: String, onClick: () -> Unit): TextView =
@@ -945,16 +945,16 @@ class ModuleSettingsActivity : Activity() {
 
     private fun softBackground(): Drawable = ColorDrawable(SURFACE)
 
-    private fun glassDrawable(radius: Int = dp(8), alpha: Int = 244, strokeColor: Int = GLASS_BORDER): Drawable {
+    private fun glassDrawable(radius: Int = dp(18), alpha: Int = 255, strokeColor: Int = GLASS_BORDER): Drawable {
         val fill = roundedSolid(colorWithAlpha(CARD_SURFACE, alpha), radius)
         val stroke = roundedStroke(strokeColor, radius, 1)
         return LayerDrawable(arrayOf(fill, stroke))
     }
 
     private fun primaryButtonDrawable(): Drawable {
-        val fill = roundedSolid(BLUE, dp(8))
-        val stroke = roundedStroke(colorWithAlpha(ON_PRIMARY, 72), dp(8), 1)
-        return clippedRipple(LayerDrawable(arrayOf(fill, stroke)), dp(8), colorWithAlpha(ON_PRIMARY, 54))
+        val fill = roundedSolid(BLUE, dp(14))
+        val stroke = roundedStroke(colorWithAlpha(ON_PRIMARY, 54), dp(14), 1)
+        return clippedRipple(LayerDrawable(arrayOf(fill, stroke)), dp(14), colorWithAlpha(ON_PRIMARY, 54))
     }
 
     private fun segmentedButtonBackground(selected: Boolean, radius: Int): Drawable =

@@ -61,7 +61,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 onValueChange = { draft = draft.copy(rootDir = it) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Root 数据目录") },
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(14.dp),
                 singleLine = true,
             )
             SingleLinePathText("主动快照: ${draft.rootDir}/snapshots/<包名>/active")
@@ -78,7 +78,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 onValueChange = { draft = draft.copy(cloneUnlockCredential = it.trim()) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("分身锁屏 PIN/密码") },
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(14.dp),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
             )
@@ -298,7 +298,7 @@ private fun NumberField(label: String, value: Int, onChange: (Int) -> Unit) {
         onValueChange = { text -> text.toIntOrNull()?.let(onChange) },
         modifier = Modifier.fillMaxWidth(),
         label = { Text(label) },
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(14.dp),
         singleLine = true,
     )
 }
@@ -316,10 +316,10 @@ private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
             onCheckedChange = onChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                checkedTrackColor = MaterialTheme.ucloneColors.success,
+                uncheckedThumbColor = MaterialTheme.ucloneColors.groupedSurface,
                 uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                uncheckedBorderColor = MaterialTheme.colorScheme.outline,
+                uncheckedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
             ),
         )
     }

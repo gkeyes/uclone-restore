@@ -4,6 +4,7 @@ import android.content.pm.PackageManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clip
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,7 +34,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,13 +42,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.uclone.restore.model.RiskLevel
@@ -60,23 +60,31 @@ fun SectionCard(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    Surface(
+    Column(
         modifier = modifier.fillMaxWidth(),
-        shape = RectangleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shadowElevation = 0.dp,
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Column(
-            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        Text(
+            title,
+            modifier = Modifier.padding(horizontal = 12.dp),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.ucloneColors.groupedSurface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.5f)),
+            shadowElevation = 1.dp,
         ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            content()
+            Column(
+                Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                content()
+            }
         }
     }
 }
@@ -87,7 +95,7 @@ fun PageDescription(text: String, modifier: Modifier = Modifier) {
         text,
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(start = 4.dp, end = 4.dp, bottom = 2.dp),
+        modifier = modifier.padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
     )
 }
 
@@ -96,10 +104,15 @@ fun SectionLabel(title: String, caption: String? = null) {
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, top = 8.dp, end = 4.dp, bottom = 2.dp),
+            .padding(start = 6.dp, top = 10.dp, end = 6.dp, bottom = 2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(
+            title,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold,
+        )
         if (caption != null) {
             Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -115,22 +128,23 @@ fun InfoRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 40.dp),
+            .heightIn(min = 44.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             label,
-            modifier = Modifier.weight(0.42f),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(0.48f),
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.bodyLarge,
         )
         Text(
             value,
-            modifier = Modifier.weight(0.58f),
+            modifier = Modifier.weight(0.52f),
             color = valueColor,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.End,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -206,13 +220,17 @@ fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
         Box(
             modifier
                 .size(40.dp)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(8.dp)),
+                .background(MaterialTheme.ucloneColors.elevatedSurface, RoundedCornerShape(11.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Text(packageName.take(1).uppercase(), style = MaterialTheme.typography.titleMedium)
         }
     } else {
-        Image(bitmap = bitmap, contentDescription = null, modifier = modifier.size(40.dp))
+        Image(
+            bitmap = bitmap,
+            contentDescription = null,
+            modifier = modifier.size(40.dp).clip(RoundedCornerShape(11.dp)),
+        )
     }
 }
 
@@ -225,9 +243,13 @@ fun PrimaryActionButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 48.dp),
+        modifier = modifier.heightIn(min = 50.dp),
         enabled = enabled,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         content = content,
@@ -243,13 +265,21 @@ fun SecondaryActionButton(
     content: @Composable RowScope.() -> Unit,
 ) {
     val contentColor = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    OutlinedButton(
+    Button(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 48.dp),
+        modifier = modifier.heightIn(min = 50.dp),
         enabled = enabled,
-        shape = RoundedCornerShape(8.dp),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = contentColor),
-        border = BorderStroke(1.dp, if (danger) contentColor.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline),
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (danger) {
+                MaterialTheme.colorScheme.errorContainer
+            } else {
+                MaterialTheme.colorScheme.primaryContainer
+            },
+            contentColor = contentColor,
+            disabledContainerColor = MaterialTheme.ucloneColors.elevatedSurface,
+        ),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         content = content,
     )
@@ -270,24 +300,27 @@ fun CompactActionButton(
             onClick = onClick,
             modifier = modifier.heightIn(min = 48.dp).widthIn(min = 72.dp),
             enabled = enabled,
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(14.dp),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
         ) {
             ActionButtonContent(text, icon)
         }
     } else {
-        OutlinedButton(
+        Button(
             onClick = onClick,
             modifier = modifier.heightIn(min = 48.dp).widthIn(min = 72.dp),
             enabled = enabled,
-            shape = RoundedCornerShape(8.dp),
-            colors = ButtonDefaults.outlinedButtonColors(
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (danger) {
+                    MaterialTheme.colorScheme.errorContainer
+                } else {
+                    MaterialTheme.colorScheme.primaryContainer
+                },
                 contentColor = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             ),
-            border = BorderStroke(
-                1.dp,
-                if (danger) MaterialTheme.colorScheme.error.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline,
-            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
         ) {
             ActionButtonContent(text, icon)
@@ -319,7 +352,7 @@ fun UtilityIconButton(
         modifier = modifier.size(48.dp),
         enabled = enabled,
         shape = CircleShape,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.ucloneColors.elevatedSurface,
         contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else tint,
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -363,7 +396,8 @@ fun ToolRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp),
+                .heightIn(min = 58.dp)
+                .padding(vertical = 7.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -387,7 +421,7 @@ fun ToolRow(
                 danger = danger,
             )
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
+        HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
     }
 }
 

@@ -1,65 +1,61 @@
 package com.uclone.restore.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PendingActions
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.PermanentDrawerSheet
-import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.VerticalDivider
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.uclone.restore.launcher.LauncherShortcutRequest
-import kotlinx.coroutines.launch
 
 private enum class Destination(val label: String, val icon: ImageVector?) {
     HOME("首页", Icons.Default.Home),
@@ -170,17 +166,19 @@ fun UCloneApp(
                     onOpenHistory = openHistory,
                     content = content,
                 )
-                NavigationLayout.MEDIUM -> MediumShell(
+                NavigationLayout.MEDIUM -> SideShell(
                     destination = destination,
                     taskActive = state.currentTask.task != null,
+                    expanded = false,
                     onSelect = selectDestination,
                     onBack = navigateBack,
                     onOpenHistory = openHistory,
                     content = content,
                 )
-                NavigationLayout.EXPANDED -> ExpandedShell(
+                NavigationLayout.EXPANDED -> SideShell(
                     destination = destination,
                     taskActive = state.currentTask.task != null,
+                    expanded = true,
                     onSelect = selectDestination,
                     onBack = navigateBack,
                     onOpenHistory = openHistory,
@@ -191,7 +189,6 @@ fun UCloneApp(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CompactShell(
     destination: Destination,
@@ -201,104 +198,46 @@ private fun CompactShell(
     onOpenHistory: () -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(modifier = Modifier.width(296.dp)) {
-                DrawerHeader()
-                NavigationItems(
-                    destination = destination,
-                    onSelect = {
-                        onSelect(it)
-                        scope.launch { drawerState.close() }
-                    },
-                )
+    AppScaffold(
+        destination = destination,
+        taskActive = taskActive,
+        navigationIcon = if (destination in topLevelDestinations) null else {
+            {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                }
             }
         },
-    ) {
-        AppScaffold(
-            destination = destination,
-            taskActive = taskActive,
-            navigationIcon = {
-                if (destination in topLevelDestinations) {
-                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                        Icon(Icons.Default.Menu, contentDescription = "打开导航")
-                    }
-                } else {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            },
-            onOpenHistory = onOpenHistory,
-            content = content,
-        )
-    }
+        onOpenHistory = onOpenHistory,
+        bottomBar = if (destination in topLevelDestinations) {
+            { FloatingTabBar(destination = destination, onSelect = onSelect) }
+        } else {
+            null
+        },
+        content = content,
+    )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MediumShell(
+private fun SideShell(
     destination: Destination,
     taskActive: Boolean,
+    expanded: Boolean,
     onSelect: (Destination) -> Unit,
     onBack: () -> Unit,
     onOpenHistory: () -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
     Row(Modifier.fillMaxSize()) {
-        NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-            Spacer(Modifier.height(12.dp))
-            topLevelDestinations.forEach { item ->
-                NavigationRailItem(
-                    selected = destination.belongsTo(item),
-                    onClick = { onSelect(item) },
-                    icon = { Icon(item.icon!!, contentDescription = null) },
-                    label = { Text(item.label) },
-                    alwaysShowLabel = true,
-                )
-            }
-        }
-        VerticalDivider()
-        AppScaffold(
+        SideNavigation(
             destination = destination,
-            taskActive = taskActive,
-            navigationIcon = if (destination in topLevelDestinations) null else {
-                {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            },
-            onOpenHistory = onOpenHistory,
-            content = content,
+            expanded = expanded,
+            onSelect = onSelect,
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ExpandedShell(
-    destination: Destination,
-    taskActive: Boolean,
-    onSelect: (Destination) -> Unit,
-    onBack: () -> Unit,
-    onOpenHistory: () -> Unit,
-    content: @Composable (Modifier) -> Unit,
-) {
-    PermanentNavigationDrawer(
-        drawerContent = {
-            PermanentDrawerSheet(modifier = Modifier.width(248.dp)) {
-                DrawerHeader()
-                NavigationItems(destination, onSelect)
-            }
-        },
-    ) {
         AppScaffold(
             destination = destination,
             taskActive = taskActive,
+            modifier = Modifier.weight(1f),
             navigationIcon = if (destination in topLevelDestinations) null else {
                 {
                     IconButton(onClick = onBack) {
@@ -317,70 +256,205 @@ private fun ExpandedShell(
 private fun AppScaffold(
     destination: Destination,
     taskActive: Boolean,
+    modifier: Modifier = Modifier,
     navigationIcon: (@Composable () -> Unit)?,
     onOpenHistory: () -> Unit,
+    bottomBar: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
     Scaffold(
+        modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text(destination.label, style = MaterialTheme.typography.titleLarge) },
+            TopAppBar(
+                title = {
+                    Text(
+                        destination.label,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
                 navigationIcon = { navigationIcon?.invoke() },
                 actions = {
                     if (taskActive) {
-                        IconButton(onClick = onOpenHistory) {
-                            Icon(
-                                Icons.Default.PendingActions,
-                                contentDescription = "查看当前任务",
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
+                        Surface(
+                            onClick = onOpenHistory,
+                            modifier = Modifier.size(48.dp).padding(4.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.PendingActions,
+                                    contentDescription = "查看当前任务",
+                                    modifier = Modifier.size(21.dp),
+                                )
+                            }
                         }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-                    scrolledContainerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
                 ),
             )
         },
+        bottomBar = { bottomBar?.invoke() },
     ) { padding ->
         content(Modifier.fillMaxSize().padding(padding))
     }
 }
 
 @Composable
-private fun DrawerHeader() {
-    Column(Modifier.padding(horizontal = 20.dp, vertical = 22.dp)) {
+private fun FloatingTabBar(
+    destination: Destination,
+    onSelect: (Destination) -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         Surface(
-            modifier = Modifier.size(44.dp),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.ucloneColors.navigationSurface.copy(alpha = 0.94f),
+            border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.7f)),
+            shadowElevation = 10.dp,
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text("U", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                topLevelDestinations.forEach { item ->
+                    FloatingTabItem(
+                        item = item,
+                        selected = destination.belongsTo(item),
+                        onClick = { onSelect(item) },
+                    )
+                }
             }
         }
-        Spacer(Modifier.height(14.dp))
-        Text("UClone Restore", style = MaterialTheme.typography.titleLarge)
-        Text("系统数据控制台", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    HorizontalDivider()
-    Spacer(Modifier.height(8.dp))
 }
 
 @Composable
-private fun NavigationItems(destination: Destination, onSelect: (Destination) -> Unit) {
-    topLevelDestinations.forEach { item ->
-        NavigationDrawerItem(
-            label = { Text(item.label) },
-            selected = destination.belongsTo(item),
-            onClick = { onSelect(item) },
-            icon = { Icon(item.icon!!, contentDescription = null) },
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-            shape = MaterialTheme.shapes.medium,
-        )
+private fun RowScope.FloatingTabItem(
+    item: Destination,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.weight(1f).heightIn(min = 56.dp, max = 72.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(item.icon!!, contentDescription = null, modifier = Modifier.size(21.dp))
+            Spacer(Modifier.height(2.dp))
+            Text(
+                item.label,
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SideNavigation(
+    destination: Destination,
+    expanded: Boolean,
+    onSelect: (Destination) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.width(if (expanded) 248.dp else 92.dp).fillMaxSize(),
+        color = MaterialTheme.ucloneColors.navigationSurface,
+        border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.55f)),
+    ) {
+        Column(
+            Modifier.padding(horizontal = if (expanded) 14.dp else 8.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = if (expanded) 8.dp else 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Surface(
+                    modifier = Modifier.size(44.dp),
+                    shape = RoundedCornerShape(13.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("U", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (expanded) {
+                    Column {
+                        Text("UClone Restore", style = MaterialTheme.typography.titleMedium)
+                        Text("数据控制台", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            topLevelDestinations.forEach { item ->
+                SideNavigationItem(
+                    item = item,
+                    expanded = expanded,
+                    selected = destination.belongsTo(item),
+                    onClick = { onSelect(item) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SideNavigationItem(
+    item: Destination,
+    expanded: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+        shape = RoundedCornerShape(15.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        if (expanded) {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(item.icon!!, contentDescription = null, modifier = Modifier.size(22.dp))
+                Text(item.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            }
+        } else {
+            Column(
+                Modifier.padding(vertical = 7.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(item.icon!!, contentDescription = null, modifier = Modifier.size(22.dp))
+                Text(item.label, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 1)
+            }
+        }
     }
 }
 

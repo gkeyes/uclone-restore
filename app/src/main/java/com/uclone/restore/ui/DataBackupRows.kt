@@ -31,8 +31,9 @@ fun ActiveBackupRow(app: AppEntry, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.ucloneColors.groupedSurface,
+        border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.5f)),
+        shadowElevation = 1.dp,
     ) {
         Row(
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -95,8 +96,9 @@ fun PassiveBackupRow(
             .fillMaxWidth()
             .clickable(enabled = onOpenDetail != null) { onOpenDetail?.invoke() },
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.ucloneColors.groupedSurface,
+        border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.5f)),
+        shadowElevation = 1.dp,
     ) {
         Column(
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),

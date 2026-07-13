@@ -2,28 +2,28 @@
 
 ## Context
 
-- Status: `DRAFT / UNAPPROVED`
+- Status: `DIRECTION A1 IMPLEMENTED / RENDER VERIFICATION PENDING`
 - Platform/framework: Android, Jetpack Compose Material 3 + Android View
 - Locale: zh-CN
 - Product domain: Root / multi-user system utility
 - Selected official source IDs: see `official-source-evidence.md`
 - Project truth: `需求.md`, `docs/ARCHITECTURE.md`, `docs/INVARIANTS.md`, current production models
 - Existing project design system: `DESIGN.md`, `Theme.kt`, `Components.kt`
-- Approved direction: none; direction A is recommended, A/B remain `EXPERIMENTAL`
+- Approved direction: A1, Android-adapted iOS grouped utility, approved by the user on 2026-07-13
 
-本合同在用户选择方向前只定义跨方向不可变规则和候选映射。它不是生产实现授权。
+本合同约束当前生产实现。视觉方向借鉴 iOS 的分组、层级和语义色，但真实平台仍是 Android；不得声称原生 iOS、Apple HIG 合规或使用 SF Symbols。
 
 ## 1. Current baseline audit
 
 | Finding | Evidence | Classification | Contract response |
 | --- | --- | --- | --- |
-| 主题只定义 `lightColorScheme` | `Theme.kt` | `PROJECT-VERIFIED` | 新实现必须提供 light/dark semantic scheme |
-| 颜色和组件以 `Ios*` 命名 | `Theme.kt`, `Components.kt` | `PROJECT-VERIFIED` | Android 生产代码改为产品/语义命名，不声称复制 iOS |
-| 普通卡片大量使用 16dp 圆角和 glass 色 | 多个 screen/components | `PROJECT-VERIFIED` | 普通容器最大 8dp；section 优先无框架分组 |
-| 文本按钮大量使用 999dp 胶囊 | `Components.kt` | `PROJECT-VERIFIED` | 命令按钮改为标准 Material 形态；胶囊仅限状态/segmented |
+| 旧主题使用 Material 蓝灰和浅紫容器 | 真机截图、`Theme.kt` | `PROJECT-VERIFIED` | 改为中性 grouped background、纯色内容面和系统蓝强调 |
+| Compact 使用居中标题、汉堡菜单和 drawer | 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 改为左对齐标题和悬浮底部导航，保留全部六个入口 |
+| 普通 section 使用硬边矩形 | 真机截图、`Components.kt` | `PROJECT-VERIFIED` | 改为 18dp 连续圆角的 inset grouped surface |
+| 命令按钮呈旧式矩形/描边形态 | 真机截图、`Components.kt` | `PROJECT-VERIFIED` | 改为 14dp 实色或浅色语义按钮，危险动作继续独立表达 |
 | 图标按钮视觉尺寸 40dp | `Components.kt` | `PROJECT-VERIFIED` | 交互触控区域至少 48dp |
 | 诊断/详情连续堆叠多个全宽按钮 | 多个 screen | `PROJECT-VERIFIED` | 工具行 + 单主动作 + 危险区 |
-| 底部导航 6 项 | `UCloneApp.kt` | `PROJECT-VERIFIED` | A 用 drawer/rail 保留层级；B 需审批后降为 4 项 |
+| 产品已有 6 个顶层入口 | `UCloneApp.kt`、用户要求 | `PROJECT-VERIFIED` | 六项全部保留；Compact 使用等宽 icon + 短标签布局 |
 
 ### Existing design-system reconciliation
 
@@ -36,20 +36,20 @@
 | 蓝色只用于动作/选择，状态色不作装饰 | 保留 | `PROJECT-VERIFIED` | 与 semantic color contract 一致 |
 | 避免嵌套卡片、动效克制、日志使用 monospace | 保留 | `PROJECT-VERIFIED` | 与系统工具的信息效率一致 |
 | 44dp 最小触控 | 由 Android 48dp 规则取代 | `DERIVED` | Android 是真实目标平台，官方 API defaults 优先 |
-| 普通 group/list row 使用 Liquid Glass | 收缩为导航 chrome 候选 | `EXPERIMENTAL` | 数据面需要稳定对比，且不能复制 Apple chrome |
-| 16dp 普通容器圆角与胶囊命令按钮 | 普通容器改为 0-8dp，胶囊仅用于状态/segmented | `EXPERIMENTAL` | 降低装饰感，符合本项目界面约束 |
-| 仅浅色的 Apple 数值色板与 `Ios*` 命名 | 改为 Material semantic light/dark roles | `EXPERIMENTAL` | 支持 Android 深色和避免跨平台冒充 |
+| 普通 group/list row 使用 Liquid Glass | 内容层改为不透明 grouped surface，仅导航层允许半透明 | `PROJECT-VERIFIED` | 保证数据面稳定对比，避免 glass-on-glass |
+| 普通容器与命令按钮圆角 | 容器 18dp、控件 14dp、导航 28dp | `PROJECT-VERIFIED` | 用户明确选择 iOS 风格，同时维持 Android 48dp 触控要求 |
+| Apple 风格色板 | 作为 UClone 产品色选择映射到 semantic light/dark roles | `PROJECT-VERIFIED` | 不以 `Ios*` 命名，不冒充原生 Apple 组件 |
 | Compact 行可省略长包名/路径 | 关键信息换行或进入可复制详情 | `DERIVED` | 不得隐藏危险对象和恢复标识 |
 
-方向获批后，上述 `EXPERIMENTAL` 项才成为生产实现合同；获批前 `DESIGN.md` 和现有代码均不修改。
+本次批准只改变视觉表达，不批准移动、删除或新增业务功能，也不改变 Root、任务、备份、恢复和外部协议语义。
 
 ## 2. Decision ledger
 
 | ID | Area | Decision | Evidence label | Source/project ID | Responsive/state variants | Acceptance test |
 | --- | --- | --- | --- | --- | --- | --- |
 | VC-001 | Product truth | 全部现有页面和 25 个动作必须可达 | `PROJECT-VERIFIED` | functional inventory/action matrix | 所有 window/state | 自动枚举覆盖 + 手工点击 |
-| VC-002 | Navigation | Compact 不再使用 6 项底栏 | `DERIVED` | Android nav + current code | A drawer；B 4 项底栏 | 360dp 宽、最大字体无裁切 |
-| VC-003 | Layout | section 为全宽内容带，不做浮动卡片套卡片 | `DERIVED` | project + Apple lists + frontend constraints | compact 单列；wide panes | 截图层级审查 |
+| VC-002 | Navigation | Compact 使用 6 项悬浮底栏；详情隐藏底栏并显示返回 | `PROJECT-VERIFIED` | 用户决定 + current code | compact/详情 | 360dp 宽、默认/大字体无重叠 |
+| VC-003 | Layout | 页面使用 inset grouped surface，不允许 card 套 card | `PROJECT-VERIFIED` | 用户决定 + grouped utility direction | compact 单列；wide sidebar | 截图层级审查 |
 | VC-004 | Touch | 所有可点击目标最小 48dp | `OFFICIAL-VERIFIED` | Android API defaults | touch/keyboard/TalkBack | Layout Inspector + 点击 |
 | VC-005 | Theme | 使用 semantic light/dark color roles | `OFFICIAL-VERIFIED` | Android M3 + Apple color | light/dark/high contrast | 截图 + 对比检查 |
 | VC-006 | Status | 状态使用 icon/shape + text + color | `OFFICIAL-VERIFIED` | accessibility/color | all statuses | 灰阶/色觉模拟 + TalkBack |
@@ -58,7 +58,7 @@
 | VC-009 | Destructive | 删除/重置独立危险区并确认后果 | `DERIVED` | action matrix + alerts | default/confirm/error | 实际打开确认框 |
 | VC-010 | Progress | 当前只展示阶段/步骤；未来有可信实时分母才显示百分比 | `DERIVED` | `TaskProgress` 当前无可靠实时总量 | accepted/running/rollback | fixture/真机任务截图；遥测扩展需独立批准 |
 | VC-011 | Content | 中文主文案，技术原值作为可展开次级信息 | `PROJECT-VERIFIED` | product truth | normal/error/diagnostic | 内容审查 + TalkBack |
-| VC-012 | Material | 半透明仅限导航 chrome，数据面不透明 | `EXPERIMENTAL` | direction A/B | light/dark/edge-to-edge | 真机截图，检查对比与性能 |
+| VC-012 | Material | 半透明仅限导航 chrome，数据面不透明 | `PROJECT-VERIFIED` | approved direction | light/dark/edge-to-edge | 真机截图，检查对比与性能 |
 | VC-013 | Motion | 平台默认短过渡；reduced motion 下移除非必要位移 | `DERIVED` | platform guidance | normal/reduced | 开发者选项/系统设置测试 |
 | VC-014 | Module | 模块保留 Android View，不因视觉重构换框架 | `PROJECT-VERIFIED` | existing architecture | all module pages | 模块页面逐页截图 |
 
@@ -95,9 +95,9 @@
 
 | Window class | Direction A | Direction B | Shared behavior |
 | --- | --- | --- | --- |
-| Compact | Modal drawer + 单列页面 | 4 项 nav bar + App workspace tabs | 行尾动作在大字体时移到下一行；不横向压缩文字 |
-| Medium | Navigation rail + list/detail | Rail + App list/detail | 详情保持稳定宽度，任务可作为 overlay/bottom sheet |
-| Expanded | Permanent drawer + 2/3 pane | App list/workspace/inspector 3 pane | 不放大字体模拟桌面；增加并列信息 |
+| Compact | 左对齐标题 + 6 项悬浮底栏 + 单列 grouped content | 详情隐藏底栏并显示返回 | 行尾动作在大字体时移到下一行；不横向压缩文字 |
+| Medium | 92dp 侧栏 + 单列/列表详情内容 | 详情保持稳定宽度 | 选中态使用浅色语义面，不使用 Material rail 指示器 |
+| Expanded | 248dp 侧栏 + 内容区 | 允许后续增加并列信息但不移动功能 | 不放大字体模拟桌面 |
 
 不在文档中硬编码 window breakpoint；实现使用项目依赖版本提供的 Android window size class。
 
@@ -111,8 +111,10 @@
 | `space-4` | 16dp | 页面水平 padding、标准 section |
 | `space-6` | 24dp | 主要 section 分隔 |
 | `space-8` | 32dp | 危险区或大段分隔 |
-| ordinary radius | 0-8dp | cards, inputs, rows |
-| status/segmented radius | full | 仅状态 badge、segmented、圆形 icon button |
+| control radius | 14dp | buttons, fields, compact rows |
+| grouped radius | 18dp | content cards and grouped lists |
+| navigation radius | 28dp | floating compact navigation only |
+| status radius | full | status badge and circular icon button |
 | minimum touch | 48dp | 所有 interactive target |
 
 - 使用稳定的 `minHeight`、grid/pane 宽度和 icon slot，避免状态变化造成布局跳动。
@@ -147,8 +149,8 @@
 | `error` | 失败、删除、重置、高风险后果 |
 | `outline` | 分组边界和 divider |
 
-- 保留 UClone 蓝作为 accent，但界面不得由单一蓝色家族统治。
-- 每个 semantic role 提供 light/dark 变体；不硬编码 Apple system color 值。
+- 使用系统蓝作为 accent，但界面不得由单一蓝色家族统治。
+- 每个 semantic role 提供 light/dark 变体；数值是 UClone 产品 token，不声明为系统 API 返回值。
 - 绿色/橙色/红色不用于纯装饰。
 - 状态必须同时有文字和 icon/shape。
 
@@ -156,7 +158,7 @@
 
 | Component | Official/project primitive | Variants | States | Accessibility behavior | Customization boundary |
 | --- | --- | --- | --- | --- | --- |
-| App shell | `Scaffold`, drawer/rail/nav bar | A/B + window class | default/task active | 当前目的地有语义；返回可预测 | 不手绘系统栏 |
+| App shell | `Scaffold`, custom tab/sidebar surfaces | compact/medium/expanded | default/task active | 当前目的地有语义；返回可预测 | 不手绘系统栏；六入口不删减 |
 | Top app bar | Material 3 app bar | root/detail | scrolled/default | 标题、导航和 action 描述完整 | chrome 可轻量材质，不遮内容 |
 | Health summary | project composable/View group | ready/warning/error/unknown | 当前可空环境；loading/stale 为候选 | 一次读出结论和原因 | 不只显示绿点；新增状态字段需独立任务 |
 | Task panel | progress indicators + project rows | staged/rollback；determinate 为后续能力 | all task statuses | 宣读动作、阶段和已有耗时 | 当前不伪造百分比或实时文件总量 |
@@ -243,7 +245,7 @@
 
 | Item | Why unverified | Risk | Required follow-up |
 | --- | --- | --- | --- |
-| A/B 最终方向 | 用户尚未选择 | 无法确定导航实现 | 明确批准 A、B 或 A+B refinement |
+| A1 真机视觉还原度 | 当前代码尚未由本次 GitHub 产物渲染 | 实际字体、系统栏和控件密度可能偏离示意图 | 安装本次固定签名产物并逐页截图对照 |
 | Material Adaptive API | 未在本阶段改依赖/编译 | API 可能与当前版本不同 | 实现前核对 Gradle 依赖和官方文档 |
 | Light/dark color values | 未渲染 | 对比/品牌平衡未知 | 真机截图与对比检查 |
 | Chrome translucency | 未实现 | 性能/可读性风险 | 低端设备和内容滚动截图 |

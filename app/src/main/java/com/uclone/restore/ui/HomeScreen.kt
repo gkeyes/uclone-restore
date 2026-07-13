@@ -115,22 +115,26 @@ private fun SystemHealthSection(state: UiState, viewModel: UCloneViewModel) {
             StatusChip(env?.user10Present == true, "分身 user${state.settings.cloneUserId}")
         }
         InfoRow("当前用户", env?.currentUser ?: "未检测")
-        InfoRow("分身系统", env?.user10State ?: "未检测")
-        InfoRow("分身数据", env?.user10CeState?.userFacingLabel ?: "未检测")
-        PrimaryActionButton(onClick = viewModel::refreshEnvironment, modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Default.Refresh, contentDescription = null)
-            Text("重新检测")
-        }
-        if (env != null) {
-            SecondaryActionButton(
-                onClick = if (cloneRunning) viewModel::stopCloneUser else viewModel::startCloneUser,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(
-                    if (cloneRunning) Icons.Default.PowerSettingsNew else Icons.Default.PlayArrow,
-                    contentDescription = null,
+        InfoRow("分身系统", env?.user10CeState?.cloneLifecycleLabel ?: "未检测")
+        InfoRow("数据状态", env?.user10CeState?.userFacingLabel ?: "未检测")
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            CompactActionButton(
+                text = "重新检测",
+                onClick = viewModel::refreshEnvironment,
+                modifier = Modifier.weight(1f),
+                primary = true,
+                icon = Icons.Default.Refresh,
+            )
+            if (env != null) {
+                CompactActionButton(
+                    text = if (cloneRunning) "关闭分身" else "启动分身",
+                    onClick = if (cloneRunning) viewModel::stopCloneUser else viewModel::startCloneUser,
+                    modifier = Modifier.weight(1f),
+                    icon = if (cloneRunning) Icons.Default.PowerSettingsNew else Icons.Default.PlayArrow,
                 )
-                Text(if (cloneRunning) "关闭分身系统" else "启动分身系统")
             }
         }
     }
@@ -176,8 +180,12 @@ private fun FavoriteAppRow(
         onClick = onOpen,
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.ucloneColors.groupedSurface,
+        border = androidx.compose.foundation.BorderStroke(
+            0.5.dp,
+            MaterialTheme.ucloneColors.separator.copy(alpha = 0.5f),
+        ),
+        shadowElevation = 1.dp,
     ) {
         Column(
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),

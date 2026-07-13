@@ -203,8 +203,12 @@ private fun AppRow(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.ucloneColors.groupedSurface,
+        border = androidx.compose.foundation.BorderStroke(
+            0.5.dp,
+            MaterialTheme.ucloneColors.separator.copy(alpha = 0.5f),
+        ),
+        shadowElevation = 1.dp,
     ) {
         Row(
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
