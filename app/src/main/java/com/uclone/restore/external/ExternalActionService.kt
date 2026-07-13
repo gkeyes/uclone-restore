@@ -20,28 +20,31 @@ import kotlinx.coroutines.launch
 
 class ExternalActionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val lifecycleLock = Any()
+    private var latestStartId = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = synchronized(lifecycleLock) {
+        latestStartId = startId
         val container = (application as UCloneApplication).container
         if (intent?.action != ExternalActionContract.ACTION_EXECUTE) {
             stopIfIdle(startId)
-            return START_NOT_STICKY
+            return@synchronized START_NOT_STICKY
         }
         val request = ExternalActionRequest.from(intent)
         if (request == null) {
             reject(intent, ExternalActionContract.STATUS_REJECTED, "请求参数无效")
             stopIfIdle(startId)
-            return START_NOT_STICKY
+            return@synchronized START_NOT_STICKY
         }
         val settings = container.settingsStore.load()
         ExternalRequestPolicy.rejection(this, request, settings, container.internalRequestToken)?.let { reason ->
             reject(request, ExternalActionContract.STATUS_REJECTED, reason)
             stopIfIdle(startId)
-            return START_NOT_STICKY
+            return@synchronized START_NOT_STICKY
         }
-        return when (val admission = admitExternalTask(container.taskCoordinator, request)) {
+        when (val admission = admitExternalTask(container.taskCoordinator, request)) {
             is ExternalTaskAdmission.Rejected -> {
                 reject(request, admission.status, admission.message)
                 START_NOT_STICKY
@@ -82,10 +85,12 @@ class ExternalActionService : Service() {
             try {
                 executeAccepted(request, settings)
             } finally {
-                container.taskCoordinator.complete(request.requestId)
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                notifier.clearRunning()
-                stopSelf()
+                synchronized(lifecycleLock) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    notifier.clearRunning()
+                    stopSelfResult(latestStartId.coerceAtLeast(startId))
+                    container.taskCoordinator.complete(request.requestId)
+                }
             }
         }
     }
@@ -194,6 +199,8 @@ class ExternalActionService : Service() {
         .putExtra(ExternalActionContract.EXTRA_REQUEST_ID, requestId)
         .putExtra(ExternalActionContract.EXTRA_SOURCE, source)
         .putExtra(ExternalActionContract.EXTRA_ROLLBACK_ID, rollbackId)
+        .putExtra(ExternalActionContract.EXTRA_EXPECTED_WORKSPACE_ROOT, expectedWorkspaceRoot)
+        .apply { targetUserId?.let { putExtra(ExternalActionContract.EXTRA_TARGET_USER_ID, it) } }
         .putExtra(ExternalActionContract.EXTRA_INTERNAL_TOKEN, internalToken)
 
     companion object {
@@ -212,7 +219,14 @@ class ExternalActionService : Service() {
             else context.startService(serviceIntent)
         }
 
-        fun startInternal(context: Context, operation: String, packageName: String, rollbackId: String? = null) {
+        fun startInternal(
+            context: Context,
+            operation: String,
+            packageName: String,
+            rollbackId: String? = null,
+            expectedWorkspaceRoot: String? = null,
+            targetUserId: Int? = null,
+        ) {
             start(
                 context,
                 Intent()
@@ -222,6 +236,8 @@ class ExternalActionService : Service() {
                     .putExtra(ExternalActionContract.EXTRA_REQUEST_ID, UUID.randomUUID().toString())
                     .putExtra(ExternalActionContract.EXTRA_SOURCE, ExternalActionContract.SOURCE_APP)
                     .putExtra(ExternalActionContract.EXTRA_ROLLBACK_ID, rollbackId)
+                    .putExtra(ExternalActionContract.EXTRA_EXPECTED_WORKSPACE_ROOT, expectedWorkspaceRoot)
+                    .apply { targetUserId?.let { putExtra(ExternalActionContract.EXTRA_TARGET_USER_ID, it) } }
                     .putExtra(
                         ExternalActionContract.EXTRA_INTERNAL_TOKEN,
                         (context.applicationContext as UCloneApplication).container.internalRequestToken,

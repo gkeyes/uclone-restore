@@ -14,6 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -38,6 +40,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
     var draft by remember(state.settings) { mutableStateOf(state.settings) }
     var confirmClearLogs by remember { mutableStateOf(false) }
     var resetConfirmStage by remember { mutableStateOf(0) }
+    var confirmOwnershipRepair by remember { mutableStateOf(false) }
     Column(
         modifier
             .fillMaxSize()
@@ -92,6 +95,26 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        SectionCard("状态备份") {
+            ToggleRow("已有主/分状态备份时不再更新", draft.reuseExistingPassiveBackups) {
+                draft = draft.copy(reuseExistingPassiveBackups = it)
+            }
+            Text(
+                if (draft.reuseExistingPassiveBackups) {
+                    "开启后，已有 MAIN 或 CLONE 长期状态备份会继续保留。每次操作仍会先建立本次专用回滚，失败时不会使用旧备份代替操作前数据。"
+                } else {
+                    "关闭时，每次成功切换、还原或推送都会用操作前的最新数据更新对应 MAIN/CLONE 长期状态备份。"
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ToggleRow("还原主系统前强制更新分数据", draft.forceUpdateCloneDataBeforeMainRestore) {
+                draft = draft.copy(forceUpdateCloneDataBeforeMainRestore = it)
+            }
+            Text(
+                "仅在 user0 已确认处于 CLONE 状态时生效：先把当前 user0 分数据推送到 user${draft.cloneUserId}，成功后再恢复 MAIN 返回点。推送失败时不会开始还原。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         SectionCard("模块控制") {
             ToggleRow("允许模块控制", draft.allowModuleControl) {
                 draft = draft.copy(allowModuleControl = it)
@@ -121,6 +144,33 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             Text("保存设置")
         }
         SectionCard("维护") {
+            Text("备份容量归属", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val ownership = state.workspaceOwnership
+            if (ownership == null) {
+                Text("先执行只读扫描，确认旧备份是否仍归属于目标 App。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                InfoRow("文件与目录", ownership.totalEntries.toString())
+                InfoRow("需要修复", ownership.nonRootEntries.toString())
+                SingleLinePathText(ownership.canonicalRoot)
+            }
+            IosSecondaryButton(
+                onClick = viewModel::scanWorkspaceOwnership,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.busy,
+            ) {
+                Icon(Icons.Outlined.Search, contentDescription = null)
+                Text("扫描备份容量归属")
+            }
+            if (ownership != null && ownership.nonRootEntries > 0L) {
+                IosSecondaryButton(
+                    onClick = { confirmOwnershipRepair = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !state.busy,
+                ) {
+                    Icon(Icons.Outlined.Build, contentDescription = null, tint = IosOrange)
+                    Text("修复备份容量归属", color = IosOrange)
+                }
+            }
             Text("日志目录", color = MaterialTheme.colorScheme.onSurfaceVariant)
             SingleLinePathText("${state.settings.rootDir}/logs")
             Text("清理日志只删除任务日志文件，不会删除主动备份或被动备份。", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -137,6 +187,31 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 Text("重置所有 UClone 数据", color = IosRed)
             }
         }
+    }
+    if (confirmOwnershipRepair) {
+        val ownership = state.workspaceOwnership
+        AlertDialog(
+            onDismissRequest = { confirmOwnershipRepair = false },
+            title = { Text("修复备份容量归属") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("将把 ${ownership?.nonRootEntries ?: 0} 个工作区文件或目录修正为 root:root。")
+                    Text("只修改 UID/GID，不删除内容；任务中断后可重新扫描并继续。")
+                    SingleLinePathText(ownership?.canonicalRoot ?: state.settings.rootDir)
+                }
+            },
+            confirmButton = {
+                IosDialogButton(
+                    text = "开始修复",
+                    onClick = {
+                        confirmOwnershipRepair = false
+                        viewModel.repairWorkspaceOwnership()
+                    },
+                    primary = true,
+                )
+            },
+            dismissButton = { IosDialogButton("取消", onClick = { confirmOwnershipRepair = false }) },
+        )
     }
     if (confirmClearLogs) {
         AlertDialog(

@@ -16,6 +16,9 @@ jobs:
     timeout-minutes: 35
     env:
       HAS_RELEASE_SIGNING: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' && secrets.RELEASE_STORE_PASSWORD != '' && secrets.RELEASE_KEY_ALIAS != '' && secrets.RELEASE_KEY_PASSWORD != '' }}
+      RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -50,20 +53,33 @@ jobs:
           echo "RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/uclone-signing/release.p12" >> "$GITHUB_ENV"
           echo "RELEASE_STORE_TYPE=pkcs12" >> "$GITHUB_ENV"
 
-      - name: Run unit tests
-        run: gradle --no-daemon :app:testReleaseUnitTest :launcher-module:testReleaseUnitTest
+      - name: Run unit tests, lint, and compile every variant
+        run: >-
+          gradle --no-daemon
+          :app:testDebugUnitTest
+          :launcher-module:testDebugUnitTest
+          :app:testReleaseUnitTest
+          :launcher-module:testReleaseUnitTest
+          :app:lintDebug
+          :launcher-module:lintDebug
+          :app:lintRelease
+          :launcher-module:lintRelease
+          :app:assembleDebug
+          :launcher-module:assembleDebug
+          :app:assembleRelease
+          :launcher-module:assembleRelease
 
-      - name: Assemble fixed-signed release APK
+      - name: Verify paired release signatures
         if: env.HAS_RELEASE_SIGNING == 'true'
-        env:
-          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: gradle --no-daemon :app:assembleRelease :launcher-module:assembleRelease
-
-      - name: Assemble debug APK fallback
-        if: env.HAS_RELEASE_SIGNING != 'true'
-        run: gradle --no-daemon :app:assembleDebug :launcher-module:assembleDebug
+        run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          "$APKSIGNER" verify --verbose --print-certs launcher-module/build/outputs/apk/release/launcher-module-release.apk
+          APP_DIGEST=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
+          MODULE_DIGEST=$("$APKSIGNER" verify --print-certs launcher-module/build/outputs/apk/release/launcher-module-release.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
+          test -n "$APP_DIGEST"
+          test -n "$MODULE_DIGEST"
+          test "$APP_DIGEST" = "$MODULE_DIGEST"
 
       - name: Upload fixed-signed release APK
         if: env.HAS_RELEASE_SIGNING == 'true'

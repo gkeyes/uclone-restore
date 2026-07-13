@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.uclone.restore.model.PassiveBackupStateKind
 import com.uclone.restore.model.RestoreBackupEntry
 
 @Composable
@@ -55,7 +56,7 @@ fun DataScreen(
                 SingleLinePathText("被动备份: $rootDir/rollback/<包名>/<备份ID>")
                 SingleLinePathText("分身回滚: $rootDir/clone_rollback/<包名>/latest")
                 Text(
-                    "切换和还原产生的被动备份每个 App 只显示最新一份。",
+                    "主数据 MAIN 与分数据 CLONE 分别标记；长期状态备份与本次事务回滚分开处理。",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -78,7 +79,7 @@ fun DataScreen(
             }
         }
         item {
-            DataSectionHeader("被动备份", "恢复、切换、还原前自动生成的主系统备份。")
+            DataSectionHeader("主系统侧备份", "显示主系统 user0 中保存过的主数据或分数据状态。")
         }
         if (passiveBackups.isEmpty()) {
             item {
@@ -131,6 +132,13 @@ fun DataScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("将使用以下被动备份覆盖主系统 user0 数据。")
                     SingleLinePathText("$rootDir/rollback/${backup.packageName}/${backup.rollbackId}")
+                    Text(
+                        when (backup.stateKind) {
+                            PassiveBackupStateKind.MAIN -> "执行后主系统将标记为主数据 MAIN，可继续切换到分身态。"
+                            PassiveBackupStateKind.CLONE -> "执行后主系统将标记为分数据 CLONE，可从主数据返回点还原。"
+                            null -> "该备份没有可靠来源标签，执行后状态将标记为 UNKNOWN，请先核对数据来源。"
+                        },
+                    )
                     Text("来源: ${backup.reason}")
                 }
             },

@@ -2,11 +2,24 @@ package com.uclone.restore.external
 
 import com.uclone.restore.AppContainer
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskMetrics
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.sync.AppDataState
+
+internal sealed interface SwitchOrRestoreDecision {
+    data object SwitchToClone : SwitchOrRestoreDecision
+    data class RestoreMain(val rollbackId: String) : SwitchOrRestoreDecision
+}
+
+internal fun switchOrRestoreDecision(state: AppDataState): SwitchOrRestoreDecision = when (state) {
+    AppDataState.Main -> SwitchOrRestoreDecision.SwitchToClone
+    is AppDataState.Clone -> SwitchOrRestoreDecision.RestoreMain(state.mainReturnPointId)
+    AppDataState.Unknown -> error("数据状态未知，请先进入 App 详情恢复已标识的备份")
+}
 
 internal class ExternalActionDispatcher(private val container: AppContainer) {
     suspend fun execute(
@@ -45,6 +58,21 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
             executeControl(request, report) { container.syncEngine.clearLogs(settings, clearHistory = false) }
         ExternalActionContract.OPERATION_RESET_WORKSPACE ->
             executeControl(request, report) { container.syncEngine.resetWorkspace(settings, clearHistory = false) }
+        ExternalActionContract.OPERATION_SCAN_WORKSPACE_OWNERSHIP ->
+            container.syncEngine.scanWorkspaceOwnership(settings, report, request.requestId)
+        ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP ->
+            container.syncEngine.repairWorkspaceOwnership(
+                settings,
+                requireNotNull(request.expectedWorkspaceRoot) { "缺少扫描时确认的工作目录" },
+                report,
+                request.requestId,
+            )
+        ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER ->
+            installAcrossUsers(request, settings, report, CrossUserInstallMode.INSTALL_ONLY)
+        ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER ->
+            installAcrossUsers(request, settings, report, CrossUserInstallMode.INSTALL_WITH_PERMISSIONS)
+        ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER ->
+            installAcrossUsers(request, settings, report, CrossUserInstallMode.INSTALL_AND_SYNC)
         ExternalActionContract.OPERATION_START_CLONE_USER ->
             executeControl(request, report) { container.syncEngine.startCloneUser(settings) }
         ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER ->
@@ -59,9 +87,16 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
     ): TaskRecord {
-        val rollbackId = container.syncEngine.switchMarkerId(request.packageName, settings)
-        return if (rollbackId == null) switchToClone(request, settings, report) else {
-            container.syncEngine.restoreSwitchMainState(request.packageName, rollbackId, settings, report, request.requestId)
+        return when (val decision = switchOrRestoreDecision(container.syncEngine.appDataState(request.packageName, settings))) {
+            SwitchOrRestoreDecision.SwitchToClone -> switchToClone(request, settings, report)
+            is SwitchOrRestoreDecision.RestoreMain -> container.syncEngine.restoreSwitchMainState(
+                request.packageName,
+                decision.rollbackId,
+                ruleFor(request.packageName, settings),
+                settings,
+                report,
+                request.requestId,
+            )
         }
     }
 
@@ -70,8 +105,10 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
     ): TaskRecord {
-        check(container.syncEngine.switchMarkerId(request.packageName, settings) == null) {
-            "已处于分身态，请先还原主系统"
+        when (container.syncEngine.appDataState(request.packageName, settings)) {
+            AppDataState.Main -> Unit
+            is AppDataState.Clone -> error("已处于分身态，请先还原主系统")
+            AppDataState.Unknown -> error("数据状态未知，请先进入 App 详情恢复已标识的备份")
         }
         return container.syncEngine.switchToCloneState(
             request.packageName,
@@ -87,9 +124,19 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
     ): TaskRecord {
-        val rollbackId = container.syncEngine.switchMarkerId(request.packageName, settings)
-            ?: error("没有可用的切换回滚点")
-        return container.syncEngine.restoreSwitchMainState(request.packageName, rollbackId, settings, report, request.requestId)
+        val rollbackId = when (val state = container.syncEngine.appDataState(request.packageName, settings)) {
+            AppDataState.Main -> error("当前是主系统态，没有需要还原的切换状态")
+            is AppDataState.Clone -> state.mainReturnPointId
+            AppDataState.Unknown -> error("数据状态未知，请先进入 App 详情恢复已标识的备份")
+        }
+        return container.syncEngine.restoreSwitchMainState(
+            request.packageName,
+            rollbackId,
+            ruleFor(request.packageName, settings),
+            settings,
+            report,
+            request.requestId,
+        )
     }
 
     private fun ruleFor(packageName: String, settings: UCloneSettings): AppRule = AppRule(
@@ -105,6 +152,21 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
 
     private fun requireRollbackId(request: ExternalActionRequest): String =
         requireNotNull(request.rollbackId) { "缺少回滚 ID" }
+
+    private suspend fun installAcrossUsers(
+        request: ExternalActionRequest,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        mode: CrossUserInstallMode,
+    ): TaskRecord = container.syncEngine.installAcrossUsers(
+        packageName = request.packageName,
+        targetUserId = requireNotNull(request.targetUserId) { "缺少安装目标用户" },
+        mode = mode,
+        rule = ruleFor(request.packageName, settings),
+        settings = settings,
+        report = report,
+        requestId = request.requestId,
+    )
 
     private suspend fun executeControl(
         request: ExternalActionRequest,

@@ -9,6 +9,7 @@ internal object RestoreTransactionShell {
         TRANSACTION_COMMITTED=0
         TARGET_MUTATED=0
         ROLLBACK_READY=1
+        TRANSACTION_ROLLBACK_PRESERVE=0
         TRANSACTION_APP_UID="${'$'}$appUidVariable"
         ${markerStateScript(manageSwitchMarker)}
         restore_rollback_part() {
@@ -57,7 +58,7 @@ internal object RestoreTransactionShell {
           (restore_rollback_part "${'$'}ROLLBACK/external" "/data/media/${'$'}DST_USER/Android/data/${'$'}PKG" "media" "external") || return 1
           (restore_rollback_part "${'$'}ROLLBACK/media" "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG" "media" "media") || return 1
           (restore_rollback_part "${'$'}ROLLBACK/obb" "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG" "media" "obb") || return 1
-          ${if (includePermissions) "(restore_permission_state \"${'$'}ROLLBACK/permissions\") || return 1" else ":"}
+          ${if (includePermissions) "(uclone_restore_permission_state \"${'$'}ROLLBACK/permissions\" \"${'$'}DST_USER\") || return 1" else ":"}
           ${if (manageSwitchMarker) "restore_previous_switch_marker || return 1" else ":"}
           sync
           force_stop_package_users || return 1
@@ -67,6 +68,18 @@ internal object RestoreTransactionShell {
           TRANSACTION_EXIT_CODE=${'$'}?
           TRANSACTION_EMIT_FAILURE_METRICS=0
           trap - EXIT
+          ${if (manageSwitchMarker) """
+          if [ "${'$'}TRANSACTION_EXIT_CODE" -ne 0 ] &&
+             [ "${'$'}TRANSACTION_COMMITTED" != "1" ] &&
+             [ "${'$'}TARGET_MUTATED" != "1" ] &&
+             [ "${'$'}{SWITCH_MARKER_STAGED:-0}" = "1" ]; then
+            if restore_previous_switch_marker; then
+              echo "SWITCH_MARKER_STAGE_ROLLED_BACK"
+            else
+              echo "WARN_SWITCH_MARKER_STAGE_ROLLBACK_FAILED" >&2
+            fi
+          fi
+          """.trimIndent() else ":"}
           if [ "${'$'}TRANSACTION_EXIT_CODE" -ne 0 ] && [ "${'$'}TARGET_MUTATED" = "1" ] && [ "${'$'}ROLLBACK_READY" = "1" ] && [ "${'$'}TRANSACTION_COMMITTED" != "1" ]; then
             TRANSACTION_EMIT_FAILURE_METRICS=1
             uclone_stage_begin AUTO_ROLLBACK
@@ -75,6 +88,8 @@ internal object RestoreTransactionShell {
               echo "AUTO_ROLLBACK_SUCCESS originalExit=${'$'}TRANSACTION_EXIT_CODE"
               TRANSACTION_EXIT_CODE=90
             else
+              TRANSACTION_ROLLBACK_PRESERVE=1
+              echo "TRANSACTION_ROLLBACK_PRESERVED=${'$'}ROLLBACK" >&2
               echo "AUTO_ROLLBACK_FAILED originalExit=${'$'}TRANSACTION_EXIT_CODE" >&2
               TRANSACTION_EXIT_CODE=91
             fi
@@ -103,6 +118,12 @@ internal object RestoreTransactionShell {
             SWITCH_MARKER_PATH="${'$'}ROOT/switches/${'$'}PKG/active"
             SWITCH_MARKER_BEFORE_EXISTS=0
             SWITCH_MARKER_BEFORE_VALUE=""
+            SWITCH_MARKER_STAGED=0
+            if [ -L "${'$'}SWITCH_MARKER_PATH" ] ||
+               { [ -e "${'$'}SWITCH_MARKER_PATH" ] && [ ! -f "${'$'}SWITCH_MARKER_PATH" ]; }; then
+              echo "ERR_SWITCH_MARKER_CORRUPT:${'$'}SWITCH_MARKER_PATH" >&2
+              exit 70
+            fi
             if [ -f "${'$'}SWITCH_MARKER_PATH" ]; then
               SWITCH_MARKER_BEFORE_VALUE=${'$'}(sed -n '1p' "${'$'}SWITCH_MARKER_PATH" | tr -d '\r')
               validate_rollback_id "${'$'}SWITCH_MARKER_BEFORE_VALUE"
@@ -120,6 +141,12 @@ internal object RestoreTransactionShell {
               chmod 600 "${'$'}MARKER_TMP" || return 1
               sync
               mv -f "${'$'}MARKER_TMP" "${'$'}MARKER_PATH" || return 1
+              sync
+            }
+            stage_switch_marker_unknown() {
+              write_switch_marker_atomic "${'$'}SWITCH_MARKER_PATH" "${'$'}UCLONE_UNKNOWN_STATE_MARKER" || return 1
+              SWITCH_MARKER_STAGED=1
+              echo "SWITCH_MARKER_STAGED=UNKNOWN"
             }
             restore_previous_switch_marker() {
               if [ "${'$'}SWITCH_MARKER_BEFORE_EXISTS" = "1" ]; then

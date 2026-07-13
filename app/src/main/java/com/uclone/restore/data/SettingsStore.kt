@@ -10,7 +10,7 @@ class SettingsStore private constructor(
     constructor(context: Context) : this(context, AndroidKeystoreCredentialCipher())
 
     private val prefs = context.getSharedPreferences("uclone_settings", Context.MODE_PRIVATE)
-    private val schemaVersion = 9
+    private val schemaVersion = 10
 
     fun load(): UCloneSettings = UCloneSettings(
         mainUserId = prefs.getInt("mainUserId", 0),
@@ -26,6 +26,8 @@ class SettingsStore private constructor(
         stopCloneAfterTask = prefs.getBoolean("stopCloneAfterTask", true),
         autoUnlockClone = prefs.getBoolean("autoUnlockClone", false),
         allowModuleControl = prefs.getBoolean("allowModuleControl", false),
+        reuseExistingPassiveBackups = prefs.getBoolean("reuseExistingPassiveBackups", false),
+        forceUpdateCloneDataBeforeMainRestore = prefs.getBoolean("forceUpdateCloneDataBeforeMainRestore", false),
         favoritePackages = prefs.getStringSet("favoritePackages", emptySet()).orEmpty().toSet(),
         cloneUnlockCredential = loadCredential(),
     )
@@ -45,6 +47,8 @@ class SettingsStore private constructor(
             .putBoolean("stopCloneAfterTask", settings.stopCloneAfterTask)
             .putBoolean("autoUnlockClone", settings.autoUnlockClone)
             .putBoolean("allowModuleControl", settings.allowModuleControl)
+            .putBoolean("reuseExistingPassiveBackups", settings.reuseExistingPassiveBackups)
+            .putBoolean("forceUpdateCloneDataBeforeMainRestore", settings.forceUpdateCloneDataBeforeMainRestore)
             .putStringSet("favoritePackages", settings.favoritePackages.toMutableSet())
             .putString(ENCRYPTED_CREDENTIAL_KEY, encryptCredential(settings.cloneUnlockCredential.trim()))
             .remove(LEGACY_CREDENTIAL_KEY)

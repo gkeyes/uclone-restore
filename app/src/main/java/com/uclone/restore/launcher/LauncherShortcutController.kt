@@ -8,11 +8,12 @@ import android.graphics.drawable.Icon
 import android.os.SystemClock
 import androidx.core.graphics.drawable.toBitmap
 import com.uclone.restore.R
+import com.uclone.restore.sync.AppDataState
 
 data class FavoriteShortcutEntry(
     val packageName: String,
     val label: String,
-    val switched: Boolean,
+    val dataState: AppDataState,
 )
 
 data class LauncherShortcutRequest(
@@ -57,7 +58,11 @@ class LauncherShortcutController(private val context: Context) {
     }
 
     private fun FavoriteShortcutEntry.toShortcut(rank: Int): ShortcutInfo {
-        val actionLabel = if (switched) "还原" else "切换"
+        val actionLabel = when (dataState) {
+            AppDataState.Main -> "切换"
+            is AppDataState.Clone -> "还原"
+            AppDataState.Unknown -> "检查状态"
+        }
         return ShortcutInfo.Builder(context, shortcutId(packageName))
             .setShortLabel(compactLabel("$actionLabel $label"))
             .setLongLabel("$actionLabel $label")

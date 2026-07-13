@@ -1,6 +1,8 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.CrossUserInstallMode
+import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskStage
 import com.uclone.restore.model.TaskType
@@ -27,6 +29,7 @@ class SyncEngineTest {
             TaskType.PUSH_MAIN_TO_CLONE,
             TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE,
             TaskType.RESTORE_SWITCH_MAIN_STATE,
+            TaskType.INSTALL_AND_SYNC_TO_OTHER_USER,
         )
 
         transactional.forEach { assertEquals(0, taskHostTimeoutSeconds(it), it.name) }
@@ -226,6 +229,37 @@ class SyncEngineTest {
         assertEquals("无法停止分身 App，未读取或写入数据", result.message)
     }
 
+    @Test
+    fun installedPackagePartialSuccessKeepsFailedSyncAndUnexecutedStepsVisible() = runBlocking {
+        val shell = PartialInstallSyncShell()
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+        )
+        val progress = mutableListOf<com.uclone.restore.model.TaskProgress>()
+
+        val result = engine.installAcrossUsers(
+            packageName = "com.example.app",
+            targetUserId = 10,
+            mode = CrossUserInstallMode.INSTALL_AND_SYNC,
+            rule = AppRule("com.example.app"),
+            settings = UCloneSettings(),
+            report = progress::add,
+            requestId = "partial-install-sync",
+        )
+
+        assertEquals(TaskStatus.SUCCESS_WITH_WARNINGS, result.status)
+        val finalSteps = progress.last().steps
+        assertEquals(StepStatus.SUCCESS, finalSteps[0].status)
+        assertEquals(StepStatus.SUCCESS, finalSteps[1].status)
+        assertEquals(StepStatus.SUCCESS, finalSteps[2].status)
+        assertEquals(StepStatus.FAILED, finalSteps[3].status)
+        assertEquals(StepStatus.PENDING, finalSteps[4].status)
+        assertEquals(StepStatus.PENDING, finalSteps[5].status)
+    }
+
     private class FakeRootShell : RootShellExecutor {
         val commands = mutableListOf<String>()
 
@@ -339,5 +373,13 @@ class SyncEngineTest {
                 stderr = "ERR_FORCE_STOP_FAILED:10:com.example.app\nERR_NOTHING_COPIED: no source data",
             )
         }
+    }
+
+    private class PartialInstallSyncShell : RootShellExecutor {
+        override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult = ShellResult(
+            exitCode = 0,
+            stdout = "WARN_INSTALL_SYNC_FAILED:targetUser=10:exit=54\nINSTALL_PARTIAL_SUCCESS targetUser=10",
+            stderr = "",
+        )
     }
 }

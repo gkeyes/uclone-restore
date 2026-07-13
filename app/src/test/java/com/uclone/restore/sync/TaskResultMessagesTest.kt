@@ -46,4 +46,24 @@ class TaskResultMessagesTest {
 
         assertEquals("完成，但分身自动关闭失败，分身可能仍在运行", message)
     }
+
+    @Test
+    fun successMessageExplainsPreservedInstallAfterSyncFailure() {
+        val output = "WARN_INSTALL_SYNC_FAILED:targetUser=10:exit=54\nINSTALL_PARTIAL_SUCCESS targetUser=10"
+
+        assertEquals(
+            "App 已安装到另一侧，但数据同步失败；安装结果已保留，请查看任务日志",
+            TaskResultMessages.successMessage(output),
+        )
+    }
+
+    @Test
+    fun successMessageDoesNotHideStateOrRollbackWarnings() {
+        val output = "WARN_CLONE_ROLLBACK_COMMIT_FAILED:exactRollback=/data/adb/uclone/clone_rollback/pkg/latest.tmp_1"
+
+        assertEquals(
+            "完成，状态记录或回滚保护存在警告（状态/回滚 1 项）",
+            TaskResultMessages.successMessage(output),
+        )
+    }
 }

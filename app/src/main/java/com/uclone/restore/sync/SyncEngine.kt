@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.RestoreBackupEntry
 import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskProgress
@@ -21,11 +22,6 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
-data class SnapshotMetadata(
-    val updatedAt: Long,
-    val sizeKb: Long?,
-)
-
 class SyncEngine(
     private val shell: RootShellExecutor,
     private val environmentChecker: RootEnvironmentChecker,
@@ -33,6 +29,35 @@ class SyncEngine(
     private val appPackage: String,
 ) {
     suspend fun checkEnvironment(settings: UCloneSettings) = environmentChecker.check(settings)
+
+    suspend fun scanWorkspaceOwnership(
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.SCAN_WORKSPACE_OWNERSHIP,
+        packageName = "workspace",
+        settings = settings,
+        labels = listOf("检查工作区", "扫描文件归属", "汇总容量"),
+        script = WorkspaceOwnershipScripts.scan(settings.rootDir),
+        report = report,
+        requestId = requestId,
+    )
+
+    suspend fun repairWorkspaceOwnership(
+        settings: UCloneSettings,
+        expectedCanonicalRoot: String,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.REPAIR_WORKSPACE_OWNERSHIP,
+        packageName = "workspace",
+        settings = settings,
+        labels = listOf("检查工作区", "扫描文件归属", "分批修复归属", "验证结果"),
+        script = WorkspaceOwnershipScripts.repair(settings.rootDir, expectedCanonicalRoot),
+        report = report,
+        requestId = requestId,
+    )
 
     suspend fun captureSnapshot(
         packageName: String,
@@ -154,6 +179,39 @@ class SyncEngine(
         )
     }
 
+    suspend fun installAcrossUsers(
+        packageName: String,
+        targetUserId: Int,
+        mode: CrossUserInstallMode,
+        rule: AppRule,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord {
+        val type = when (mode) {
+            CrossUserInstallMode.INSTALL_ONLY -> TaskType.INSTALL_TO_OTHER_USER
+            CrossUserInstallMode.INSTALL_WITH_PERMISSIONS -> TaskType.INSTALL_WITH_PERMISSIONS_TO_OTHER_USER
+            CrossUserInstallMode.INSTALL_AND_SYNC -> TaskType.INSTALL_AND_SYNC_TO_OTHER_USER
+        }
+        val labels = when (mode) {
+            CrossUserInstallMode.INSTALL_ONLY ->
+                listOf("检查安装条件", "启用另一侧 App", "验证安装结果", "完成")
+            CrossUserInstallMode.INSTALL_WITH_PERMISSIONS ->
+                listOf("检查安装条件", "启用另一侧 App", "迁移权限/AppOps", "验证安装结果", "完成")
+            CrossUserInstallMode.INSTALL_AND_SYNC ->
+                listOf("检查安装条件", "启用另一侧 App", "准备源数据", "同步目标数据", "验证结果", "完成")
+        }
+        return runScriptTask(
+            type = type,
+            packageName = packageName,
+            settings = settings,
+            labels = labels,
+            script = CrossUserInstallScripts.build(packageName, targetUserId, mode, rule, settings, appPackage),
+            report = report,
+            requestId = requestId,
+        )
+    }
+
     suspend fun restoreCloneRollback(
         packageName: String,
         settings: UCloneSettings,
@@ -172,18 +230,30 @@ class SyncEngine(
     suspend fun restoreSwitchMainState(
         packageName: String,
         rollbackId: String,
+        rule: AppRule,
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
-    ): TaskRecord = runScriptTask(
-        type = TaskType.RESTORE_SWITCH_MAIN_STATE,
-        packageName = packageName,
-        settings = settings,
-        labels = listOf("检查 root", "读取切换前被动备份", "生成被动备份", "恢复主系统态", "清除切换标记", "完成"),
-        script = ShellScripts.rollback(packageName, rollbackId, settings, appPackage, clearSwitchMarker = true),
-        report = report,
-        requestId = requestId,
-    )
+    ): TaskRecord {
+        val forceRefresh = settings.forceUpdateCloneDataBeforeMainRestore
+        return runScriptTask(
+            type = TaskType.RESTORE_SWITCH_MAIN_STATE,
+            packageName = packageName,
+            settings = settings,
+            labels = if (forceRefresh) {
+                listOf("检查 root", "更新分系统数据", "验证推送结果", "读取主数据返回点", "恢复主系统态", "完成")
+            } else {
+                listOf("检查 root", "读取主数据返回点", "生成事务回滚", "恢复主系统态", "清除切换标记", "完成")
+            },
+            script = if (forceRefresh) {
+                ShellScripts.pushMainToCloneThenRestoreMain(packageName, rollbackId, rule, settings, appPackage)
+            } else {
+                ShellScripts.rollback(packageName, rollbackId, settings, appPackage, clearSwitchMarker = true)
+            },
+            report = report,
+            requestId = requestId,
+        )
+    }
 
     suspend fun rollback(
         packageName: String,
@@ -294,135 +364,42 @@ class SyncEngine(
     }
 
     suspend fun latestSnapshotMetadata(packageName: String, settings: UCloneSettings): SnapshotMetadata? {
-        return snapshotMetadata(settings).getValueOrNull(packageName)
+        return loadWorkspaceIndex(settings).snapshots.getValueOrNull(packageName)
     }
 
     suspend fun snapshotMetadata(settings: UCloneSettings): Map<String, SnapshotMetadata> {
-        val root = "${settings.rootDir}/snapshots"
-        val script = """
-            [ -d ${shellQuote(root)} ] || exit 0
-            for f in ${shellQuote(root)}/*/active/manifest.json; do
-              [ -f "${'$'}f" ] || continue
-              pkg=${'$'}(basename "${'$'}(dirname "${'$'}(dirname "${'$'}f")")")
-              ts=${'$'}(stat -c %Y "${'$'}f" 2>/dev/null || echo 0)
-              size=${'$'}(sed -n 's/.*"snapshotSizeKb":"\([0-9][0-9]*\)".*/\1/p' "${'$'}f" | head -1)
-              [ -n "${'$'}size" ] || size=${'$'}(du -sk "${'$'}(dirname "${'$'}f")" 2>/dev/null | awk '{print ${'$'}1}')
-              echo "${'$'}pkg ${'$'}ts ${'$'}size"
-            done
-        """.trimIndent()
-        val result = shell.exec(script, 30)
-        return result.stdout.lineSequence().mapNotNull { line ->
-            val parts = line.trim().split(" ")
-            val packageName = parts.firstOrNull() ?: return@mapNotNull null
-            val millis = parts.getOrNull(1)?.toLongOrNull()?.times(1000) ?: return@mapNotNull null
-            packageName to SnapshotMetadata(
-                updatedAt = millis,
-                sizeKb = parts.getOrNull(2)?.toLongOrNull(),
-            )
-        }.toMap()
+        return loadWorkspaceIndex(settings).snapshots
     }
 
     suspend fun snapshotTimes(settings: UCloneSettings): Map<String, Long> =
         snapshotMetadata(settings).mapValues { it.value.updatedAt }
 
     suspend fun switchMarkerIds(settings: UCloneSettings): Map<String, String> {
-        val root = settings.rootDir
-        val switchRoot = "$root/switches"
-        val script = """
-            [ -d ${shellQuote(switchRoot)} ] || exit 0
-            for f in ${shellQuote(switchRoot)}/*/active; do
-              [ -f "${'$'}f" ] || continue
-              pkg=${'$'}(basename "${'$'}(dirname "${'$'}f")")
-              id=${'$'}(sed -n '1p' "${'$'}f" | tr -d '\r')
-              [ -n "${'$'}pkg" ] && [ -n "${'$'}id" ] || continue
-              [ -f ${shellQuote(root)}/rollback/"${'$'}pkg"/"${'$'}id"/manifest.json ] || continue
-              echo "${'$'}pkg ${'$'}id"
-            done
-        """.trimIndent()
-        val result = shell.exec(script, 20)
-        return result.stdout.lineSequence().mapNotNull { line ->
-            val parts = line.trim().split(" ", limit = 2)
-            val packageName = parts.getOrNull(0)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            val rollbackId = parts.getOrNull(1)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            packageName to rollbackId
-        }.toMap()
+        return loadWorkspaceIndex(settings).switchMarkers
     }
 
     suspend fun switchMarkerId(packageName: String, settings: UCloneSettings): String? =
         switchMarkerIds(settings)[packageName]
 
+    suspend fun appDataState(packageName: String, settings: UCloneSettings): AppDataState =
+        loadWorkspaceIndex(settings).dataState(packageName)
+
+    suspend fun loadWorkspaceIndex(settings: UCloneSettings): WorkspaceIndex {
+        val result = shell.exec(workspaceIndexScript(settings.rootDir), 60)
+        if (!result.isSuccess || result.outputTruncated) return WorkspaceIndex(readSucceeded = false)
+        return WorkspaceIndexParser.parse(result.stdout)
+    }
+
     suspend fun listRollbackIds(packageName: String, settings: UCloneSettings): List<String> {
-        val path = "${settings.rootDir}/rollback/$packageName"
-        val result = shell.exec(
-            """
-                [ -d ${shellQuote(path)} ] || exit 0
-                for d in ${shellQuote(path)}/*; do
-                  [ -f "${'$'}d/manifest.json" ] || continue
-                  basename "${'$'}d"
-                done
-            """.trimIndent(),
-            20,
-        )
-        return result.stdout.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
+        return loadWorkspaceIndex(settings).rollbackIds(packageName)
     }
 
     suspend fun listRestoreBackups(settings: UCloneSettings): List<RestoreBackupEntry> {
-        val rollbackRoot = "${settings.rootDir}/rollback"
-        val switchRoot = "${settings.rootDir}/switches"
-        val script = restoreBackupListScript(rollbackRoot, switchRoot)
-        val result = shell.exec(script, 30)
-        return result.stdout.lineSequence().mapNotNull { line ->
-            val parts = line.split("\t", limit = 6)
-            val packageName = parts.getOrNull(0)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            val rollbackId = parts.getOrNull(1)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            val createdAt = parts.getOrNull(2)?.toLongOrNull()?.times(1000) ?: 0L
-            RestoreBackupEntry(
-                packageName = packageName,
-                rollbackId = rollbackId,
-                createdAt = createdAt,
-                sizeKb = parts.getOrNull(3)?.toLongOrNull(),
-                isActiveSwitchBackup = parts.getOrNull(4) == "1",
-                reason = parts.getOrNull(5)?.takeIf(String::isNotBlank) ?: "被动备份",
-            )
-        }.sortedByDescending { it.createdAt }
-            .distinctBy { it.packageName }
-            .toList()
+        return loadWorkspaceIndex(settings).restoreBackups
     }
 
     suspend fun listCloneRollbackBackups(settings: UCloneSettings): List<RestoreBackupEntry> {
-        val root = "${settings.rootDir}/clone_rollback"
-        val script = """
-            CLONE_ROLLBACK_ROOT=${shellQuote(root)}
-            [ -d "${'$'}CLONE_ROLLBACK_ROOT" ] || exit 0
-            for d in "${'$'}CLONE_ROLLBACK_ROOT"/*/latest; do
-              [ -d "${'$'}d" ] || continue
-              [ -f "${'$'}d/manifest.json" ] || continue
-              pkg=${'$'}(basename "${'$'}(dirname "${'$'}d")")
-              ts=${'$'}(stat -c %Y "${'$'}d" 2>/dev/null || echo 0)
-              size=${'$'}(du -sk "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
-              reason=""
-              if [ -f "${'$'}d/manifest.json" ]; then
-                reason=${'$'}(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
-              fi
-              [ -n "${'$'}reason" ] || reason="推送到分身前生成"
-              printf '%s\t%s\t%s\t%s\t%s\n' "${'$'}pkg" "latest" "${'$'}ts" "${'$'}size" "${'$'}reason"
-            done
-        """.trimIndent()
-        val result = shell.exec(script, 30)
-        return result.stdout.lineSequence().mapNotNull { line ->
-            val parts = line.split("\t", limit = 5)
-            val packageName = parts.getOrNull(0)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            RestoreBackupEntry(
-                packageName = packageName,
-                rollbackId = parts.getOrNull(1)?.takeIf(String::isNotBlank) ?: "latest",
-                createdAt = parts.getOrNull(2)?.toLongOrNull()?.times(1000) ?: 0L,
-                sizeKb = parts.getOrNull(3)?.toLongOrNull(),
-                reason = parts.getOrNull(4)?.takeIf(String::isNotBlank) ?: "推送到分身前生成",
-                isActiveSwitchBackup = false,
-                isCloneRollback = true,
-            )
-        }.sortedByDescending { it.createdAt }
-            .toList()
+        return loadWorkspaceIndex(settings).cloneRollbackBackups
     }
 
     fun history(): List<TaskRecord> = logStore.all()
@@ -529,8 +506,12 @@ class SyncEngine(
             baseStatus
         }
         val rootUnavailable = "ERR_ROOT_UNAVAILABLE:" in result.stdout || "ERR_ROOT_UNAVAILABLE:" in result.stderr
+        val partialInstallSync = "INSTALL_PARTIAL_SUCCESS" in result.stdout || "INSTALL_PARTIAL_SUCCESS" in result.stderr
         steps = if (rootUnavailable) {
             failRemaining(steps, 0)
+        } else if (partialInstallSync) {
+            val failedIndex = labels.indexOf("同步目标数据").takeIf { it >= 0 } ?: (labels.lastIndex - 1).coerceAtLeast(0)
+            failRemaining(steps, failedIndex)
         } else if (status.isSuccessful) {
             steps.map { it.copy(status = StepStatus.SUCCESS) }
         } else {
@@ -540,7 +521,7 @@ class SyncEngine(
             TaskStatus.SUCCESS,
             TaskStatus.SUCCESS_WITH_WARNINGS,
             -> TaskResultMessages.successMessage(liveLog) + if (result.outputTruncated) "；运行输出过长，完整内容请查看任务日志" else ""
-            else -> TaskOutcome.failureMessage(status) ?: taskFailureMessage(result)
+            else -> TaskOutcome.failureMessage(status, liveLog) ?: taskFailureMessage(result)
         }
         val metrics = TaskMetricsParser.parse(
             output = result.stdout + "\n" + result.stderr,
@@ -613,6 +594,8 @@ private val TRANSACTIONAL_TASK_TYPES = setOf(
     TaskType.PUSH_MAIN_TO_CLONE,
     TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE,
     TaskType.RESTORE_SWITCH_MAIN_STATE,
+    TaskType.INSTALL_AND_SYNC_TO_OTHER_USER,
+    TaskType.REPAIR_WORKSPACE_OWNERSHIP,
 )
 
 private fun <K, V> Map<K, V>.getValueOrNull(key: K): V? = if (containsKey(key)) getValue(key) else null

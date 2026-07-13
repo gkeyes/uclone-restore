@@ -83,6 +83,46 @@ class ExternalActionRequestTest {
     fun internalOperationsMapToPersistentTaskTypes() {
         assertEquals(TaskType.RESTORE_FROM_CLONE_LATEST, taskTypeForOperation(ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST))
         assertEquals(TaskType.RESET_WORKSPACE, taskTypeForOperation(ExternalActionContract.OPERATION_RESET_WORKSPACE))
+        assertEquals(TaskType.INSTALL_TO_OTHER_USER, taskTypeForOperation(ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER))
+        assertEquals(
+            TaskType.INSTALL_WITH_PERMISSIONS_TO_OTHER_USER,
+            taskTypeForOperation(ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER),
+        )
+        assertEquals(
+            TaskType.INSTALL_AND_SYNC_TO_OTHER_USER,
+            taskTypeForOperation(ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER),
+        )
         assertEquals(TaskType.STOP_CLONE_USER, taskTypeForOperation(ExternalActionContract.OPERATION_STOP_CLONE_USER))
+    }
+
+    @Test
+    fun crossUserInstallRequiresAnExplicitNonNegativeTargetUser() {
+        val missing = ExternalActionRequest.parse(
+            protocolVersion = ExternalActionContract.PROTOCOL_VERSION,
+            operation = ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER,
+            packageName = "com.example.app",
+            requestId = "request-install-missing",
+            source = ExternalActionContract.SOURCE_APP,
+        )
+        val negative = ExternalActionRequest.parse(
+            protocolVersion = ExternalActionContract.PROTOCOL_VERSION,
+            operation = ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER,
+            packageName = "com.example.app",
+            requestId = "request-install-negative",
+            source = ExternalActionContract.SOURCE_APP,
+            targetUserId = -1,
+        )
+        val valid = ExternalActionRequest.parse(
+            protocolVersion = ExternalActionContract.PROTOCOL_VERSION,
+            operation = ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER,
+            packageName = "com.example.app",
+            requestId = "request-install-valid",
+            source = ExternalActionContract.SOURCE_APP,
+            targetUserId = 10,
+        )
+
+        assertNull(missing)
+        assertNull(negative)
+        assertEquals(10, valid?.targetUserId)
     }
 }

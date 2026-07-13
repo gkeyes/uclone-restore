@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.UCloneSettings
 import java.nio.file.Files
 import kotlin.test.Test
@@ -11,6 +12,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ShellScriptsTest {
+    @Test
+    fun workspaceCopiesDoNotRestoreArchivedAppOwners() {
+        val script = ShellScripts.capture("com.example.app", AppRule("com.example.app"), UCloneSettings(), "com.uclone.restore")
+
+        assertContains(script, "tar -xopf -")
+        assertFalse(script.contains("tar -xpf -) || exit 13"))
+    }
     @Test
     fun storagePreflightUsesAwkForDeviceSizeArithmetic() {
         val script = ShellScripts.storagePreflightScript()
@@ -51,7 +59,7 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun permissionRestoreReportsAppOpsResetAndPersistenceFailures() {
+    fun permissionRestoreUsesBestEffortMergeWithoutRevokeOrReset() {
         val rule = AppRule(packageName = "com.example.app")
         val scripts = listOf(
             ShellScripts.pushMainToClone("com.example.app", rule, settings, appPackage),
@@ -59,8 +67,10 @@ class ShellScriptsTest {
         )
 
         scripts.forEach { script ->
-            assertContains(script, "WARN_APPOPS_RESET_FAILED")
+            assertContains(script, "RESTORED_PERMISSIONS:mode=MERGE")
             assertContains(script, "WARN_APPOPS_WRITE_SETTINGS_FAILED")
+            assertFalse(script.contains("package revoke"))
+            assertFalse(script.contains("appops reset"))
         }
     }
 
@@ -103,8 +113,39 @@ class ShellScriptsTest {
             ShellScripts.restore("com.example.app", settings, appPackage),
             ShellScripts.switchFromCloneLatest("com.example.app", rule, settings, appPackage),
             ShellScripts.pushMainToClone("com.example.app", rule, settings, appPackage),
+            ShellScripts.pushMainToCloneThenRestoreMain(
+                "com.example.app",
+                "persistent_main",
+                rule,
+                settings,
+                appPackage,
+            ),
             ShellScripts.rollback("com.example.app", "20260710-010203", settings, appPackage),
             ShellScripts.restoreCloneRollback("com.example.app", settings, appPackage),
+            CrossUserInstallScripts.build(
+                "com.example.app",
+                settings.cloneUserId,
+                CrossUserInstallMode.INSTALL_ONLY,
+                rule,
+                settings,
+                appPackage,
+            ),
+            CrossUserInstallScripts.build(
+                "com.example.app",
+                settings.cloneUserId,
+                CrossUserInstallMode.INSTALL_WITH_PERMISSIONS,
+                rule,
+                settings,
+                appPackage,
+            ),
+            CrossUserInstallScripts.build(
+                "com.example.app",
+                settings.cloneUserId,
+                CrossUserInstallMode.INSTALL_AND_SYNC,
+                rule,
+                settings,
+                appPackage,
+            ),
         )
 
         scripts.forEach { script ->
@@ -279,6 +320,8 @@ class ShellScriptsTest {
         assertContains(script, "\"${'$'}ROOT\"/snapshots|\"${'$'}ROOT\"/rollback|\"${'$'}ROOT\"/clone_rollback")
         assertContains(script, "ERR_UNSAFE_RESET_TARGET")
         assertContains(script, "rm -rf \"${'$'}TARGET\"")
+        assertContains(script, "UNKNOWN_PACKAGES=")
+        assertContains(script, "RESET_STATE_UNKNOWN:${'$'}ACTIVE_PACKAGE")
         assertContains(script, "RESET_WORKSPACE_DONE")
         assertFalse(script.contains("rm -rf \"${'$'}ROOT\""))
         assertFalse(script.contains("/data/user/"))
@@ -287,12 +330,13 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun restorePruneClearsStaleSwitchMarker() {
+    fun restorePruneMarksStaleSwitchStateUnknown() {
         val script = ShellScripts.restore("com.example.app", settings, appPackage)
 
         assertContains(script, "SWITCH_ID_AFTER_PRUNE=")
-        assertContains(script, "[ \"${'$'}SWITCH_ID_AFTER_PRUNE\" != \"${'$'}ROLLBACK_ID\" ]")
-        assertContains(script, "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER_FOR_PRUNE")
+        assertContains(script, "[ ! -f \"${'$'}ROLLBACK_PARENT/${'$'}SWITCH_ID_AFTER_PRUNE/manifest.json\" ]")
+        assertContains(script, "write_switch_marker_atomic \"${'$'}SWITCH_MARKER_FOR_PRUNE\" \"${'$'}UCLONE_UNKNOWN_STATE_MARKER\"")
+        assertContains(script, "SWITCH_MARKER_UNKNOWN=${'$'}SWITCH_MARKER_FOR_PRUNE")
     }
 
     @Test
@@ -305,9 +349,9 @@ class ShellScriptsTest {
         assertContains(script, "target_owner_for()")
         assertContains(script, "media) echo \"${'$'}UID_VALUE:1078\"")
         assertContains(script, "TARGET_OWNER=${'$'}(target_owner_for \"${'$'}TARGET\" \"${'$'}OWNER_UID\" \"${'$'}OWNER_KIND\")")
-        assertContains(script, "restore_part \"${'$'}ACTIVE/external\" \"/data/media/${'$'}DST_USER/Android/data/${'$'}PKG\" \"\" \"media\"")
-        assertContains(script, "restore_part \"${'$'}ACTIVE/media\" \"/data/media/${'$'}DST_USER/Android/media/${'$'}PKG\" \"\" \"media\"")
-        assertContains(script, "restore_part \"${'$'}ACTIVE/obb\" \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\" \"\" \"media\"")
+        assertContains(script, "restore_part \"${'$'}ACTIVE/external\" \"/data/media/${'$'}DST_USER/Android/data/${'$'}PKG\" \"\" \"media\" \"external\"")
+        assertContains(script, "restore_part \"${'$'}ACTIVE/media\" \"/data/media/${'$'}DST_USER/Android/media/${'$'}PKG\" \"\" \"media\" \"media\"")
+        assertContains(script, "restore_part \"${'$'}ACTIVE/obb\" \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\" \"\" \"media\" \"obb\"")
     }
 
     @Test
@@ -322,7 +366,9 @@ class ShellScriptsTest {
         assertContains(script, "SOURCE_KIND='switch_temp'")
         assertContains(script, "ACTIVE=\"${'$'}ROOT/tmp/switch_${'$'}{PKG}_${'$'}TS\"")
         assertContains(script, "SWITCH_SOURCE_READY=${'$'}SWITCH_TEMP")
-        assertContains(script, "SWITCH_MARKER=${'$'}SWITCH_DIR/active ROLLBACK_ID=${'$'}ROLLBACK_ID")
+        assertContains(script, "stage_switch_marker_unknown || exit 70")
+        assertContains(script, "DATA_STATE_COMMITTED=CLONE mainReturnPoint=${'$'}NEXT_MAIN_RETURN_ID")
+        assertTrue(script.lastIndexOf("TRANSACTION_COMMITTED=1") < script.lastIndexOf("DATA_STATE_COMMITTED=CLONE"))
         assertFalse(script.contains("SNAPSHOT_ACTIVE="))
         assertFalse(script.contains("mv \"${'$'}TMP\" \"${'$'}BASE/active\""))
     }
@@ -360,6 +406,8 @@ class ShellScriptsTest {
         assertContains(script, "restore_part \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}DST_USER/${'$'}PKG\" \"app\"")
         assertContains(script, "PUSH_MAIN_TO_CLONE_DONE")
         assertContains(script, "CLONE_ROLLBACK_PREPARED=${'$'}ROLLBACK_TMP")
+        assertContains(script, "CLONE_ROLLBACK_PRESERVED=${'$'}ROLLBACK_TMP")
+        assertContains(script, "TRANSACTION_ROLLBACK_PRESERVE")
         assertContains(script, "mv \"${'$'}ROLLBACK_LATEST\" \"${'$'}ROLLBACK_PREVIOUS\"")
         assertContains(script, "mv \"${'$'}ROLLBACK_TMP\" \"${'$'}ROLLBACK_LATEST\"")
         assertTrue(script.indexOf("CLONE_ROLLBACK_PREPARED=") < script.indexOf("uclone_stage_begin RESTORE_DATA"))
@@ -370,7 +418,7 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun pushMainToCloneRevokesTargetPermissionsNotPresentInSource() {
+    fun pushMainToCloneUsesNonDestructiveMergePermissionMigration() {
         val script = ShellScripts.pushMainToClone(
             "com.example.app",
             AppRule(packageName = "com.example.app"),
@@ -378,9 +426,11 @@ class ShellScriptsTest {
             appPackage,
         )
 
-        assertContains(script, "CURRENT_GRANTS=\"${'$'}ROOT/tmp/current_push_grants_${'$'}{PKG}_${'$'}{TS}.txt\"")
-        assertContains(script, "cmd package revoke --user \"${'$'}DST_USER\"")
-        assertContains(script, "WARN_REVOKE_FAILED:${'$'}CURRENT_PERM")
+        assertContains(script, "uclone_capture_permission_state")
+        assertContains(script, "uclone_restore_permission_state")
+        assertContains(script, "RESTORED_PERMISSIONS:mode=MERGE")
+        assertFalse(script.contains("package revoke"))
+        assertFalse(script.contains("appops reset"))
     }
 
     @Test

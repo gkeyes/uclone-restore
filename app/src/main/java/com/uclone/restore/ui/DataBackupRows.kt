@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
+import com.uclone.restore.model.PassiveBackupStateKind
 import com.uclone.restore.model.RestoreBackupEntry
 import com.uclone.restore.util.Formatters
 
@@ -80,6 +81,16 @@ fun PassiveBackupRow(
     onOpenDetail: () -> Unit,
     onRestore: () -> Unit,
 ) {
+    val stateLabel = when (backup.stateKind) {
+        PassiveBackupStateKind.MAIN -> "主数据 MAIN"
+        PassiveBackupStateKind.CLONE -> "分数据 CLONE"
+        null -> "数据来源未标记"
+    }
+    val retentionLabel = when {
+        backup.isPersistentStateBackup -> "长期状态备份"
+        backup.isActiveSwitchBackup -> "当前主数据返回点"
+        else -> "事务被动备份"
+    }
     val backupPath = if (backup.isCloneRollback) {
         "$rootDir/clone_rollback/${backup.packageName}/${backup.rollbackId}"
     } else {
@@ -109,7 +120,7 @@ fun PassiveBackupRow(
                 )
                 SingleLinePathText(backupPath)
                 Text(
-                    backup.reason + if (backup.isActiveSwitchBackup) " · 当前切换被动备份" else "",
+                    "$stateLabel · $retentionLabel · ${backup.reason}",
                     style = MaterialTheme.typography.bodySmall,
                     color = IosOrange,
                     maxLines = 1,

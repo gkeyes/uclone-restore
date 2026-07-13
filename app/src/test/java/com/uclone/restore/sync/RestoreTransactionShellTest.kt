@@ -13,6 +13,8 @@ class RestoreTransactionShellTest {
 
         assertEquals(91, result.exitCode)
         assertContains(result.stderr, "AUTO_ROLLBACK_FAILED originalExit=58")
+        assertContains(result.stderr, "TRANSACTION_ROLLBACK_PRESERVED=")
+        assertContains(result.stdout, "ROLLBACK_PRESERVED")
         assertContains(result.stdout, "CLEANUP_CALLED")
     }
 
@@ -37,6 +39,45 @@ class RestoreTransactionShellTest {
         assertEquals(91, result.exitCode)
         assertContains(result.stderr, "ERR_ROLLBACK_STATE_MISSING:ce")
         assertFalse(result.stdout.contains("CLEARED:/data/user/10/com.example.app"))
+    }
+
+    @Test
+    fun stagedUnknownMarkerIsRemovedWhenFailureHappensBeforeTargetMutation() {
+        val root = Files.createTempDirectory("uclone-marker-stage-")
+        val rollback = Files.createTempDirectory("uclone-marker-rollback-")
+        val marker = root.resolve("switches/com.example.app/active")
+        val script = """
+            set -u
+            ROOT='${root.toAbsolutePath()}'
+            PKG=com.example.app
+            DST_USER=0
+            ROLLBACK='${rollback.toAbsolutePath()}'
+            UID_VALUE=10123
+            TS=20260713-120003
+            UCLONE_UNKNOWN_STATE_MARKER=UCLONE_STATE_UNKNOWN_V1
+            UCLONE_TARGET_STOPPED_AT=1000
+            validate_rollback_id() { :; }
+            uclone_stage_begin() { :; }
+            uclone_stage_end() { :; }
+            uclone_now_ms() { echo 2000; }
+            uclone_emit_metrics() { :; }
+            force_stop_package_users() { :; }
+            sync() { :; }
+            ${RestoreTransactionShell.guard("UID_VALUE", includePermissions = false, manageSwitchMarker = true)}
+            stage_switch_marker_unknown || exit 70
+            [ -f '${marker.toAbsolutePath()}' ] && echo MARKER_STAGED
+            exit 58
+        """.trimIndent()
+        val process = ProcessBuilder("/bin/sh").start()
+        process.outputStream.bufferedWriter().use { it.write(script) }
+        val stdout = process.inputStream.bufferedReader().readText()
+        val stderr = process.errorStream.bufferedReader().readText()
+        val exitCode = process.waitFor()
+
+        assertEquals(58, exitCode, stderr)
+        assertContains(stdout, "MARKER_STAGED")
+        assertContains(stdout, "SWITCH_MARKER_STAGE_ROLLED_BACK")
+        assertFalse(Files.exists(marker))
     }
 
     private fun runHarness(applyTargetSecurityBody: String, missingState: String? = null): HarnessResult {
@@ -70,7 +111,14 @@ class RestoreTransactionShellTest {
             force_stop_package_users() { :; }
             restore_permission_state() { :; }
             apply_target_security() { $applyTargetSecurityBody; }
-            cleanup_switch_temp() { echo CLEANUP_CALLED; }
+            cleanup_switch_temp() {
+              if [ "${'$'}{TRANSACTION_ROLLBACK_PRESERVE:-0}" = "1" ]; then
+                echo ROLLBACK_PRESERVED
+              else
+                echo ROLLBACK_CLEANED
+              fi
+              echo CLEANUP_CALLED
+            }
             ${RestoreTransactionShell.guard("UID_VALUE", includePermissions = false, manageSwitchMarker = false)}
             TARGET_MUTATED=1
             exit 58

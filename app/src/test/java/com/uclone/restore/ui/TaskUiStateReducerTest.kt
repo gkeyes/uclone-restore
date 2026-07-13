@@ -73,6 +73,7 @@ class TaskUiStateReducerTest {
                 restoreBackups = emptyList(),
                 cloneRollbackBackups = emptyList(),
                 switchRollbackIds = emptyMap(),
+                unknownSwitchPackages = emptySet(),
             ),
         )
 

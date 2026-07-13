@@ -7,6 +7,8 @@ import com.uclone.restore.model.RestoreBackupEntry
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.model.WorkspaceOwnershipReport
+import com.uclone.restore.sync.AppDataState
 
 data class UiState(
     val settings: UCloneSettings = UCloneSettings(),
@@ -21,10 +23,13 @@ data class UiState(
     val restoreBackups: List<RestoreBackupEntry> = emptyList(),
     val cloneRollbackBackups: List<RestoreBackupEntry> = emptyList(),
     val switchRollbackIds: Map<String, String> = emptyMap(),
+    val unknownSwitchPackages: Set<String> = emptySet(),
+    val workspaceOwnership: WorkspaceOwnershipReport? = null,
     val message: String? = null,
 ) {
     val selectedApp: AppEntry? = apps.firstOrNull { it.packageName == selectedPackage }
     val selectedSwitchRollbackId: String? = selectedPackage?.let(switchRollbackIds::get)
+    val selectedDataState: AppDataState? = selectedPackage?.let(::dataStateFor)
     val favoriteApps: List<AppEntry> = apps.filter { it.packageName in settings.favoritePackages }
     val selectedRule: AppRule?
         get() = selectedPackage?.let {
@@ -39,4 +44,9 @@ data class UiState(
                 excludeCache = settings.excludeCache,
             )
         }
+
+    fun dataStateFor(packageName: String): AppDataState = when {
+        packageName in unknownSwitchPackages -> AppDataState.Unknown
+        else -> switchRollbackIds[packageName]?.let(AppDataState::Clone) ?: AppDataState.Main
+    }
 }

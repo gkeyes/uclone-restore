@@ -167,6 +167,24 @@ data class RestoreBackupEntry(
     val reason: String,
     val isActiveSwitchBackup: Boolean,
     val isCloneRollback: Boolean = false,
+    val stateKind: PassiveBackupStateKind? = null,
+    val isPersistentStateBackup: Boolean = false,
+)
+
+enum class PassiveBackupStateKind {
+    MAIN,
+    CLONE,
+}
+
+data class WorkspaceOwnershipReport(
+    val canonicalRoot: String,
+    val totalEntries: Long,
+    val nonRootEntries: Long,
+    val totalSizeKb: Long,
+    val scannedRootDir: String = canonicalRoot,
+    val scannedMainUserId: Int = 0,
+    val scannedCloneUserId: Int = 10,
+    val scannedAt: Long = 0L,
 )
 
 data class UCloneSettings(
@@ -183,6 +201,8 @@ data class UCloneSettings(
     val stopCloneAfterTask: Boolean = true,
     val autoUnlockClone: Boolean = false,
     val allowModuleControl: Boolean = false,
+    val reuseExistingPassiveBackups: Boolean = false,
+    val forceUpdateCloneDataBeforeMainRestore: Boolean = false,
     val favoritePackages: Set<String> = emptySet(),
     val cloneUnlockCredential: String = "",
 )
@@ -210,9 +230,20 @@ enum class TaskType {
     AUDIT_RESTORE_CONSISTENCY,
     CLEAR_LOGS,
     RESET_WORKSPACE,
+    SCAN_WORKSPACE_OWNERSHIP,
+    REPAIR_WORKSPACE_OWNERSHIP,
+    INSTALL_TO_OTHER_USER,
+    INSTALL_WITH_PERMISSIONS_TO_OTHER_USER,
+    INSTALL_AND_SYNC_TO_OTHER_USER,
     START_CLONE_USER,
     SWITCH_TO_CLONE_USER,
     STOP_CLONE_USER,
+}
+
+enum class CrossUserInstallMode {
+    INSTALL_ONLY,
+    INSTALL_WITH_PERMISSIONS,
+    INSTALL_AND_SYNC,
 }
 
 enum class TaskStatus {

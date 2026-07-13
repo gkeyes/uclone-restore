@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskStep
+import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.util.Formatters
 
 @Composable
@@ -105,7 +106,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             items(state.favoriteApps, key = { it.packageName }) { app ->
                 FavoriteAppRow(
                     app = app,
-                    switched = state.switchRollbackIds.containsKey(app.packageName),
+                    dataState = state.dataStateFor(app.packageName),
                     onOpen = {
                         viewModel.selectPackage(app.packageName)
                         openDetail()
@@ -168,7 +169,7 @@ private fun CurrentTaskCard(state: UiState) {
 @Composable
 private fun FavoriteAppRow(
     app: AppEntry,
-    switched: Boolean,
+    dataState: AppDataState,
     onOpen: () -> Unit,
     onPush: () -> Unit,
     onSwitch: () -> Unit,
@@ -206,10 +207,18 @@ private fun FavoriteAppRow(
                     icon = Icons.Default.Upload,
                 )
                 IosCompactButton(
-                    text = if (switched) "还原" else "切换",
-                    onClick = if (switched) onRestore else onSwitch,
-                    primary = !switched,
-                    icon = if (switched) Icons.Default.Refresh else Icons.Default.Sync,
+                    text = when (dataState) {
+                        AppDataState.Main -> "切换"
+                        is AppDataState.Clone -> "还原"
+                        AppDataState.Unknown -> "检查"
+                    },
+                    onClick = when (dataState) {
+                        AppDataState.Main -> onSwitch
+                        is AppDataState.Clone -> onRestore
+                        AppDataState.Unknown -> onOpen
+                    },
+                    primary = dataState == AppDataState.Main,
+                    icon = if (dataState is AppDataState.Clone) Icons.Default.Refresh else Icons.Default.Sync,
                 )
             }
         }
