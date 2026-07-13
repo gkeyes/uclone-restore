@@ -44,12 +44,10 @@ fun DataScreen(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item {
-            ScreenHeader("数据", "主动备份和被动备份分开查看。")
-        }
+        item { PageDescription("按主动快照、主系统侧备份和分身回滚分别管理。") }
         item {
             SectionCard("存储区分") {
                 SingleLinePathText("主动快照: $rootDir/snapshots/<包名>/active")
@@ -63,7 +61,7 @@ fun DataScreen(
             }
         }
         item {
-            DataSectionHeader("主动备份", "手动建立或任务中刷新出的分身快照。")
+            SectionLabel("主动备份", "手动建立或任务中刷新出的分身快照。")
         }
         if (activeBackups.isEmpty()) {
             item {
@@ -79,12 +77,12 @@ fun DataScreen(
             }
         }
         item {
-            DataSectionHeader("主系统侧备份", "显示主系统 user0 中保存过的主数据或分数据状态。")
+            SectionLabel("主系统侧备份", "显示 user${state.settings.mainUserId} 中保存过的主数据或分数据状态。")
         }
         if (passiveBackups.isEmpty()) {
             item {
                 SectionCard("暂无被动备份") {
-                    Text("执行恢复或切换前，App 会自动保存当前 user0 数据。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("执行恢复或切换前，App 会自动保存当前 user${state.settings.mainUserId} 数据。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {
@@ -101,7 +99,7 @@ fun DataScreen(
             }
         }
         item {
-            DataSectionHeader("分身回滚", "推送到分身前自动保存的分身侧最新备份。")
+            SectionLabel("分身回滚", "推送到分身前自动保存的分身侧最新备份。")
         }
         if (cloneRollbackBackups.isEmpty()) {
             item {
@@ -115,9 +113,7 @@ fun DataScreen(
                     backup = backup,
                     rootDir = rootDir,
                     app = appByPackage[backup.packageName],
-                    onOpenDetail = {
-                        openPassiveBackup(backup)
-                    },
+                    onOpenDetail = null,
                     onRestore = { confirmCloneRestore = backup },
                 )
             }
@@ -130,7 +126,7 @@ fun DataScreen(
             title = { Text("恢复被动备份") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("将使用以下被动备份覆盖主系统 user0 数据。")
+                    Text("将使用以下被动备份覆盖主系统 user${state.settings.mainUserId} 数据。")
                     SingleLinePathText("$rootDir/rollback/${backup.packageName}/${backup.rollbackId}")
                     Text(
                         when (backup.stateKind) {
@@ -143,7 +139,7 @@ fun DataScreen(
                 }
             },
             confirmButton = {
-                IosDialogButton(
+                DialogActionButton(
                     text = "恢复",
                     onClick = {
                         confirmRestore = null
@@ -153,7 +149,7 @@ fun DataScreen(
                 )
             },
             dismissButton = {
-                IosDialogButton("取消", onClick = { confirmRestore = null })
+                DialogActionButton("取消", onClick = { confirmRestore = null })
             },
         )
     }
@@ -170,7 +166,7 @@ fun DataScreen(
                 }
             },
             confirmButton = {
-                IosDialogButton(
+                DialogActionButton(
                     text = "恢复",
                     onClick = {
                         confirmCloneRestore = null
@@ -180,21 +176,8 @@ fun DataScreen(
                 )
             },
             dismissButton = {
-                IosDialogButton("取消", onClick = { confirmCloneRestore = null })
+                DialogActionButton("取消", onClick = { confirmCloneRestore = null })
             },
         )
-    }
-}
-
-@Composable
-private fun DataSectionHeader(title: String, caption: String) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(top = 6.dp, bottom = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

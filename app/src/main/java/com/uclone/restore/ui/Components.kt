@@ -1,8 +1,8 @@
 package com.uclone.restore.ui
 
 import android.content.pm.PackageManager
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -29,21 +30,23 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,25 +55,67 @@ import com.uclone.restore.model.RiskLevel
 import com.uclone.restore.model.StepStatus
 
 @Composable
-fun SectionCard(title: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Card(
+fun SectionCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = IosGlass),
-        border = BorderStroke(1.dp, IosGlassBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RectangleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shadowElevation = 0.dp,
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
             content()
         }
     }
 }
 
 @Composable
-fun InfoRow(label: String, value: String, valueColor: Color = MaterialTheme.colorScheme.onSurface) {
+fun PageDescription(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.padding(start = 4.dp, end = 4.dp, bottom = 2.dp),
+    )
+}
+
+@Composable
+fun SectionLabel(title: String, caption: String? = null) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 8.dp, end = 4.dp, bottom = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        if (caption != null) {
+            Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+fun InfoRow(
+    label: String,
+    value: String,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+) {
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 40.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -79,8 +124,6 @@ fun InfoRow(label: String, value: String, valueColor: Color = MaterialTheme.colo
             modifier = Modifier.weight(0.42f),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
         Text(
             value,
@@ -88,7 +131,6 @@ fun InfoRow(label: String, value: String, valueColor: Color = MaterialTheme.colo
             color = valueColor,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
-            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -96,10 +138,12 @@ fun InfoRow(label: String, value: String, valueColor: Color = MaterialTheme.colo
 
 @Composable
 fun StatusChip(ok: Boolean, label: String) {
-    val color = if (ok) IosGreen else IosRed
+    val colors = MaterialTheme.ucloneColors
+    val color = if (ok) colors.success else MaterialTheme.colorScheme.error
+    val container = if (ok) colors.successContainer else MaterialTheme.colorScheme.errorContainer
     Surface(
         shape = RoundedCornerShape(999.dp),
-        color = color.copy(alpha = 0.12f),
+        color = container,
         contentColor = color,
     ) {
         Row(
@@ -107,11 +151,7 @@ fun StatusChip(ok: Boolean, label: String) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier
-                    .size(7.dp)
-                    .background(color, RoundedCornerShape(999.dp)),
-            )
+            Box(Modifier.size(7.dp).background(color, CircleShape))
             Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         }
     }
@@ -119,16 +159,13 @@ fun StatusChip(ok: Boolean, label: String) {
 
 @Composable
 fun RiskChip(risk: RiskLevel) {
-    val (label, color) = when (risk) {
-        RiskLevel.NORMAL -> "普通" to IosGreen
-        RiskLevel.HIGH -> "高风险" to IosOrange
-        RiskLevel.SYSTEM -> "系统 App" to IosRed
+    val colors = MaterialTheme.ucloneColors
+    val (label, color, container) = when (risk) {
+        RiskLevel.NORMAL -> Triple("普通", colors.success, colors.successContainer)
+        RiskLevel.HIGH -> Triple("高风险", colors.warning, colors.warningContainer)
+        RiskLevel.SYSTEM -> Triple("系统 App", MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.errorContainer)
     }
-    Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = color.copy(alpha = 0.12f),
-        contentColor = color,
-    ) {
+    Surface(shape = RoundedCornerShape(999.dp), color = container, contentColor = color) {
         Text(
             label,
             Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -140,23 +177,20 @@ fun RiskChip(risk: RiskLevel) {
 
 @Composable
 fun StepIcon(status: StepStatus) {
+    val colors = MaterialTheme.ucloneColors
     val icon = when (status) {
         StepStatus.SUCCESS -> Icons.Default.Check
         StepStatus.FAILED -> Icons.Default.Close
         else -> Icons.Default.HourglassTop
     }
     val tint = when (status) {
-        StepStatus.SUCCESS -> IosGreen
-        StepStatus.FAILED -> IosRed
-        StepStatus.RUNNING -> IosOrange
-        StepStatus.PENDING -> MaterialTheme.colorScheme.outline
+        StepStatus.SUCCESS -> colors.success
+        StepStatus.FAILED -> MaterialTheme.colorScheme.error
+        StepStatus.RUNNING -> colors.warning
+        StepStatus.PENDING -> colors.neutral
     }
-    Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = tint.copy(alpha = 0.12f),
-        contentColor = tint,
-    ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.padding(5.dp).size(14.dp))
+    Surface(shape = CircleShape, color = tint.copy(alpha = 0.12f), contentColor = tint) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.padding(5.dp).size(16.dp))
     }
 }
 
@@ -171,29 +205,19 @@ fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
     if (bitmap == null) {
         Box(
             modifier
-                .size(36.dp)
-                .background(IosGlassRaised, RoundedCornerShape(10.dp)),
+                .size(40.dp)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(packageName.take(1).uppercase())
+            Text(packageName.take(1).uppercase(), style = MaterialTheme.typography.titleMedium)
         }
     } else {
-        Image(bitmap = bitmap, contentDescription = null, modifier = modifier.size(36.dp))
+        Image(bitmap = bitmap, contentDescription = null, modifier = modifier.size(40.dp))
     }
 }
 
 @Composable
-fun ScreenHeader(title: String, subtitle: String? = null) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        if (subtitle != null) {
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-fun IosPrimaryButton(
+fun PrimaryActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
@@ -201,56 +225,38 @@ fun IosPrimaryButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 44.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         enabled = enabled,
-        shape = RoundedCornerShape(999.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = IosBlue,
-            contentColor = Color.White,
-            disabledContainerColor = IosSeparator,
-            disabledContentColor = IosSecondaryText,
-        ),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.28f)),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 2.dp,
-            pressedElevation = 0.dp,
-            disabledElevation = 0.dp,
-        ),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(8.dp),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         content = content,
     )
 }
 
 @Composable
-fun IosSecondaryButton(
+fun SecondaryActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    danger: Boolean = false,
     content: @Composable RowScope.() -> Unit,
 ) {
+    val contentColor = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 44.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         enabled = enabled,
-        shape = RoundedCornerShape(999.dp),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = IosGlassControl,
-            contentColor = IosText,
-            disabledContentColor = IosSecondaryText,
-        ),
-        border = BorderStroke(1.dp, IosControlBorder),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 1.dp,
-            pressedElevation = 0.dp,
-            disabledElevation = 0.dp,
-        ),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = contentColor),
+        border = BorderStroke(1.dp, if (danger) contentColor.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         content = content,
     )
 }
 
 @Composable
-fun IosCompactButton(
+fun CompactActionButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -259,85 +265,76 @@ fun IosCompactButton(
     danger: Boolean = false,
     icon: ImageVector? = null,
 ) {
-    val contentColor = when {
-        danger -> IosRed
-        primary -> Color.White
-        else -> IosBlue
-    }
-    val containerColor = when {
-        primary -> IosBlue
-        danger -> IosGlassControl
-        else -> IosGlassControl
-    }
-    val borderColor = when {
-        primary -> Color.White.copy(alpha = 0.28f)
-        danger -> IosRed.copy(alpha = 0.20f)
-        else -> IosControlBorder
-    }
-    Button(
-        onClick = onClick,
-        modifier = modifier
-            .heightIn(min = 36.dp)
-            .widthIn(min = 58.dp),
-        enabled = enabled,
-        shape = RoundedCornerShape(999.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-            disabledContainerColor = IosGlassRaised,
-            disabledContentColor = IosTertiaryText,
-        ),
-        border = BorderStroke(1.dp, borderColor),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 1.dp,
-            pressedElevation = 0.dp,
-            disabledElevation = 0.dp,
-        ),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
-    ) {
-        if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(4.dp))
+    if (primary) {
+        Button(
+            onClick = onClick,
+            modifier = modifier.heightIn(min = 48.dp).widthIn(min = 72.dp),
+            enabled = enabled,
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            ActionButtonContent(text, icon)
         }
-        Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = modifier.heightIn(min = 48.dp).widthIn(min = 72.dp),
+            enabled = enabled,
+            shape = RoundedCornerShape(8.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            ),
+            border = BorderStroke(
+                1.dp,
+                if (danger) MaterialTheme.colorScheme.error.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outline,
+            ),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            ActionButtonContent(text, icon)
+        }
     }
 }
 
 @Composable
-fun IosGlassIconButton(
+private fun ActionButtonContent(text: String, icon: ImageVector?) {
+    if (icon != null) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+    }
+    Text(text, style = MaterialTheme.typography.labelLarge)
+}
+
+@Composable
+fun UtilityIconButton(
     imageVector: ImageVector,
     contentDescription: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    tint: Color = IosText,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     selected: Boolean = false,
     enabled: Boolean = true,
 ) {
-    val containerColor = if (selected) tint.copy(alpha = 0.12f) else IosGlassControl
-    val borderColor = if (selected) tint.copy(alpha = 0.22f) else IosControlBorder
     Surface(
         onClick = onClick,
-        modifier = modifier.size(40.dp),
+        modifier = modifier.size(48.dp),
         enabled = enabled,
-        shape = RoundedCornerShape(999.dp),
-        color = containerColor,
-        contentColor = tint,
-        border = BorderStroke(1.dp, borderColor),
-        shadowElevation = 0.dp,
+        shape = CircleShape,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else tint,
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(imageVector, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(20.dp))
+            Icon(imageVector, contentDescription = contentDescription, modifier = Modifier.size(22.dp))
         }
     }
 }
 
 @Composable
-fun IosStatusPill(label: String, color: Color = IosSecondaryText) {
+fun StatusBadge(label: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Surface(
         shape = RoundedCornerShape(999.dp),
-        color = color.copy(alpha = 0.10f),
+        color = color.copy(alpha = 0.12f),
         contentColor = color,
-        border = BorderStroke(1.dp, color.copy(alpha = 0.18f)),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.22f)),
     ) {
         Text(
             label,
@@ -351,15 +348,58 @@ fun IosStatusPill(label: String, color: Color = IosSecondaryText) {
 }
 
 @Composable
+fun ToolRow(
+    title: String,
+    description: String,
+    actionLabel: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+    primary: Boolean = false,
+    danger: Boolean = false,
+) {
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (icon != null) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                    tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            CompactActionButton(
+                text = actionLabel,
+                onClick = onClick,
+                enabled = enabled,
+                primary = primary,
+                danger = danger,
+            )
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
+    }
+}
+
+@Composable
 fun SingleLinePathText(path: String, modifier: Modifier = Modifier) {
     val scrollState = rememberScrollState()
     SelectionContainer {
         Text(
             path,
-            modifier = modifier
-                .fillMaxWidth()
-                .horizontalScroll(scrollState),
+            modifier = modifier.fillMaxWidth().horizontalScroll(scrollState),
             style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             softWrap = false,
@@ -368,19 +408,25 @@ fun SingleLinePathText(path: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun IosDialogButton(
+fun DialogActionButton(
     text: String,
     onClick: () -> Unit,
     primary: Boolean = false,
     danger: Boolean = false,
 ) {
-    IosCompactButton(
-        text = text,
+    TextButton(
         onClick = onClick,
-        primary = primary,
-        danger = danger,
-        modifier = Modifier.widthIn(min = 72.dp),
-    )
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = when {
+                danger -> MaterialTheme.colorScheme.error
+                primary -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge)
+    }
 }
 
 fun PackageManager.safeLabel(packageName: String): String =

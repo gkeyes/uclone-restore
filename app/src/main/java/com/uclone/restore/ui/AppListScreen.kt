@@ -1,8 +1,5 @@
 package com.uclone.restore.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,21 +9,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,24 +50,25 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
     Column(
         modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ScreenHeader("App", "点星标收藏到首页。")
+            PageDescription(
+                "查找 App、确认两侧安装状态，并管理首页收藏。",
+                modifier = Modifier.weight(1f),
+            )
             if (!searchExpanded) {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     AppFilterButton(selectedFilters) { selectedFilters = it }
-                    IosGlassIconButton(
+                    UtilityIconButton(
                         imageVector = Icons.Default.Search,
                         contentDescription = "搜索",
                         onClick = { searchExpanded = true },
-                        tint = IosSecondaryText,
                     )
                 }
             }
@@ -88,12 +84,12 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                     value = state.search,
                     onValueChange = viewModel::updateSearch,
                     modifier = Modifier.weight(1f),
-                    label = { Text("搜索包名或 App 名称") },
+                    placeholder = { Text("App 名称或包名") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.medium,
                     singleLine = true,
                 )
-                IosCompactButton(
+                CompactActionButton(
                     text = "收起",
                     onClick = {
                         viewModel.updateSearch("")
@@ -102,17 +98,37 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                 )
             }
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(apps, key = { it.packageName }) { app ->
-                AppRow(
-                    app = app,
-                    favorite = app.packageName in state.settings.favoritePackages,
-                    onFavorite = { viewModel.toggleFavorite(app.packageName) },
-                    onClick = {
-                        viewModel.selectPackage(app.packageName)
-                        openDetail()
-                    },
+        if (apps.isEmpty()) {
+            SectionCard(if (query.isEmpty()) "没有可显示的 App" else "没有匹配结果") {
+                Text(
+                    if (query.isEmpty()) "调整筛选条件后重试。" else "检查名称、包名或清除搜索条件。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        } else {
+            Text(
+                "${apps.size} 个 App",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(apps, key = { it.packageName }) { app ->
+                    AppRow(
+                        app = app,
+                        favorite = app.packageName in state.settings.favoritePackages,
+                        mainUserId = state.settings.mainUserId,
+                        cloneUserId = state.settings.cloneUserId,
+                        onFavorite = { viewModel.toggleFavorite(app.packageName) },
+                        onClick = {
+                            viewModel.selectPackage(app.packageName)
+                            openDetail()
+                        },
+                    )
+                }
             }
         }
     }
@@ -120,9 +136,9 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
 
 private enum class AppListFilter(val label: String) {
     ALL("显示全部"),
-    DUAL_SYSTEM("显示双系统 App"),
-    USER("显示用户 App"),
-    SYSTEM("显示系统 App"),
+    DUAL_SYSTEM("双侧已安装"),
+    USER("用户 App"),
+    SYSTEM("系统 App"),
 }
 
 private fun Set<AppListFilter>.matches(app: AppEntry): Boolean {
@@ -148,26 +164,20 @@ private fun AppFilterButton(selectedFilters: Set<AppListFilter>, onChange: (Set<
     var expanded by remember { mutableStateOf(false) }
     val active = AppListFilter.ALL !in selectedFilters
     Box {
-        IosGlassIconButton(
+        UtilityIconButton(
             imageVector = Icons.Default.FilterList,
             contentDescription = "筛选",
             onClick = { expanded = true },
-            tint = if (active) IosBlue else IosSecondaryText,
+            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             selected = active,
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             AppListFilter.entries.forEach { filter ->
                 DropdownMenuItem(
                     text = {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Checkbox(
-                                checked = filter in selectedFilters,
-                                onCheckedChange = null,
-                            )
-                            Text(filter.label, style = MaterialTheme.typography.bodyMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = filter in selectedFilters, onCheckedChange = null)
+                            Text(filter.label)
                         }
                     },
                     onClick = {
@@ -181,40 +191,50 @@ private fun AppFilterButton(selectedFilters: Set<AppListFilter>, onChange: (Set<
 }
 
 @Composable
-private fun AppRow(app: AppEntry, favorite: Boolean, onFavorite: () -> Unit, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = IosGlass),
-        border = BorderStroke(1.dp, IosGlassBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+private fun AppRow(
+    app: AppEntry,
+    favorite: Boolean,
+    mainUserId: Int,
+    cloneUserId: Int,
+    onFavorite: () -> Unit,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AppIcon(app.packageName)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(app.label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    "${app.packageName} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
+                    app.packageName,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    "user$mainUserId ${if (app.user0Installed) "已安装" else "未安装"} · user$cloneUserId ${if (app.user10Installed) "已安装" else "未安装"} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            IosGlassIconButton(
+            UtilityIconButton(
                 imageVector = if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
                 contentDescription = if (favorite) "取消收藏" else "收藏",
                 onClick = onFavorite,
-                tint = if (favorite) IosOrange else IosTertiaryText,
+                tint = if (favorite) MaterialTheme.ucloneColors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
                 selected = favorite,
             )
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = IosTertiaryText)
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

@@ -1,29 +1,28 @@
 package com.uclone.restore.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,12 +31,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskStep
+import com.uclone.restore.model.User10CeState
 import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.util.Formatters
 
@@ -47,59 +48,17 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            ScreenHeader("首页", "收藏 App 的切换、还原与单向推送。")
-        }
-        item {
-            SectionCard("系统状态") {
-                val env = state.environment
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusChip(env?.root?.ok == true, if (env?.root?.ok == true) "Root 正常" else "Root 异常")
-                    StatusChip(env?.user10Present == true, "user${state.settings.cloneUserId}")
-                }
-                InfoRow("当前用户", env?.currentUser ?: "未检测")
-                InfoRow("分身状态", env?.user10State ?: "未检测")
-                InfoRow("CE gate", env?.user10CeState?.label ?: "未检测")
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    IosPrimaryButton(onClick = viewModel::refreshEnvironment, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                        Text("检测")
-                    }
-                    IosSecondaryButton(onClick = viewModel::startCloneUser, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                        Text("启动")
-                    }
-                    IosSecondaryButton(onClick = viewModel::stopCloneUser, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.PowerSettingsNew, contentDescription = null)
-                        Text("关闭")
-                    }
-                }
-            }
-        }
-        if (state.currentTask.task != null) {
-            item {
-                CurrentTaskCard(state)
-            }
-        }
-        item {
-            Text(
-                "收藏 App",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 4.dp, top = 2.dp, end = 4.dp),
-            )
-        }
+        item { PageDescription("先确认系统状态，再处理收藏 App 的切换、还原和推送。") }
+        item { SystemHealthSection(state, viewModel) }
+        if (state.currentTask.task != null) item { CurrentTaskCard(state) }
+        item { SectionLabel("收藏 App", "每个 App 只突出当前状态对应的主动作。") }
         if (state.favoriteApps.isEmpty()) {
             item {
-                SectionCard("未收藏") {
-                    Text("在 App 列表点星标加入首页。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SectionCard("暂无收藏") {
+                    Text("在 App 页面点星标后，常用 App 会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {
@@ -121,6 +80,8 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
     confirm?.let { action ->
         HomeConfirmDialog(
             action = action,
+            mainUserId = state.settings.mainUserId,
+            cloneUserId = state.settings.cloneUserId,
             onDismiss = { confirm = null },
             onConfirm = {
                 confirm = null
@@ -135,12 +96,53 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
 }
 
 @Composable
+private fun SystemHealthSection(state: UiState, viewModel: UCloneViewModel) {
+    val env = state.environment
+    val usable = env?.root?.ok == true && env.dataAdbWritable.ok && env.user10Present
+    val cloneRunning = env?.user10CeState is User10CeState.StartedLocked ||
+        env?.user10CeState is User10CeState.RunningUnlocked
+    SectionCard(if (usable) "系统可用" else "需要检查") {
+        Text(
+            if (usable) "Root、工作区和分身用户已通过基础检查。" else "至少一项基础条件尚未确认，请先重新检测。",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            StatusChip(env?.root?.ok == true, if (env?.root?.ok == true) "Root 正常" else "Root 未就绪")
+            StatusChip(env?.user10Present == true, "分身 user${state.settings.cloneUserId}")
+        }
+        InfoRow("当前用户", env?.currentUser ?: "未检测")
+        InfoRow("分身系统", env?.user10State ?: "未检测")
+        InfoRow("分身数据", env?.user10CeState?.userFacingLabel ?: "未检测")
+        PrimaryActionButton(onClick = viewModel::refreshEnvironment, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.Refresh, contentDescription = null)
+            Text("重新检测")
+        }
+        if (env != null) {
+            SecondaryActionButton(
+                onClick = if (cloneRunning) viewModel::stopCloneUser else viewModel::startCloneUser,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(
+                    if (cloneRunning) Icons.Default.PowerSettingsNew else Icons.Default.PlayArrow,
+                    contentDescription = null,
+                )
+                Text(if (cloneRunning) "关闭分身系统" else "启动分身系统")
+            }
+        }
+    }
+}
+
+@Composable
 private fun CurrentTaskCard(state: UiState) {
     val task = state.currentTask.task ?: return
-    val activeStep = state.currentTask.task?.currentStage?.let { TaskStep(it.displayLabel, StepStatus.RUNNING) }
+    val activeStep = task.currentStage?.let { TaskStep(it.displayLabel, StepStatus.RUNNING) }
         ?: state.currentTask.steps.firstOrNull { it.status == StepStatus.RUNNING }
         ?: state.currentTask.steps.lastOrNull { it.status == StepStatus.SUCCESS }
-    SectionCard("最新任务") {
+    SectionCard("当前任务") {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -149,20 +151,14 @@ private fun CurrentTaskCard(state: UiState) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(task.packageName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    "${task.type.name} · ${task.status.name}",
+                    "${task.type.displayName} · ${task.status.displayName}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            activeStep?.let { step ->
-                IosStatusPill(step.label, step.status.homePillColor())
-            }
+            activeStep?.let { StatusBadge(it.label, it.status.homeBadgeColor()) }
         }
-        if (state.busy) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
-        }
+        if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
     }
 }
 
@@ -175,38 +171,77 @@ private fun FavoriteAppRow(
     onSwitch: () -> Unit,
     onRestore: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = IosGlass),
-        border = BorderStroke(1.dp, IosGlassBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    var menuExpanded by remember { mutableStateOf(false) }
+    Surface(
+        onClick = onOpen,
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            AppIcon(app.packageName)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(app.label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    "${app.packageName} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppIcon(app.packageName)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(app.label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "${app.packageName} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                StatusBadge(
+                    label = when (dataState) {
+                        AppDataState.Main -> "主数据"
+                        is AppDataState.Clone -> "分数据"
+                        AppDataState.Unknown -> "状态未知"
+                    },
+                    color = when (dataState) {
+                        AppDataState.Main -> MaterialTheme.ucloneColors.success
+                        is AppDataState.Clone -> MaterialTheme.colorScheme.primary
+                        AppDataState.Unknown -> MaterialTheme.ucloneColors.warning
+                    },
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                IosCompactButton(
-                    text = "推送",
-                    onClick = onPush,
-                    icon = Icons.Default.Upload,
-                )
-                IosCompactButton(
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    UtilityIconButton(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "更多操作",
+                        onClick = { menuExpanded = true },
+                    )
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("推送当前主系统数据到分身") },
+                            leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                onPush()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("查看 App 详情") },
+                            onClick = {
+                                menuExpanded = false
+                                onOpen()
+                            },
+                        )
+                    }
+                }
+                CompactActionButton(
                     text = when (dataState) {
                         AppDataState.Main -> "切换"
                         is AppDataState.Clone -> "还原"
@@ -217,7 +252,7 @@ private fun FavoriteAppRow(
                         is AppDataState.Clone -> onRestore
                         AppDataState.Unknown -> onOpen
                     },
-                    primary = dataState == AppDataState.Main,
+                    primary = dataState != AppDataState.Unknown,
                     icon = if (dataState is AppDataState.Clone) Icons.Default.Refresh else Icons.Default.Sync,
                 )
             }
@@ -232,29 +267,36 @@ private sealed class HomeConfirm {
 }
 
 @Composable
-private fun HomeConfirmDialog(action: HomeConfirm, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun HomeConfirmDialog(
+    action: HomeConfirm,
+    mainUserId: Int,
+    cloneUserId: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
     val title = when (action) {
         is HomeConfirm.Push -> "推送到分身"
         is HomeConfirm.Switch -> "切换到分身态"
         is HomeConfirm.Restore -> "还原主系统态"
     }
     val body = when (action) {
-        is HomeConfirm.Push -> "会把主系统当前 ${action.label} 数据覆盖到分身。执行前会把分身当前数据保存为独立的最新分身回滚，不影响首页切换/还原状态。"
-        is HomeConfirm.Switch -> "会先保存当前主系统数据为被动备份，再使用分身最新状态恢复 ${action.label}。"
-        is HomeConfirm.Restore -> "会用切换前保存的被动备份恢复 ${action.label}，并清除首页还原标记。"
+        is HomeConfirm.Push -> "来源：user$mainUserId 当前 ${action.label} 数据。\n目标：user$cloneUserId 分身 App 数据。\n保护：执行前保存分身回滚。\n后果：覆盖分身当前数据，不改变首页切换标记。"
+        is HomeConfirm.Switch -> "来源：user$cloneUserId 分身最新 ${action.label} 数据。\n目标：user$mainUserId App 数据。\n保护：先保存当前主数据返回点。\n后果：主系统将进入分数据 CLONE 状态。"
+        is HomeConfirm.Restore -> "来源：切换前保存的 MAIN 返回点。\n目标：user$mainUserId App 数据。\n保护：本次任务仍会建立事务回滚。\n后果：清除首页还原标记。"
     }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(body) },
-        confirmButton = { IosDialogButton("继续", onConfirm, primary = true) },
-        dismissButton = { IosDialogButton("取消", onDismiss) },
+        confirmButton = { DialogActionButton("继续", onConfirm, primary = true) },
+        dismissButton = { DialogActionButton("取消", onDismiss) },
     )
 }
 
-private fun StepStatus.homePillColor() = when (this) {
-    StepStatus.SUCCESS -> IosGreen
-    StepStatus.FAILED -> IosRed
-    StepStatus.RUNNING -> IosOrange
-    StepStatus.PENDING -> IosSecondaryText
+@Composable
+private fun StepStatus.homeBadgeColor(): Color = when (this) {
+    StepStatus.SUCCESS -> MaterialTheme.ucloneColors.success
+    StepStatus.FAILED -> MaterialTheme.colorScheme.error
+    StepStatus.RUNNING -> MaterialTheme.ucloneColors.warning
+    StepStatus.PENDING -> MaterialTheme.ucloneColors.neutral
 }

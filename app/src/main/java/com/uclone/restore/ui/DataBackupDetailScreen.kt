@@ -3,18 +3,14 @@ package com.uclone.restore.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,9 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.util.Formatters
 
@@ -35,7 +29,6 @@ fun DataBackupDetailScreen(
     modifier: Modifier,
     packageName: String?,
     rollbackId: String?,
-    onBack: () -> Unit,
 ) {
     var confirm by remember(packageName, rollbackId) { mutableStateOf<DataBackupAction?>(null) }
     val rootDir = state.settings.rootDir
@@ -62,14 +55,16 @@ fun DataBackupDetailScreen(
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        DataDetailHeader(
-            title = if (isPassive) "被动备份详情" else "主动快照详情",
-            subtitle = "这里只处理恢复和删除。",
-            onBack = onBack,
+        PageDescription(
+            if (isPassive) {
+                "查看指定被动备份，并决定是否用它覆盖主系统 user${state.settings.mainUserId}。"
+            } else {
+                "查看 active 主动快照，并决定是否用它覆盖主系统 user${state.settings.mainUserId}。"
+            },
         )
         if (packageName == null || !backupExists) {
             SectionCard("备份不存在") {
@@ -89,21 +84,23 @@ fun DataBackupDetailScreen(
             Text("保存位置", color = MaterialTheme.colorScheme.onSurfaceVariant)
             SingleLinePathText(passivePath ?: activePath.orEmpty())
         }
-        SectionCard("操作") {
-            IosPrimaryButton(
+        SectionCard("备份操作") {
+            ToolRow(
+                title = if (isPassive) "用指定被动备份覆盖 user${state.settings.mainUserId}" else "用 active 快照覆盖 user${state.settings.mainUserId}",
+                description = "将先建立本次专用回滚，再覆盖主系统中的 App 数据。",
+                actionLabel = "恢复",
+                icon = Icons.Default.RestartAlt,
                 onClick = { confirm = DataBackupAction.RESTORE },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Default.RestartAlt, contentDescription = null)
-                Text(if (isPassive) "恢复被动备份" else "恢复到主系统")
-            }
-            IosSecondaryButton(
+                primary = true,
+            )
+            ToolRow(
+                title = if (isPassive) "删除这份被动备份" else "删除 active 主动快照",
+                description = if (isPassive) "只删除当前备份 ID，不影响其他被动备份或主动快照。" else "删除后不能再从这份 active 快照恢复。",
+                actionLabel = "删除",
+                icon = Icons.Default.Delete,
                 onClick = { confirm = DataBackupAction.DELETE },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = null, tint = IosRed)
-                Text(if (isPassive) "删除被动备份" else "删除 active 快照", color = IosRed)
-            }
+                danger = true,
+            )
         }
     }
 
@@ -114,7 +111,7 @@ fun DataBackupDetailScreen(
             title = {
                 Text(
                     when (action) {
-                        DataBackupAction.RESTORE -> if (isPassive) "恢复被动备份" else "恢复主动快照"
+                        DataBackupAction.RESTORE -> if (isPassive) "用指定被动备份覆盖 user${state.settings.mainUserId}" else "用 active 快照覆盖 user${state.settings.mainUserId}"
                         DataBackupAction.DELETE -> if (isPassive) "删除被动备份" else "删除 active 快照"
                     },
                 )
@@ -123,12 +120,12 @@ fun DataBackupDetailScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     when (action) {
                         DataBackupAction.RESTORE -> {
-                            Text("将使用以下备份覆盖主系统 user0 数据。")
+                            Text("将使用以下备份覆盖主系统 user${state.settings.mainUserId} 数据。")
                             SingleLinePathText(path)
                         }
                         DataBackupAction.DELETE -> if (isPassive) {
-                            Text("将删除以下目录下该 App 的全部被动备份。主动快照不会被删除。")
-                            SingleLinePathText("$rootDir/rollback/$packageName")
+                            Text("只删除下面这份被动备份，其他被动备份和主动快照不受影响。")
+                            SingleLinePathText(path)
                         } else {
                             Text("将删除以下快照。删除后不能从这份快照恢复。")
                             SingleLinePathText(path)
@@ -137,7 +134,7 @@ fun DataBackupDetailScreen(
                 }
             },
             confirmButton = {
-                IosDialogButton(
+                DialogActionButton(
                     text = if (action == DataBackupAction.DELETE) "删除" else "继续",
                     onClick = {
                         confirm = null
@@ -145,19 +142,12 @@ fun DataBackupDetailScreen(
                         if (targetPackageName != null) {
                             when (action) {
                                 DataBackupAction.RESTORE -> {
-                                    if (isPassive && rollbackId != null) {
-                                        viewModel.restoreBackup(targetPackageName, rollbackId)
-                                    } else {
-                                        viewModel.restoreSnapshot(targetPackageName)
-                                    }
+                                    rollbackId?.let { viewModel.restoreBackup(targetPackageName, it) }
+                                        ?: viewModel.restoreSnapshot(targetPackageName)
                                 }
                                 DataBackupAction.DELETE -> {
-                                    if (isPassive && rollbackId != null) {
-                                        viewModel.deleteRestoreBackup(targetPackageName, rollbackId)
-                                    } else {
-                                        viewModel.deleteSnapshot(targetPackageName)
-                                    }
-                                    onBack()
+                                    rollbackId?.let { viewModel.deleteRestoreBackup(targetPackageName, it) }
+                                        ?: viewModel.deleteSnapshot(targetPackageName)
                                 }
                             }
                         }
@@ -167,30 +157,10 @@ fun DataBackupDetailScreen(
                 )
             },
             dismissButton = {
-                IosDialogButton("取消", onClick = { confirm = null })
+                DialogActionButton("取消", onClick = { confirm = null })
             },
         )
     }
 }
 
 private enum class DataBackupAction { RESTORE, DELETE }
-
-@Composable
-private fun DataDetailHeader(title: String, subtitle: String, onBack: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IosGlassIconButton(
-            imageVector = Icons.Default.ArrowBack,
-            contentDescription = "返回",
-            onClick = onBack,
-            tint = IosText,
-        )
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}

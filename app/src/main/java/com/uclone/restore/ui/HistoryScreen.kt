@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,18 +17,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.util.Formatters
+import java.util.Locale
 
 @Composable
 fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     Column(
-        modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        ScreenHeader("历史", "只查看任务记录；备份集中在“数据”页。")
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PageDescription("这里记录已接受的业务任务；备份文件仍集中在“数据”页管理。")
+        if (state.history.isEmpty()) {
+            SectionCard("暂无任务记录") {
+                Text("执行切换、推送、恢复或维护任务后，结果会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             items(state.history, key = { it.id }) { task ->
-                SectionCard(task.packageName) {
-                    InfoRow("类型", task.type.name)
+                SectionCard(task.packageName.ifBlank { "系统任务" }) {
+                    InfoRow("任务", task.type.displayName)
                     InfoRow("开始", Formatters.time(task.startedAt))
                     InfoRow("结束", Formatters.time(task.finishedAt))
                     val statusColor = when (task.status) {
@@ -38,28 +46,52 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                         TaskStatus.INTERRUPTED,
                         -> MaterialTheme.colorScheme.error
 
-                        TaskStatus.ACCEPTED,
-                        TaskStatus.RUNNING,
-                        TaskStatus.AUTO_ROLLING_BACK,
                         TaskStatus.SUCCESS_WITH_WARNINGS,
-                        -> MaterialTheme.colorScheme.tertiary
+                        -> MaterialTheme.ucloneColors.warning
 
                         TaskStatus.ROLLED_BACK,
                         TaskStatus.SUCCESS,
+                        -> MaterialTheme.ucloneColors.success
+
+                        TaskStatus.ACCEPTED,
+                        TaskStatus.RUNNING,
+                        TaskStatus.AUTO_ROLLING_BACK,
                         -> MaterialTheme.colorScheme.primary
                     }
-                    InfoRow("状态", task.status.name, statusColor)
+                    StatusBadge(task.status.displayName, statusColor)
+                    task.finishedAt?.let { finishedAt ->
+                        InfoRow("耗时", formatDuration(finishedAt - task.startedAt))
+                    }
+                    if (task.metrics.copiedFiles > 0L || task.metrics.copiedBytes > 0L) {
+                        InfoRow("复制", "${task.metrics.copiedFiles} 个文件 · ${Formatters.bytes(task.metrics.copiedBytes)}")
+                    }
+                    task.metrics.targetDowntimeMs?.let { downtime ->
+                        InfoRow("目标 App 停机", formatDuration(downtime))
+                    }
                     InfoRow("结果", task.message)
                     Text("日志", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     SingleLinePathText(task.logPath)
                     if (task.packageName != state.selectedPackage) {
-                        IosSecondaryButton(onClick = { viewModel.selectPackage(task.packageName) }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.Apps, contentDescription = null)
-                            Text("选择此 App")
-                        }
+                        ToolRow(
+                            title = "在 App 页面选择此目标",
+                            description = "将 ${task.packageName} 设为当前 App，不执行任何数据操作。",
+                            actionLabel = "选择",
+                            icon = Icons.Default.Apps,
+                            onClick = { viewModel.selectPackage(task.packageName) },
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+private fun formatDuration(durationMs: Long): String {
+    val seconds = durationMs.coerceAtLeast(0L) / 1_000.0
+    return if (seconds < 60) {
+        String.format(Locale.US, "%.1f 秒", seconds)
+    } else {
+        val wholeSeconds = seconds.toLong()
+        "${wholeSeconds / 60} 分 ${wholeSeconds % 60} 秒"
     }
 }

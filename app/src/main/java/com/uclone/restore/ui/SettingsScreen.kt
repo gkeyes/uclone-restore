@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,10 +47,10 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        ScreenHeader("设置", "调整用户 ID、保存路径和默认备份范围。")
+        PageDescription("配置用户、工作区和默认数据范围；危险维护操作集中在页面底部。")
         SectionCard("用户 ID") {
             NumberField("主系统 ID", draft.mainUserId) { draft = draft.copy(mainUserId = it) }
             NumberField("分身系统 ID", draft.cloneUserId) { draft = draft.copy(cloneUserId = it) }
@@ -60,7 +61,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 onValueChange = { draft = draft.copy(rootDir = it) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Root 数据目录") },
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(8.dp),
                 singleLine = true,
             )
             SingleLinePathText("主动快照: ${draft.rootDir}/snapshots/<包名>/active")
@@ -77,7 +78,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 onValueChange = { draft = draft.copy(cloneUnlockCredential = it.trim()) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("分身锁屏 PIN/密码") },
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(8.dp),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
             )
@@ -91,7 +92,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 draft = draft.copy(stopCloneAfterTask = it)
             }
             Text(
-                "仅对备份、切换、推送和分身回滚等数据任务生效，而且只关闭本次任务启动的 user10。无感启动分身不会自动关闭。",
+                "仅对备份、切换、推送和分身回滚等数据任务生效，而且只关闭本次任务启动的 user${draft.cloneUserId}。无感启动分身不会自动关闭。",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -111,7 +112,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 draft = draft.copy(forceUpdateCloneDataBeforeMainRestore = it)
             }
             Text(
-                "仅在 user0 已确认处于 CLONE 状态时生效：先把当前 user0 分数据推送到 user${draft.cloneUserId}，成功后再恢复 MAIN 返回点。推送失败时不会开始还原。",
+                "仅在 user${draft.mainUserId} 已确认处于 CLONE 状态时生效：先把当前分数据推送到 user${draft.cloneUserId}，成功后再恢复 MAIN 返回点。推送失败时不会开始还原。",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -133,7 +134,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             ToggleRow("权限/AppOps", draft.includePermissions) { draft = draft.copy(includePermissions = it) }
             ToggleRow("排除 cache/code_cache", draft.excludeCache) { draft = draft.copy(excludeCache = it) }
         }
-        IosPrimaryButton(
+        PrimaryActionButton(
             onClick = {
                 viewModel.saveSettings(draft)
                 Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show()
@@ -153,39 +154,47 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 InfoRow("需要修复", ownership.nonRootEntries.toString())
                 SingleLinePathText(ownership.canonicalRoot)
             }
-            IosSecondaryButton(
+            ToolRow(
+                title = "扫描备份容量归属",
+                description = "只读统计非 root 归属项，不修改工作区内容。",
+                actionLabel = "扫描",
+                icon = Icons.Outlined.Search,
                 onClick = viewModel::scanWorkspaceOwnership,
-                modifier = Modifier.fillMaxWidth(),
                 enabled = !state.busy,
-            ) {
-                Icon(Icons.Outlined.Search, contentDescription = null)
-                Text("扫描备份容量归属")
-            }
+            )
             if (ownership != null && ownership.nonRootEntries > 0L) {
-                IosSecondaryButton(
+                ToolRow(
+                    title = "修复备份容量归属",
+                    description = "分批把受管目录中的 UID/GID 修正为 root:root。",
+                    actionLabel = "修复",
+                    icon = Icons.Outlined.Build,
                     onClick = { confirmOwnershipRepair = true },
-                    modifier = Modifier.fillMaxWidth(),
                     enabled = !state.busy,
-                ) {
-                    Icon(Icons.Outlined.Build, contentDescription = null, tint = IosOrange)
-                    Text("修复备份容量归属", color = IosOrange)
-                }
+                )
             }
             Text("日志目录", color = MaterialTheme.colorScheme.onSurfaceVariant)
             SingleLinePathText("${state.settings.rootDir}/logs")
             Text("清理日志只删除任务日志文件，不会删除主动备份或被动备份。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            IosSecondaryButton(onClick = { confirmClearLogs = true }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Delete, contentDescription = null, tint = IosRed)
-                Text("清理任务日志", color = IosRed)
-            }
+            ToolRow(
+                title = "清理任务日志",
+                description = "只删除日志文件，不删除主动快照、被动备份或分身回滚。",
+                actionLabel = "清理",
+                icon = Icons.Default.Delete,
+                onClick = { confirmClearLogs = true },
+                danger = true,
+            )
             Text(
                 "重置会删除 UClone 工作目录中的所有备份、日志、审计包、切换标记和临时文件，不会删除任何 App 的真实数据目录。",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            IosSecondaryButton(onClick = { resetConfirmStage = 1 }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Delete, contentDescription = null, tint = IosRed)
-                Text("重置所有 UClone 数据", color = IosRed)
-            }
+            ToolRow(
+                title = "重置所有 UClone 数据",
+                description = "清空 UClone 工作区中的备份、记录和临时文件，需要两次确认。",
+                actionLabel = "重置",
+                icon = Icons.Default.Delete,
+                onClick = { resetConfirmStage = 1 },
+                danger = true,
+            )
         }
     }
     if (confirmOwnershipRepair) {
@@ -196,12 +205,12 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("将把 ${ownership?.nonRootEntries ?: 0} 个工作区文件或目录修正为 root:root。")
-                    Text("只修改 UID/GID，不删除内容；任务中断后可重新扫描并继续。")
+                    Text("不主动执行 chmod，也不修改 SELinux context 或文件内容；任务中断后可重新扫描并继续。")
                     SingleLinePathText(ownership?.canonicalRoot ?: state.settings.rootDir)
                 }
             },
             confirmButton = {
-                IosDialogButton(
+                DialogActionButton(
                     text = "开始修复",
                     onClick = {
                         confirmOwnershipRepair = false
@@ -210,7 +219,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                     primary = true,
                 )
             },
-            dismissButton = { IosDialogButton("取消", onClick = { confirmOwnershipRepair = false }) },
+            dismissButton = { DialogActionButton("取消", onClick = { confirmOwnershipRepair = false }) },
         )
     }
     if (confirmClearLogs) {
@@ -224,7 +233,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 }
             },
             confirmButton = {
-                IosDialogButton(
+                DialogActionButton(
                     text = "继续",
                     onClick = {
                         confirmClearLogs = false
@@ -233,7 +242,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                     danger = true,
                 )
             },
-            dismissButton = { IosDialogButton("取消", onClick = { confirmClearLogs = false }) },
+            dismissButton = { DialogActionButton("取消", onClick = { confirmClearLogs = false }) },
         )
     }
     if (resetConfirmStage == 1) {
@@ -248,13 +257,13 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 }
             },
             confirmButton = {
-                IosDialogButton(
+                DialogActionButton(
                     text = "继续",
                     onClick = { resetConfirmStage = 2 },
                     danger = true,
                 )
             },
-            dismissButton = { IosDialogButton("取消", onClick = { resetConfirmStage = 0 }) },
+            dismissButton = { DialogActionButton("取消", onClick = { resetConfirmStage = 0 }) },
         )
     }
     if (resetConfirmStage == 2) {
@@ -268,7 +277,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                 }
             },
             confirmButton = {
-                IosDialogButton(
+                DialogActionButton(
                     text = "确认重置",
                     onClick = {
                         resetConfirmStage = 0
@@ -277,7 +286,7 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
                     danger = true,
                 )
             },
-            dismissButton = { IosDialogButton("取消", onClick = { resetConfirmStage = 0 }) },
+            dismissButton = { DialogActionButton("取消", onClick = { resetConfirmStage = 0 }) },
         )
     }
 }
@@ -289,24 +298,28 @@ private fun NumberField(label: String, value: Int, onChange: (Int) -> Unit) {
         onValueChange = { text -> text.toIntOrNull()?.let(onChange) },
         modifier = Modifier.fillMaxWidth(),
         label = { Text(label) },
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(8.dp),
         singleLine = true,
     )
 }
 
 @Composable
 private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(label)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, modifier = Modifier.weight(1f).padding(end = 12.dp))
         Switch(
             checked = checked,
             onCheckedChange = onChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = IosGroup,
-                checkedTrackColor = IosGreen,
-                uncheckedThumbColor = IosGroup,
-                uncheckedTrackColor = IosSeparator,
-                uncheckedBorderColor = IosSeparator,
+                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                uncheckedBorderColor = MaterialTheme.colorScheme.outline,
             ),
         )
     }

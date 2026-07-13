@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RestartAlt
@@ -39,7 +38,7 @@ import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.util.Formatters
 
 @Composable
-fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, onBack: () -> Unit) {
+fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     val app = state.selectedApp
     val context = LocalContext.current
     val installTargetUserId = app?.let {
@@ -54,15 +53,15 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (app == null) {
-            DetailHeader("详情", "请先在 App 列表选择一个目标。", onBack)
+            PageDescription("请先在 App 页面选择一个目标。")
             return@Column
         }
-        DetailHeader("App 详情", "建立主动备份，或恢复到主系统。", onBack)
+        PageDescription("先确认安装和数据状态，再选择对应操作。")
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -74,11 +73,11 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 Text(app.packageName)
             }
             val favorite = app.packageName in state.settings.favoritePackages
-            IosGlassIconButton(
+            UtilityIconButton(
                 imageVector = if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
                 contentDescription = if (favorite) "取消收藏" else "收藏",
                 onClick = { viewModel.toggleFavorite(app.packageName) },
-                tint = if (favorite) IosOrange else IosTertiaryText,
+                tint = if (favorite) MaterialTheme.ucloneColors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
                 selected = favorite,
             )
         }
@@ -124,6 +123,18 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                     AppDataState.Unknown, null -> "状态未知 UNKNOWN"
                 },
             )
+            StatusBadge(
+                label = when (state.selectedDataState) {
+                    AppDataState.Main -> "MAIN · 主数据正在 user${state.settings.mainUserId} 使用"
+                    is AppDataState.Clone -> "CLONE · 分数据正在 user${state.settings.mainUserId} 使用"
+                    AppDataState.Unknown, null -> "UNKNOWN · 数据来源无法确认"
+                },
+                color = when (state.selectedDataState) {
+                    AppDataState.Main -> MaterialTheme.ucloneColors.success
+                    is AppDataState.Clone -> MaterialTheme.colorScheme.primary
+                    AppDataState.Unknown, null -> MaterialTheme.ucloneColors.warning
+                },
+            )
             if (state.selectedDataState == AppDataState.Unknown) {
                 Text("切换状态记录不完整。请从数据页恢复一份已标识来源的备份后再继续。")
             }
@@ -162,7 +173,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         val task = state.currentTask.task
         if (task?.packageName == app.packageName && (state.busy || state.currentTask.steps.isNotEmpty())) {
             SectionCard("任务进度") {
-                Text(task.type.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(task.type.displayName, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (state.busy) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
@@ -178,8 +189,8 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 }
             }
         }
-        SectionCard("操作") {
-            IosPrimaryButton(
+        SectionCard("主要操作") {
+            PrimaryActionButton(
                 onClick = {
                     confirm = when (state.selectedDataState) {
                         AppDataState.Main -> ConfirmAction.SWITCH
@@ -199,36 +210,54 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                     },
                 )
             }
-            IosPrimaryButton(onClick = { confirm = ConfirmAction.CAPTURE }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.CloudDownload, contentDescription = null)
-                Text("建立主动备份")
-            }
-            IosPrimaryButton(onClick = { confirm = ConfirmAction.RESTORE }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.RestartAlt, contentDescription = null)
-                Text("恢复到主系统")
-            }
-            IosSecondaryButton(onClick = { confirm = ConfirmAction.LATEST }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.Sync, contentDescription = null)
-                Text("备份并恢复到主系统")
-            }
-            IosSecondaryButton(onClick = { confirm = ConfirmAction.AUDIT }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.CloudDownload, contentDescription = null)
-                Text("生成恢复审计包")
-            }
-            IosSecondaryButton(
-                onClick = { confirm = ConfirmAction.DELETE },
-                modifier = Modifier.fillMaxWidth(),
+        }
+        SectionCard("备份与恢复工具") {
+            ToolRow(
+                title = "建立主动备份",
+                description = "读取分身当前数据，保存为 active 快照。",
+                actionLabel = "执行",
+                icon = Icons.Default.CloudDownload,
+                onClick = { confirm = ConfirmAction.CAPTURE },
+            )
+            ToolRow(
+                title = "用 active 快照覆盖 user${state.settings.mainUserId}",
+                description = "只使用已保存快照，不重新读取分身最新数据。",
+                actionLabel = "执行",
+                icon = Icons.Default.RestartAlt,
+                onClick = { confirm = ConfirmAction.RESTORE },
+            )
+            ToolRow(
+                title = "读取分身最新数据并恢复 user${state.settings.mainUserId}",
+                description = "先更新主动快照，再用新快照覆盖主系统数据。",
+                actionLabel = "执行",
+                icon = Icons.Default.Sync,
+                onClick = { confirm = ConfirmAction.LATEST },
+            )
+            ToolRow(
+                title = "生成恢复审计包",
+                description = "只读采集文件、权限与上下文证据，不修改数据。",
+                actionLabel = "执行",
+                icon = Icons.Default.CloudDownload,
+                onClick = { confirm = ConfirmAction.AUDIT },
+            )
+        }
+        SectionCard("危险操作") {
+            ToolRow(
+                title = "删除 active 主动快照",
+                description = "删除当前 active；history 和被动备份不受影响。",
+                actionLabel = "删除",
+                icon = Icons.Default.Delete,
                 enabled = app.lastSnapshotAt != null,
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = null, tint = IosRed)
-                Text("删除 active 快照", color = IosRed)
-            }
+                danger = true,
+                onClick = { confirm = ConfirmAction.DELETE },
+            )
         }
     }
     confirm?.let { action ->
         ConfirmDialog(
             action = action,
             highRisk = state.selectedApp?.riskLevel != RiskLevel.NORMAL,
+            mainUserId = state.settings.mainUserId,
             installTargetLabel = installTargetUserId?.let { "user$it" },
             onDismiss = { confirm = null },
             onConfirm = {
@@ -252,26 +281,6 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
 }
 
 @Composable
-private fun DetailHeader(title: String, subtitle: String, onBack: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        IosGlassIconButton(
-            imageVector = Icons.Default.ArrowBack,
-            contentDescription = "返回",
-            onClick = onBack,
-            tint = IosText,
-        )
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
 private fun SettingCheck(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         Modifier.fillMaxWidth(),
@@ -283,11 +292,11 @@ private fun SettingCheck(label: String, checked: Boolean, onChange: (Boolean) ->
             checked = checked,
             onCheckedChange = onChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = IosGroup,
-                checkedTrackColor = IosGreen,
-                uncheckedThumbColor = IosGroup,
-                uncheckedTrackColor = IosSeparator,
-                uncheckedBorderColor = IosSeparator,
+                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary,
+                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                uncheckedBorderColor = MaterialTheme.colorScheme.outline,
             ),
         )
     }
@@ -304,7 +313,7 @@ private fun InstallToolRow(title: String, description: String, onClick: () -> Un
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        IosCompactButton(text = "执行", onClick = onClick)
+        CompactActionButton(text = "执行", onClick = onClick)
     }
 }
 
@@ -325,6 +334,7 @@ private enum class ConfirmAction {
 private fun ConfirmDialog(
     action: ConfirmAction,
     highRisk: Boolean,
+    mainUserId: Int,
     installTargetLabel: String?,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
@@ -333,8 +343,8 @@ private fun ConfirmDialog(
         ConfirmAction.SWITCH -> "切换到分身态"
         ConfirmAction.RESTORE_SWITCH -> "还原主系统态"
         ConfirmAction.CAPTURE -> "建立主动备份"
-        ConfirmAction.RESTORE -> "恢复到主系统"
-        ConfirmAction.LATEST -> "备份并恢复到主系统"
+        ConfirmAction.RESTORE -> "用 active 快照恢复 user$mainUserId"
+        ConfirmAction.LATEST -> "读取分身最新数据并恢复 user$mainUserId"
         ConfirmAction.AUDIT -> "生成恢复审计包"
         ConfirmAction.DELETE -> "删除 active 快照"
         ConfirmAction.INSTALL_ONLY -> "仅安装到${installTargetLabel ?: "另一侧"}"
@@ -342,8 +352,8 @@ private fun ConfirmDialog(
         ConfirmAction.INSTALL_SYNC -> "安装并同步数据"
     }
     val body = when (action) {
-        ConfirmAction.SWITCH -> "会先把当前 user0 保存为被动备份，再读取分身最新状态恢复到 user0。完成后按钮会变为还原主系统态。"
-        ConfirmAction.RESTORE_SWITCH -> "会使用切换前保存的 user0 被动备份还原主系统，并清除切换标记。"
+        ConfirmAction.SWITCH -> "会先把当前 user$mainUserId 数据保存为被动备份，再读取分身最新状态覆盖主系统。完成后按钮会变为还原主系统态。"
+        ConfirmAction.RESTORE_SWITCH -> "会使用切换前保存的 user$mainUserId 被动备份还原主系统，并清除切换标记。"
         ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 主动备份。旧 active 主动备份会移动到 history。"
         ConfirmAction.RESTORE -> "将使用已保存的 active 主动备份恢复主系统数据。这不会重新读取分身最新数据。"
         ConfirmAction.LATEST -> "将先更新分身主动备份，再恢复到主系统。该动作会覆盖主系统当前 App 数据。"
@@ -363,13 +373,13 @@ private fun ConfirmDialog(
         title = { Text(title) },
         text = { Text(text) },
         confirmButton = {
-            IosDialogButton(
+            DialogActionButton(
                 text = if (action == ConfirmAction.DELETE) "删除" else "继续",
                 onClick = onConfirm,
                 primary = action != ConfirmAction.DELETE,
                 danger = action == ConfirmAction.DELETE,
             )
         },
-        dismissButton = { IosDialogButton("取消", onDismiss) },
+        dismissButton = { DialogActionButton("取消", onDismiss) },
     )
 }
