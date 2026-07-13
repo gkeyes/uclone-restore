@@ -2,13 +2,13 @@
 
 ## Status
 
-当前为 specification 阶段，没有生产 UI 修改，也没有生成新 APK。以下所有运行证据均标记 `UNVERIFIED`，用于批准方向后的实现验收，不能把旧截图填入结果列。
+第一版 A1 产物（commit `6edc5d4`）已完成 GitHub 构建和真机首页截图，但因整行蓝色按钮、Material 选中块和卡片边框过重被判定 `REJECTED`。当前修正版只完成代码与静态审计，尚未生成新的固定签名 APK；除明确记录的拒绝证据外，其余项目继续标记 `UNVERIFIED`。
 
 ## 1. 主 App 核心矩阵
 
 | ID | Window | Theme | Text scale | Input | Screen/state | Screenshot | Interaction test | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| M-01 | compact portrait | light | default | touch | 首页/default/ready | 待采集 | 打开 drawer/nav，进入所有顶层页 | `UNVERIFIED` | 当前 6 个功能全部可达 |
+| M-01 | compact portrait | light | default | touch | 首页/default/ready | `6edc5d4` 已采集，修正版待采集 | 进入所有顶层页；检查系统动作行和底栏选中态 | `REJECTED / RETEST REQUIRED` | 第一版按钮与底栏不符合 A1；修正版必须保留 6 个入口且无整项蓝色选中块 |
 | M-02 | compact portrait | dark | default | touch | 首页/default/ready | 待采集 | 收藏 App 主动作 | `UNVERIFIED` | 状态不只靠颜色 |
 | M-03 | compact portrait | light | large | touch | 首页/current task | 待采集 | 展开任务详情 | `UNVERIFIED` | 无重叠、行尾动作重排 |
 | M-04 | compact portrait | dark | maximum | TalkBack | 首页/error/unknown | 待采集 | 宣读状态、原因和重试 | `UNVERIFIED` | 技术值不抢主文案 |
@@ -52,7 +52,7 @@
 
 | ID | Window | Direction | Screen | Required evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| A-01 | compact portrait | A | 6-destination drawer | 所有入口可达、当前位置清楚 | `UNVERIFIED` |
+| A-01 | compact portrait | A | 6-destination floating tab bar | 所有入口可达、当前位置清楚，选中态仅用蓝色 icon 与文字 | `UNVERIFIED` |
 | A-02 | compact landscape | A | App list/detail | inset、键盘、内容不遮挡 | `UNVERIFIED` |
 | A-03 | medium | A | rail + list/detail | 选择/返回/状态保持 | `UNVERIFIED` |
 | A-04 | expanded | A | drawer + 3 pane | pane 尺寸稳定、无超大空白 | `UNVERIFIED` |

@@ -44,7 +44,7 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                         TaskStatus.FAILED,
                         TaskStatus.FAILED_FATAL,
                         TaskStatus.INTERRUPTED,
-                        -> MaterialTheme.colorScheme.error
+                        -> MaterialTheme.colorScheme.onErrorContainer
 
                         TaskStatus.SUCCESS_WITH_WARNINGS,
                         -> MaterialTheme.ucloneColors.warning
@@ -56,7 +56,7 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                         TaskStatus.ACCEPTED,
                         TaskStatus.RUNNING,
                         TaskStatus.AUTO_ROLLING_BACK,
-                        -> MaterialTheme.colorScheme.primary
+                        -> MaterialTheme.colorScheme.onPrimaryContainer
                     }
                     StatusBadge(task.status.displayName, statusColor)
                     task.finishedAt?.let { finishedAt ->

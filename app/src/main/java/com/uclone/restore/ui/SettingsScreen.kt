@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -19,9 +18,6 @@ import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -56,13 +52,11 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             NumberField("分身系统 ID", draft.cloneUserId) { draft = draft.copy(cloneUserId = it) }
         }
         SectionCard("设备内保存路径") {
-            OutlinedTextField(
+            GroupedTextField(
                 value = draft.rootDir,
                 onValueChange = { draft = draft.copy(rootDir = it) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Root 数据目录") },
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true,
             )
             SingleLinePathText("主动快照: ${draft.rootDir}/snapshots/<包名>/active")
             SingleLinePathText("被动备份: ${draft.rootDir}/rollback/<包名>/<备份ID>")
@@ -73,13 +67,11 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             ToggleRow("分身自动解锁", draft.autoUnlockClone) {
                 draft = draft.copy(autoUnlockClone = it)
             }
-            OutlinedTextField(
+            GroupedTextField(
                 value = draft.cloneUnlockCredential,
                 onValueChange = { draft = draft.copy(cloneUnlockCredential = it.trim()) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("分身锁屏 PIN/密码") },
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
             )
             Text(
@@ -134,15 +126,16 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
             ToggleRow("权限/AppOps", draft.includePermissions) { draft = draft.copy(includePermissions = it) }
             ToggleRow("排除 cache/code_cache", draft.excludeCache) { draft = draft.copy(excludeCache = it) }
         }
-        PrimaryActionButton(
-            onClick = {
-                viewModel.saveSettings(draft)
-                Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show()
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Icon(Icons.Default.Save, contentDescription = null)
-            Text("保存设置")
+        SectionCard("应用更改") {
+            InlineActionButton(
+                text = "保存设置",
+                onClick = {
+                    viewModel.saveSettings(draft)
+                    Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                icon = Icons.Default.Save,
+            )
         }
         SectionCard("维护") {
             Text("备份容量归属", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -293,13 +286,11 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
 
 @Composable
 private fun NumberField(label: String, value: Int, onChange: (Int) -> Unit) {
-    OutlinedTextField(
+    GroupedTextField(
         value = value.toString(),
         onValueChange = { text -> text.toIntOrNull()?.let(onChange) },
         modifier = Modifier.fillMaxWidth(),
         label = { Text(label) },
-        shape = RoundedCornerShape(14.dp),
-        singleLine = true,
     )
 }
 
@@ -311,16 +302,9 @@ private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, modifier = Modifier.weight(1f).padding(end = 12.dp))
-        Switch(
+        UCloneSwitch(
             checked = checked,
             onCheckedChange = onChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                checkedTrackColor = MaterialTheme.ucloneColors.success,
-                uncheckedThumbColor = MaterialTheme.ucloneColors.groupedSurface,
-                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                uncheckedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-            ),
         )
     }
 }

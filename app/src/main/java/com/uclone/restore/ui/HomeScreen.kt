@@ -1,12 +1,16 @@
 package com.uclone.restore.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -20,6 +24,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -117,22 +122,26 @@ private fun SystemHealthSection(state: UiState, viewModel: UCloneViewModel) {
         InfoRow("当前用户", env?.currentUser ?: "未检测")
         InfoRow("分身系统", env?.user10CeState?.cloneLifecycleLabel ?: "未检测")
         InfoRow("数据状态", env?.user10CeState?.userFacingLabel ?: "未检测")
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            CompactActionButton(
+        HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            InlineActionButton(
                 text = "重新检测",
                 onClick = viewModel::refreshEnvironment,
                 modifier = Modifier.weight(1f),
-                primary = true,
                 icon = Icons.Default.Refresh,
             )
             if (env != null) {
-                CompactActionButton(
+                Box(
+                    Modifier
+                        .width(0.5.dp)
+                        .height(30.dp)
+                        .background(MaterialTheme.ucloneColors.separator.copy(alpha = 0.65f)),
+                )
+                InlineActionButton(
                     text = if (cloneRunning) "关闭分身" else "启动分身",
                     onClick = if (cloneRunning) viewModel::stopCloneUser else viewModel::startCloneUser,
                     modifier = Modifier.weight(1f),
+                    danger = cloneRunning,
                     icon = if (cloneRunning) Icons.Default.PowerSettingsNew else Icons.Default.PlayArrow,
                 )
             }
@@ -181,11 +190,7 @@ private fun FavoriteAppRow(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.ucloneColors.groupedSurface,
-        border = androidx.compose.foundation.BorderStroke(
-            0.5.dp,
-            MaterialTheme.ucloneColors.separator.copy(alpha = 0.5f),
-        ),
-        shadowElevation = 1.dp,
+        shadowElevation = 0.dp,
     ) {
         Column(
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -215,7 +220,7 @@ private fun FavoriteAppRow(
                     },
                     color = when (dataState) {
                         AppDataState.Main -> MaterialTheme.ucloneColors.success
-                        is AppDataState.Clone -> MaterialTheme.colorScheme.primary
+                        is AppDataState.Clone -> MaterialTheme.colorScheme.onPrimaryContainer
                         AppDataState.Unknown -> MaterialTheme.ucloneColors.warning
                     },
                 )
@@ -304,7 +309,7 @@ private fun HomeConfirmDialog(
 @Composable
 private fun StepStatus.homeBadgeColor(): Color = when (this) {
     StepStatus.SUCCESS -> MaterialTheme.ucloneColors.success
-    StepStatus.FAILED -> MaterialTheme.colorScheme.error
+    StepStatus.FAILED -> MaterialTheme.colorScheme.onErrorContainer
     StepStatus.RUNNING -> MaterialTheme.ucloneColors.warning
     StepStatus.PENDING -> MaterialTheme.ucloneColors.neutral
 }

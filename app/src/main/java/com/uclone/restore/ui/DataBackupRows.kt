@@ -1,6 +1,5 @@
 package com.uclone.restore.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,8 +31,7 @@ fun ActiveBackupRow(app: AppEntry, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.ucloneColors.groupedSurface,
-        border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.5f)),
-        shadowElevation = 1.dp,
+        shadowElevation = 0.dp,
     ) {
         Row(
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -56,7 +54,7 @@ fun ActiveBackupRow(app: AppEntry, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            StatusBadge("active", MaterialTheme.colorScheme.primary)
+            StatusBadge("active", MaterialTheme.colorScheme.onPrimaryContainer)
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -77,7 +75,7 @@ fun PassiveBackupRow(
     }
     val stateColor = when (backup.stateKind) {
         PassiveBackupStateKind.MAIN -> MaterialTheme.ucloneColors.success
-        PassiveBackupStateKind.CLONE -> MaterialTheme.colorScheme.primary
+        PassiveBackupStateKind.CLONE -> MaterialTheme.colorScheme.onPrimaryContainer
         null -> MaterialTheme.ucloneColors.warning
     }
     val retentionLabel = when {
@@ -97,8 +95,7 @@ fun PassiveBackupRow(
             .clickable(enabled = onOpenDetail != null) { onOpenDetail?.invoke() },
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.ucloneColors.groupedSurface,
-        border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.5f)),
-        shadowElevation = 1.dp,
+        shadowElevation = 0.dp,
     ) {
         Column(
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -140,7 +137,7 @@ fun PassiveBackupRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                CompactActionButton(text = "恢复", onClick = onRestore, icon = Icons.Default.RestartAlt)
+                InlineActionButton(text = "恢复", onClick = onRestore, icon = Icons.Default.RestartAlt)
             }
         }
     }

@@ -323,7 +323,7 @@ private fun FloatingTabBar(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.ucloneColors.navigationSurface.copy(alpha = 0.94f),
             border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.7f)),
-            shadowElevation = 10.dp,
+            shadowElevation = 4.dp,
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(4.dp),
@@ -351,7 +351,7 @@ private fun RowScope.FloatingTabItem(
         onClick = onClick,
         modifier = Modifier.weight(1f).heightIn(min = 56.dp, max = 72.dp),
         shape = RoundedCornerShape(20.dp),
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        color = Color.Transparent,
         contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
     ) {
         Column(

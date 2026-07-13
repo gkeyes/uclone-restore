@@ -64,7 +64,6 @@ class ModuleSettingsActivity : Activity() {
     private val ORANGE: Int get() = if (isDarkMode) Color.rgb(255, 159, 10) else Color.rgb(255, 149, 0)
     private val RED: Int get() = if (isDarkMode) Color.rgb(255, 69, 58) else Color.rgb(255, 59, 48)
     private val SEPARATOR: Int get() = if (isDarkMode) Color.rgb(56, 56, 58) else Color.rgb(198, 198, 200)
-    private val CONTROL_BORDER: Int get() = colorWithAlpha(TEXT_TERTIARY, if (isDarkMode) 112 else 80)
     private val GLASS_BORDER: Int get() = colorWithAlpha(TEXT_TERTIARY, if (isDarkMode) 96 else 72)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -161,7 +160,7 @@ class ModuleSettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassDrawable(dp(24), alpha = 238)
+            background = glassDrawable(dp(24), alpha = 238, strokeColor = GLASS_BORDER)
             SettingsPage.entries.forEach { page ->
                 val item = TextView(this@ModuleSettingsActivity).apply {
                     text = page.label
@@ -803,7 +802,7 @@ class ModuleSettingsActivity : Activity() {
         glassCard().apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = clippedRipple(glassDrawable(), dp(18), colorWithAlpha(BLUE, 18))
+            background = clippedRipple(glassDrawable(), dp(12), colorWithAlpha(BLUE, 18))
             setOnClickListener { onClick() }
             val label = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -820,7 +819,7 @@ class ModuleSettingsActivity : Activity() {
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = roundedSolid(colorWithAlpha(color, 24), dp(14))
+            background = roundedSolid(colorWithAlpha(color, 24), dp(12))
             addView(text(value, 18f, color, true))
             addView(text(label, 12f, TEXT_SECONDARY, true))
         }
@@ -902,12 +901,11 @@ class ModuleSettingsActivity : Activity() {
             gravity = Gravity.CENTER
             setTextColor(if (danger) RED else BLUE)
             background = clippedRipple(
-                content = glassDrawable(
-                    radius = dp(14),
-                    alpha = 255,
-                    strokeColor = if (danger) colorWithAlpha(RED, 52) else CONTROL_BORDER,
+                content = roundedSolid(
+                    if (danger) colorWithAlpha(RED, 20) else colorWithAlpha(BLUE, 20),
+                    dp(12),
                 ),
-                radius = dp(14),
+                radius = dp(12),
                 rippleColor = colorWithAlpha(if (danger) RED else BLUE, 28),
             )
             setOnClickListener { onClick() }
@@ -923,7 +921,11 @@ class ModuleSettingsActivity : Activity() {
             includeFontPadding = false
             gravity = Gravity.CENTER
             setTextColor(BLUE)
-            background = clippedRipple(glassDrawable(dp(24), alpha = 244), dp(24), colorWithAlpha(BLUE, 24))
+            background = clippedRipple(
+                roundedSolid(colorWithAlpha(BLUE, 16), dp(24)),
+                dp(24),
+                colorWithAlpha(BLUE, 24),
+            )
             setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
         }
@@ -945,16 +947,16 @@ class ModuleSettingsActivity : Activity() {
 
     private fun softBackground(): Drawable = ColorDrawable(SURFACE)
 
-    private fun glassDrawable(radius: Int = dp(18), alpha: Int = 255, strokeColor: Int = GLASS_BORDER): Drawable {
+    private fun glassDrawable(radius: Int = dp(12), alpha: Int = 255, strokeColor: Int = Color.TRANSPARENT): Drawable {
         val fill = roundedSolid(colorWithAlpha(CARD_SURFACE, alpha), radius)
+        if (strokeColor == Color.TRANSPARENT) return fill
         val stroke = roundedStroke(strokeColor, radius, 1)
         return LayerDrawable(arrayOf(fill, stroke))
     }
 
     private fun primaryButtonDrawable(): Drawable {
-        val fill = roundedSolid(BLUE, dp(14))
-        val stroke = roundedStroke(colorWithAlpha(ON_PRIMARY, 54), dp(14), 1)
-        return clippedRipple(LayerDrawable(arrayOf(fill, stroke)), dp(14), colorWithAlpha(ON_PRIMARY, 54))
+        val fill = roundedSolid(BLUE, dp(12))
+        return clippedRipple(fill, dp(12), colorWithAlpha(ON_PRIMARY, 54))
     }
 
     private fun segmentedButtonBackground(selected: Boolean, radius: Int): Drawable =

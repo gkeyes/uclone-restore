@@ -20,8 +20,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -131,7 +129,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 },
                 color = when (state.selectedDataState) {
                     AppDataState.Main -> MaterialTheme.ucloneColors.success
-                    is AppDataState.Clone -> MaterialTheme.colorScheme.primary
+                    is AppDataState.Clone -> MaterialTheme.colorScheme.onPrimaryContainer
                     AppDataState.Unknown, null -> MaterialTheme.ucloneColors.warning
                 },
             )
@@ -190,7 +188,23 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             }
         }
         SectionCard("主要操作") {
-            PrimaryActionButton(
+            ToolRow(
+                title = when (state.selectedDataState) {
+                    AppDataState.Main -> "切换到分身态"
+                    is AppDataState.Clone -> "还原主系统态"
+                    AppDataState.Unknown, null -> "数据状态待确认"
+                },
+                description = when (state.selectedDataState) {
+                    AppDataState.Main -> "保存当前主数据返回点，再把分身数据恢复到主系统。"
+                    is AppDataState.Clone -> "恢复切换前保存的主数据，并清除当前切换标记。"
+                    AppDataState.Unknown, null -> "先恢复一份已标明 MAIN 或 CLONE 来源的备份。"
+                },
+                actionLabel = when (state.selectedDataState) {
+                    AppDataState.Main -> "切换"
+                    is AppDataState.Clone -> "还原"
+                    AppDataState.Unknown, null -> "不可用"
+                },
+                icon = Icons.Default.Sync,
                 onClick = {
                     confirm = when (state.selectedDataState) {
                         AppDataState.Main -> ConfirmAction.SWITCH
@@ -198,18 +212,9 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                         AppDataState.Unknown, null -> null
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
                 enabled = state.selectedDataState != AppDataState.Unknown,
-            ) {
-                Icon(Icons.Default.Sync, contentDescription = null)
-                Text(
-                    when (state.selectedDataState) {
-                        AppDataState.Main -> "切换到分身态"
-                        is AppDataState.Clone -> "还原主系统态"
-                        AppDataState.Unknown, null -> "请先确认数据状态"
-                    },
-                )
-            }
+                primary = state.selectedDataState != AppDataState.Unknown,
+            )
         }
         SectionCard("备份与恢复工具") {
             ToolRow(
@@ -287,17 +292,10 @@ private fun SettingCheck(label: String, checked: Boolean, onChange: (Boolean) ->
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
-        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Switch(
+        Text(label, color = MaterialTheme.colorScheme.onSurface)
+        UCloneSwitch(
             checked = checked,
             onCheckedChange = onChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                uncheckedThumbColor = MaterialTheme.colorScheme.outline,
-                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                uncheckedBorderColor = MaterialTheme.colorScheme.outline,
-            ),
         )
     }
 }
@@ -313,7 +311,7 @@ private fun InstallToolRow(title: String, description: String, onClick: () -> Un
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        CompactActionButton(text = "执行", onClick = onClick)
+        InlineActionButton(text = "执行", onClick = onClick)
     }
 }
 

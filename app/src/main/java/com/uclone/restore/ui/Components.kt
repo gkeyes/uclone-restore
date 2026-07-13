@@ -1,21 +1,21 @@
 package com.uclone.restore.ui
 
 import android.content.pm.PackageManager
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HourglassTop
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,20 +35,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
 import androidx.core.graphics.drawable.toBitmap
 import com.uclone.restore.model.RiskLevel
 import com.uclone.restore.model.StepStatus
@@ -76,8 +82,7 @@ fun SectionCard(
             shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.ucloneColors.groupedSurface,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.5f)),
-            shadowElevation = 1.dp,
+            shadowElevation = 0.dp,
         ) {
             Column(
                 Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
@@ -153,7 +158,8 @@ fun InfoRow(
 @Composable
 fun StatusChip(ok: Boolean, label: String) {
     val colors = MaterialTheme.ucloneColors
-    val color = if (ok) colors.success else MaterialTheme.colorScheme.error
+    val color = if (ok) colors.success else MaterialTheme.colorScheme.onErrorContainer
+    val dotColor = if (ok) colors.switchOn else MaterialTheme.colorScheme.error
     val container = if (ok) colors.successContainer else MaterialTheme.colorScheme.errorContainer
     Surface(
         shape = RoundedCornerShape(999.dp),
@@ -165,7 +171,7 @@ fun StatusChip(ok: Boolean, label: String) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(7.dp).background(color, CircleShape))
+            Box(Modifier.size(7.dp).background(dotColor, CircleShape))
             Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         }
     }
@@ -177,7 +183,11 @@ fun RiskChip(risk: RiskLevel) {
     val (label, color, container) = when (risk) {
         RiskLevel.NORMAL -> Triple("普通", colors.success, colors.successContainer)
         RiskLevel.HIGH -> Triple("高风险", colors.warning, colors.warningContainer)
-        RiskLevel.SYSTEM -> Triple("系统 App", MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.errorContainer)
+        RiskLevel.SYSTEM -> Triple(
+            "系统 App",
+            MaterialTheme.colorScheme.onErrorContainer,
+            MaterialTheme.colorScheme.errorContainer,
+        )
     }
     Surface(shape = RoundedCornerShape(999.dp), color = container, contentColor = color) {
         Text(
@@ -235,57 +245,6 @@ fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun PrimaryActionButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    content: @Composable RowScope.() -> Unit,
-) {
-    Button(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = 50.dp),
-        enabled = enabled,
-        shape = RoundedCornerShape(14.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        content = content,
-    )
-}
-
-@Composable
-fun SecondaryActionButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    danger: Boolean = false,
-    content: @Composable RowScope.() -> Unit,
-) {
-    val contentColor = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    Button(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = 50.dp),
-        enabled = enabled,
-        shape = RoundedCornerShape(14.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (danger) {
-                MaterialTheme.colorScheme.errorContainer
-            } else {
-                MaterialTheme.colorScheme.primaryContainer
-            },
-            contentColor = contentColor,
-            disabledContainerColor = MaterialTheme.ucloneColors.elevatedSurface,
-        ),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        content = content,
-    )
-}
-
-@Composable
 fun CompactActionButton(
     text: String,
     onClick: () -> Unit,
@@ -295,33 +254,31 @@ fun CompactActionButton(
     danger: Boolean = false,
     icon: ImageVector? = null,
 ) {
-    if (primary) {
-        Button(
-            onClick = onClick,
-            modifier = modifier.heightIn(min = 48.dp).widthIn(min = 72.dp),
-            enabled = enabled,
-            shape = RoundedCornerShape(14.dp),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-        ) {
-            ActionButtonContent(text, icon)
-        }
-    } else {
-        Button(
-            onClick = onClick,
-            modifier = modifier.heightIn(min = 48.dp).widthIn(min = 72.dp),
-            enabled = enabled,
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (danger) {
-                    MaterialTheme.colorScheme.errorContainer
-                } else {
-                    MaterialTheme.colorScheme.primaryContainer
-                },
-                contentColor = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            ),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+    val containerColor = when {
+        !enabled -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.5f)
+        primary -> MaterialTheme.colorScheme.primary
+        danger -> MaterialTheme.colorScheme.errorContainer
+        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+    }
+    val contentColor = when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+        primary -> MaterialTheme.colorScheme.onPrimary
+        danger -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.primary
+    }
+    Surface(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 48.dp).widthIn(min = 72.dp),
+        enabled = enabled,
+        shape = RoundedCornerShape(12.dp),
+        color = containerColor,
+        contentColor = contentColor,
+        role = Role.Button,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             ActionButtonContent(text, icon)
         }
@@ -335,6 +292,37 @@ private fun ActionButtonContent(text: String, icon: ImageVector?) {
         Spacer(Modifier.width(6.dp))
     }
     Text(text, style = MaterialTheme.typography.labelLarge)
+}
+
+@Composable
+fun InlineActionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+    icon: ImageVector? = null,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 52.dp),
+        enabled = enabled,
+        color = Color.Transparent,
+        contentColor = when {
+            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+            danger -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.primary
+        },
+        role = Role.Button,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ActionButtonContent(text, icon)
+        }
+    }
 }
 
 @Composable
@@ -352,8 +340,8 @@ fun UtilityIconButton(
         modifier = modifier.size(48.dp),
         enabled = enabled,
         shape = CircleShape,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.ucloneColors.elevatedSurface,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else tint,
+        color = if (selected) tint.copy(alpha = 0.10f) else Color.Transparent,
+        contentColor = tint,
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(imageVector, contentDescription = contentDescription, modifier = Modifier.size(22.dp))
@@ -367,7 +355,6 @@ fun StatusBadge(label: String, color: Color = MaterialTheme.colorScheme.onSurfac
         shape = RoundedCornerShape(999.dp),
         color = color.copy(alpha = 0.12f),
         contentColor = color,
-        border = BorderStroke(1.dp, color.copy(alpha = 0.22f)),
     ) {
         Text(
             label,
@@ -413,16 +400,98 @@ fun ToolRow(
                 Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            CompactActionButton(
-                text = actionLabel,
-                onClick = onClick,
-                enabled = enabled,
-                primary = primary,
-                danger = danger,
-            )
+            if (primary) {
+                CompactActionButton(
+                    text = actionLabel,
+                    onClick = onClick,
+                    enabled = enabled,
+                    primary = true,
+                )
+            } else {
+                InlineActionButton(
+                    text = actionLabel,
+                    onClick = onClick,
+                    enabled = enabled,
+                    danger = danger,
+                )
+            }
         }
         HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
     }
+}
+
+@Composable
+fun UCloneSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+) {
+    val thumbOffset by animateDpAsState(
+        targetValue = if (checked) 20.dp else 0.dp,
+        label = "ucloneSwitchThumb",
+    )
+    val trackColor = if (checked) MaterialTheme.ucloneColors.switchOn else MaterialTheme.colorScheme.surfaceVariant
+    Box(
+        modifier = Modifier
+            .width(55.dp)
+            .height(48.dp)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .width(51.dp)
+                .height(31.dp)
+                .clip(CircleShape)
+                .background(trackColor.copy(alpha = if (enabled) 1f else 0.45f))
+                .padding(2.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Box(
+                Modifier
+                    .offset(x = thumbOffset)
+                    .size(27.dp)
+                    .shadow(1.dp, CircleShape)
+                    .background(Color.White, CircleShape),
+            )
+        }
+    }
+}
+
+@Composable
+fun GroupedTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    label: (@Composable () -> Unit)? = null,
+    placeholder: (@Composable () -> Unit)? = null,
+    leadingIcon: (@Composable () -> Unit)? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+) {
+    TextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        label = label,
+        placeholder = placeholder,
+        leadingIcon = leadingIcon,
+        shape = RoundedCornerShape(12.dp),
+        singleLine = true,
+        visualTransformation = visualTransformation,
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.ucloneColors.elevatedSurface,
+            unfocusedContainerColor = MaterialTheme.ucloneColors.elevatedSurface,
+            disabledContainerColor = MaterialTheme.ucloneColors.elevatedSurface,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+            disabledIndicatorColor = Color.Transparent,
+        ),
+    )
 }
 
 @Composable

@@ -27,6 +27,7 @@ data class UCloneSemanticColors(
     val success: Color,
     val onSuccess: Color,
     val successContainer: Color,
+    val switchOn: Color,
     val warning: Color,
     val onWarning: Color,
     val warningContainer: Color,
@@ -38,13 +39,14 @@ data class UCloneSemanticColors(
 )
 
 private val LightSemanticColors = UCloneSemanticColors(
-    success = Color(0xFF248A3D),
+    success = Color(0xFF1F7A35),
     onSuccess = Color.White,
-    successContainer = Color(0xFFE8F7EC),
-    warning = Color(0xFFC65D00),
+    successContainer = Color(0xFFE8F8ED),
+    switchOn = Color(0xFF34C759),
+    warning = Color(0xFFA15C00),
     onWarning = Color.White,
-    warningContainer = Color(0xFFFFF0DC),
-    neutral = Color(0xFF6C6C70),
+    warningContainer = Color(0xFFFFF3E0),
+    neutral = Color(0xFF8E8E93),
     groupedSurface = Color.White,
     elevatedSurface = Color(0xFFF7F7FA),
     separator = Color(0xFFC6C6C8),
@@ -55,6 +57,7 @@ private val DarkSemanticColors = UCloneSemanticColors(
     success = Color(0xFF30D158),
     onSuccess = Color.Black,
     successContainer = Color(0xFF173B21),
+    switchOn = Color(0xFF30D158),
     warning = Color(0xFFFF9F0A),
     onWarning = Color.Black,
     warningContainer = Color(0xFF493116),
@@ -183,11 +186,11 @@ private val UCloneTypography = Typography(
 )
 
 private val UCloneShapes = Shapes(
-    extraSmall = RoundedCornerShape(10.dp),
-    small = RoundedCornerShape(14.dp),
-    medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(22.dp),
-    extraLarge = RoundedCornerShape(28.dp),
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )
 
 @Composable

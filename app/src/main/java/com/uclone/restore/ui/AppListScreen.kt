@@ -20,7 +20,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -80,17 +79,15 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 AppFilterButton(selectedFilters) { selectedFilters = it }
-                OutlinedTextField(
+                GroupedTextField(
                     value = state.search,
                     onValueChange = viewModel::updateSearch,
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("App 名称或包名") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    shape = MaterialTheme.shapes.medium,
-                    singleLine = true,
                 )
-                CompactActionButton(
-                    text = "收起",
+                InlineActionButton(
+                    text = "取消",
                     onClick = {
                         viewModel.updateSearch("")
                         searchExpanded = false
@@ -204,11 +201,7 @@ private fun AppRow(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.ucloneColors.groupedSurface,
-        border = androidx.compose.foundation.BorderStroke(
-            0.5.dp,
-            MaterialTheme.ucloneColors.separator.copy(alpha = 0.5f),
-        ),
-        shadowElevation = 1.dp,
+        shadowElevation = 0.dp,
     ) {
         Row(
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
