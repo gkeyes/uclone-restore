@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -32,7 +33,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
+fun SettingsScreen(
+    state: UiState,
+    viewModel: UCloneViewModel,
+    modifier: Modifier,
+    openDiagnostics: () -> Unit,
+) {
     val context = LocalContext.current
     var draft by remember(state.settings) { mutableStateOf(state.settings) }
     var confirmClearLogs by remember { mutableStateOf(false) }
@@ -47,6 +53,15 @@ fun SettingsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifie
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         PageDescription("配置用户、工作区和默认数据范围；危险维护操作集中在页面底部。")
+        SectionCard("诊断与维护") {
+            ToolRow(
+                title = "诊断与维护",
+                description = "检查 Root、分身用户、工作区与数据解锁状态。",
+                actionLabel = "进入",
+                icon = Icons.Outlined.Terminal,
+                onClick = openDiagnostics,
+            )
+        }
         SectionCard("用户 ID") {
             NumberField("主系统 ID", draft.mainUserId) { draft = draft.copy(mainUserId = it) }
             NumberField("分身系统 ID", draft.cloneUserId) { draft = draft.copy(cloneUserId = it) }

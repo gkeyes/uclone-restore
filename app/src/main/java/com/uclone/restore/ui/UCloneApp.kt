@@ -1,23 +1,28 @@
 package com.uclone.restore.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,9 +52,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,7 +64,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.uclone.restore.launcher.LauncherShortcutRequest
 
-private enum class Destination(val label: String, val icon: ImageVector?) {
+internal enum class Destination(val label: String, val icon: ImageVector?) {
     HOME("首页", Icons.Default.Home),
     APPS("App", Icons.Default.Apps),
     DATA("数据", Icons.Default.Assessment),
@@ -72,13 +77,12 @@ private enum class Destination(val label: String, val icon: ImageVector?) {
 
 private enum class NavigationLayout { COMPACT, MEDIUM, EXPANDED }
 
-private val topLevelDestinations = listOf(
+internal val topLevelDestinations = listOf(
     Destination.HOME,
     Destination.APPS,
     Destination.DATA,
     Destination.HISTORY,
     Destination.SETTINGS,
-    Destination.DIAGNOSTICS,
 )
 
 @Composable
@@ -118,7 +122,7 @@ fun UCloneApp(
                 previousTopLevelDestination
             }
         }
-        BackHandler(enabled = destination == Destination.DETAIL || destination == Destination.DATA_DETAIL) {
+        BackHandler(enabled = destination !in topLevelDestinations) {
             navigateBack()
         }
 
@@ -153,6 +157,10 @@ fun UCloneApp(
                         dataDetailPackage = it.packageName
                         dataDetailRollbackId = it.rollbackId
                         destination = Destination.DATA_DETAIL
+                    },
+                    openDiagnostics = {
+                        previousTopLevelDestination = Destination.SETTINGS
+                        destination = Destination.DIAGNOSTICS
                     },
                     dataDetailPackage = dataDetailPackage,
                     dataDetailRollbackId = dataDetailRollbackId,
@@ -200,24 +208,39 @@ private fun CompactShell(
     onOpenHistory: () -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
-    AppScaffold(
-        destination = destination,
-        taskActive = taskActive,
-        navigationIcon = if (destination in topLevelDestinations) null else {
-            {
-                IconButton(onClick = onBack) {
+    if (destination in topLevelDestinations) {
+        GlassBackdropHost(
+            modifier = Modifier.fillMaxSize(),
+            background = {
+                AppScaffold(
+                    destination = destination,
+                    taskActive = taskActive,
+                    navigationIcon = null,
+                    onOpenHistory = onOpenHistory,
+                    content = content,
+                )
+            },
+            overlay = {
+                FloatingTabBar(
+                    destination = destination,
+                    onSelect = onSelect,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            },
+        )
+    } else {
+        AppScaffold(
+            destination = destination,
+            taskActive = taskActive,
+            navigationIcon = {
+                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                 }
-            }
-        },
-        onOpenHistory = onOpenHistory,
-        bottomBar = if (destination in topLevelDestinations) {
-            { FloatingTabBar(destination = destination, onSelect = onSelect) }
-        } else {
-            null
-        },
-        content = content,
-    )
+            },
+            onOpenHistory = onOpenHistory,
+            content = content,
+        )
+    }
 }
 
 @Composable
@@ -261,7 +284,6 @@ private fun AppScaffold(
     modifier: Modifier = Modifier,
     navigationIcon: (@Composable () -> Unit)?,
     onOpenHistory: () -> Unit,
-    bottomBar: (@Composable () -> Unit)? = null,
     content: @Composable (Modifier) -> Unit,
 ) {
     Scaffold(
@@ -302,7 +324,6 @@ private fun AppScaffold(
                 ),
             )
         },
-        bottomBar = { bottomBar?.invoke() },
     ) { padding ->
         content(Modifier.fillMaxSize().padding(padding))
     }
@@ -312,42 +333,55 @@ private fun AppScaffold(
 private fun FloatingTabBar(
     destination: Destination,
     onSelect: (Destination) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(30.dp),
-            color = Color.Transparent,
-            border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.glassHighlight),
-            shadowElevation = 8.dp,
+        LiquidGlassSurface(
+            role = GlassRole.Navigation,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(60.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        brush = Brush.verticalGradient(
-                            listOf(
-                                MaterialTheme.ucloneColors.navigationSurface.copy(alpha = 0.94f),
-                                MaterialTheme.ucloneColors.navigationSurface.copy(alpha = 0.80f),
-                            ),
-                        ),
-                        shape = RoundedCornerShape(30.dp),
-                    )
-                    .padding(5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                topLevelDestinations.forEach { item ->
-                    FloatingTabItem(
-                        item = item,
-                        selected = destination.belongsTo(item),
-                        onClick = { onSelect(item) },
-                    )
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val itemWidth = maxWidth / topLevelDestinations.size
+                val selectedIndex = topLevelDestinations
+                    .indexOfFirst(destination::belongsTo)
+                    .coerceAtLeast(0)
+                val reduceMotion = rememberReduceMotionEnabled()
+                val selectionOffset by animateDpAsState(
+                    targetValue = (itemWidth * selectedIndex) + 4.dp,
+                    animationSpec = if (reduceMotion) snap() else tween(durationMillis = 280),
+                    label = "bottomNavigationSelection",
+                )
+
+                LiquidGlassSurface(
+                    role = GlassRole.SelectionLens,
+                    modifier = Modifier
+                        .offset(x = selectionOffset, y = 4.dp)
+                        .width(itemWidth - 8.dp)
+                        .height(52.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                ) {}
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .selectableGroup(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    topLevelDestinations.forEach { item ->
+                        FloatingTabItem(
+                            item = item,
+                            selected = destination.belongsTo(item),
+                            onClick = { onSelect(item) },
+                        )
+                    }
                 }
             }
         }
@@ -355,42 +389,44 @@ private fun FloatingTabBar(
 }
 
 @Composable
-private fun RowScope.FloatingTabItem(
+private fun androidx.compose.foundation.layout.RowScope.FloatingTabItem(
     item: Destination,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.weight(1f).heightIn(min = 56.dp, max = 72.dp),
-        shape = RoundedCornerShape(20.dp),
-        color = Color.Transparent,
-        contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+    val contentColor = if (selected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .selectable(
+                selected = selected,
+                onClick = onClick,
+                role = Role.Tab,
+            ),
+        contentAlignment = Alignment.Center,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            modifier = Modifier.fillMaxSize().padding(vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Surface(
-                modifier = Modifier.size(32.dp),
-                shape = CircleShape,
-                color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent,
-                border = if (selected) {
-                    BorderStroke(0.5.dp, MaterialTheme.ucloneColors.glassHighlight.copy(alpha = 0.72f))
-                } else {
-                    null
-                },
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(item.icon!!, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
-            }
+            Icon(
+                item.icon!!,
+                contentDescription = null,
+                modifier = Modifier.size(21.dp),
+                tint = contentColor,
+            )
             Spacer(Modifier.height(2.dp))
             Text(
                 item.label,
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
+                color = contentColor,
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
             )
@@ -484,9 +520,10 @@ private fun SideNavigationItem(
     }
 }
 
-private fun Destination.belongsTo(topLevel: Destination): Boolean = when (this) {
+internal fun Destination.belongsTo(topLevel: Destination): Boolean = when (this) {
     Destination.DETAIL -> topLevel == Destination.APPS
     Destination.DATA_DETAIL -> topLevel == Destination.DATA
+    Destination.DIAGNOSTICS -> topLevel == Destination.SETTINGS
     else -> this == topLevel
 }
 
@@ -499,6 +536,7 @@ private fun DestinationContent(
     openAppDetail: () -> Unit,
     openActiveBackup: (String) -> Unit,
     openPassiveBackup: (com.uclone.restore.model.RestoreBackupEntry) -> Unit,
+    openDiagnostics: () -> Unit,
     dataDetailPackage: String?,
     dataDetailRollbackId: String?,
 ) {
@@ -513,7 +551,7 @@ private fun DestinationContent(
             openPassiveBackup = openPassiveBackup,
         )
         Destination.HISTORY -> HistoryScreen(state, viewModel, modifier)
-        Destination.SETTINGS -> SettingsScreen(state, viewModel, modifier)
+        Destination.SETTINGS -> SettingsScreen(state, viewModel, modifier, openDiagnostics)
         Destination.DIAGNOSTICS -> DiagnosticsScreen(state, viewModel, modifier)
         Destination.DETAIL -> AppDetailScreen(state, viewModel, modifier)
         Destination.DATA_DETAIL -> DataBackupDetailScreen(

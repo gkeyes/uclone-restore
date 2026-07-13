@@ -1,6 +1,10 @@
 package com.uclone.restore.ui
 
 import android.os.Build
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -24,8 +28,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -96,9 +104,10 @@ internal fun LiquidGlassSurface(
     val density = LocalDensity.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
+    val reduceMotion = rememberReduceMotionEnabled()
     val scale by animateFloatAsState(
-        targetValue = if (pressed && enabled && onClick != null) 0.97f else 1f,
-        animationSpec = tween(150),
+        targetValue = if (!reduceMotion && pressed && enabled && onClick != null) 0.97f else 1f,
+        animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(150),
         label = "liquidGlassPress",
     )
     val shape = role.shape()
@@ -171,6 +180,33 @@ internal fun LiquidGlassSurface(
         }
     }
 }
+
+@Composable
+internal fun rememberReduceMotionEnabled(): Boolean {
+    val context = LocalContext.current
+    var reduceMotion by remember(context) {
+        mutableStateOf(context.contentResolver.animatorDurationScale() == 0f)
+    }
+    DisposableEffect(context) {
+        val resolver = context.contentResolver
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                reduceMotion = resolver.animatorDurationScale() == 0f
+            }
+        }
+        resolver.registerContentObserver(
+            Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+            false,
+            observer,
+        )
+        onDispose { resolver.unregisterContentObserver(observer) }
+    }
+    return reduceMotion
+}
+
+private fun android.content.ContentResolver.animatorDurationScale(): Float = runCatching {
+    Settings.Global.getFloat(this, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+}.getOrDefault(1f)
 
 private fun GlassRole.shape(): Shape = when (this) {
     GlassRole.Navigation -> RoundedCornerShape(30.dp)
