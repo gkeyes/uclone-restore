@@ -56,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.core.graphics.drawable.toBitmap
 import com.uclone.restore.model.RiskLevel
 import com.uclone.restore.model.StepStatus
@@ -268,12 +269,14 @@ fun CompactActionButton(
     }
     Surface(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 48.dp).widthIn(min = 72.dp),
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .widthIn(min = 72.dp)
+            .semantics { role = Role.Button },
         enabled = enabled,
         shape = RoundedCornerShape(12.dp),
         color = containerColor,
         contentColor = contentColor,
-        role = Role.Button,
     ) {
         Row(
             Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
@@ -305,7 +308,9 @@ fun InlineActionButton(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 52.dp),
+        modifier = modifier
+            .heightIn(min = 52.dp)
+            .semantics { role = Role.Button },
         enabled = enabled,
         color = Color.Transparent,
         contentColor = when {
@@ -313,7 +318,6 @@ fun InlineActionButton(
             danger -> MaterialTheme.colorScheme.error
             else -> MaterialTheme.colorScheme.primary
         },
-        role = Role.Button,
     ) {
         Row(
             Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
