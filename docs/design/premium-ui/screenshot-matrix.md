@@ -2,19 +2,19 @@
 
 ## Status
 
-第一版 A1 产物（commit `6edc5d4`）已完成 GitHub 构建和真机首页截图，但因整行蓝色按钮、Material 选中块和卡片边框过重被判定 `REJECTED`。commit `6709e8b` 的后续真机截图又确认方角主按钮、逐项独立卡片和近不透明底栏仍偏 Android。当前 A2 只完成源码与静态审计，尚未生成新的固定签名 APK；串窗或不属于当前产物的截图一律不得作为证据。
+第一版 A1 产物（commit `6edc5d4`）已完成 GitHub 构建和真机首页截图，但因整行蓝色按钮、Material 选中块和卡片边框过重被判定 `REJECTED`。commit `6709e8b` 的后续真机截图又确认方角主按钮、逐项独立卡片和近不透明底栏仍偏 Android。A2 commit `1fc2831` 的固定签名产物已真机安装；用户提供的正确 UClone 截图确认分组面和底栏方向成立，但首页实心蓝主动作、工具图标和列表收藏控件的视觉层级仍不协调，因此按钮修正版必须重新构建和真机截图。串窗或不属于当前产物的截图一律不得作为证据。
 
 ## 1. 主 App 核心矩阵
 
 | ID | Window | Theme | Text scale | Input | Screen/state | Screenshot | Interaction test | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| M-01 | compact portrait | light | default | touch | 首页/default/ready | A2 待采集 | 进入所有顶层页；检查系统动作行和底栏选中态 | `REJECTED BASELINE / RETEST REQUIRED` | 必须保留 6 个入口；主动作是短胶囊；收藏 App 位于单个连续分组面；选中态只包围图标，不出现整项蓝色块 |
+| M-01 | compact portrait | light | default | touch | 首页/default/ready | `1fc2831` 用户截图 | 进入所有顶层页；检查系统动作行和底栏选中态 | `REJECTED / RETEST REQUIRED` | 分组面和底栏通过方向检查；实心蓝主动作过重。修正版要求低饱和短胶囊、状态与动作同层、更多工具镜片独立 |
 | M-02 | compact portrait | dark | default | touch | 首页/default/ready | 待采集 | 收藏 App 主动作 | `UNVERIFIED` | 状态不只靠颜色 |
 | M-03 | compact portrait | light | large | touch | 首页/current task | 待采集 | 展开任务详情 | `UNVERIFIED` | 无重叠、行尾动作重排 |
 | M-04 | compact portrait | dark | maximum | TalkBack | 首页/error/unknown | 待采集 | 宣读状态、原因和重试 | `UNVERIFIED` | 技术值不抢主文案 |
 | M-05 | compact portrait | light | default | touch | App/loading candidate | 待采集 | 等待列表完成、搜索 | `UNVERIFIED` | 需先批准并实现逐页 loading 状态；不属于首批 UI-only |
 | M-06 | compact portrait | light | default | touch | App/empty search | 待采集 | 清除筛选 | `UNVERIFIED` | 明确无匹配而非无安装 |
-| M-07 | compact portrait | dark | large | TalkBack | App/list | A2 待采集 | 收藏、打开详情、返回 | `UNVERIFIED` | 单个 grouped surface + 缩进分隔线；App 名/包名/状态朗读顺序；行高不得因星标镜片跳动 |
+| M-07 | compact portrait | dark | large | TalkBack | App/list | `1fc2831` 用户浅色截图 | 收藏、打开详情、返回 | `RETEST REQUIRED` | 单个 grouped surface 已实现；修正版要求筛选/搜索为一致工具镜片，收藏星标保持轻量且行高不跳动 |
 | M-08 | compact portrait | light | default | touch | App detail/MAIN | 待采集 | 打开切换确认后取消 | `UNVERIFIED` | 来源/目标/保护/后果 |
 | M-09 | compact portrait | light | default | touch | App detail/CLONE | 待采集 | 打开还原确认后取消 | `UNVERIFIED` | “还原主数据”精确文案 |
 | M-10 | compact portrait | dark | large | touch | App detail/UNKNOWN | 待采集 | 检查状态 | `UNVERIFIED` | 禁止猜测切换动作 |

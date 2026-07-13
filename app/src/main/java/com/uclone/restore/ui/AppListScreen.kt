@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
@@ -70,6 +71,7 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                         imageVector = Icons.Default.Search,
                         contentDescription = "搜索",
                         onClick = { searchExpanded = true },
+                        framed = true,
                     )
                 }
             }
@@ -178,6 +180,7 @@ private fun AppFilterButton(selectedFilters: Set<AppListFilter>, onChange: (Set<
             onClick = { expanded = true },
             tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             selected = active,
+            framed = true,
         )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             AppListFilter.entries.forEach { filter ->
@@ -239,9 +242,13 @@ private fun AppRow(
                 contentDescription = if (favorite) "取消收藏" else "收藏",
                 onClick = onFavorite,
                 tint = if (favorite) MaterialTheme.ucloneColors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
-                selected = favorite,
             )
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                modifier = Modifier.padding(end = 2.dp).size(18.dp),
+            )
         }
     }
 }

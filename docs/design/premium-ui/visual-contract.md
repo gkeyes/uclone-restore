@@ -2,7 +2,7 @@
 
 ## Context
 
-- Status: `A2 IOS 26 REFERENCE IMPLEMENTED / NEW RENDER VERIFICATION PENDING`
+- Status: `A2 BUTTON HIERARCHY REVISION / RENDER VERIFICATION PENDING`
 - Platform/framework: Android, Jetpack Compose Material 3 + Android View
 - Locale: zh-CN
 - Product domain: Root / multi-user system utility
@@ -25,6 +25,7 @@
 | A1 主动作仍是 12dp 方角色块 | commit `6709e8b` 真机首页截图、用户反馈 | `PROJECT-VERIFIED` | 主动作改为短胶囊；普通和危险动作继续使用文字层级，不生成按钮墙 |
 | A1 App/收藏列表仍是逐项独立卡片 | commit `6709e8b` 真机首页截图、用户反馈 | `PROJECT-VERIFIED` | 改为单个 grouped surface 内的连续列表行和缩进分隔线 |
 | A1 底栏材质接近不透明白色托盘 | commit `6709e8b` 真机首页截图、用户提供的 iOS 26 方向 | `PROJECT-VERIFIED` | 保留六入口，使用导航层半透明纵向高光和仅包围图标的选中镜片 |
+| A2 首页收藏行的实心蓝胶囊过重，App 页工具图标与收藏图标缺少统一层级 | commit `1fc2831` 真机截图、用户反馈 | `PROJECT-VERIFIED` | 主动作改为低饱和语义色玻璃胶囊；筛选、搜索、更多使用圆形工具镜片；列表收藏保持轻量图标 |
 | 图标按钮视觉尺寸 40dp | `Components.kt` | `PROJECT-VERIFIED` | 交互触控区域至少 48dp |
 | 诊断/详情连续堆叠多个全宽按钮 | 多个 screen | `PROJECT-VERIFIED` | 工具行 + 单主动作 + 危险区 |
 | 产品已有 6 个顶层入口 | `UCloneApp.kt`、用户要求 | `PROJECT-VERIFIED` | 六项全部保留；Compact 使用等宽 icon + 短标签布局 |
@@ -58,7 +59,7 @@
 | VC-005 | Theme | 使用 semantic light/dark color roles | `OFFICIAL-VERIFIED` | Android M3 + Apple color | light/dark/high contrast | 截图 + 对比检查 |
 | VC-006 | Status | 状态使用 icon/shape + text + color | `OFFICIAL-VERIFIED` | accessibility/color | all statuses | 灰阶/色觉模拟 + TalkBack |
 | VC-007 | Typography | 使用有限 Material type roles，系统字体，支持 font scale reflow | `DERIVED` | Android + Apple typography | default/large/max | 长中文和最大字体截图 |
-| VC-008 | Actions | 普通工具使用行尾文字动作；每个操作组最多一个短胶囊主动作，禁止整页全宽按钮墙 | `DERIVED` | Apple buttons + product risk + `6edc5d4`/`6709e8b` 真机复盘 | enabled/disabled/busy | 页面动作层级审查 |
+| VC-008 | Actions | 普通工具使用行尾文字动作；每个操作组最多一个低饱和短胶囊主动作，禁止整页全宽按钮墙 | `DERIVED` | Apple buttons + product risk + `6edc5d4`/`6709e8b`/`1fc2831` 真机复盘 | enabled/disabled/busy | 页面动作层级审查 |
 | VC-009 | Destructive | 删除/重置独立危险区并确认后果 | `DERIVED` | action matrix + alerts | default/confirm/error | 实际打开确认框 |
 | VC-010 | Progress | 当前只展示阶段/步骤；未来有可信实时分母才显示百分比 | `DERIVED` | `TaskProgress` 当前无可靠实时总量 | accepted/running/rollback | fixture/真机任务截图；遥测扩展需独立批准 |
 | VC-011 | Content | 中文主文案，技术原值作为可展开次级信息 | `PROJECT-VERIFIED` | product truth | normal/error/diagnostic | 内容审查 + TalkBack |

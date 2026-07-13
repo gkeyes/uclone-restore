@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -13,7 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
@@ -222,29 +223,12 @@ private fun FavoriteAppRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                StatusBadge(
-                    label = when (dataState) {
-                        AppDataState.Main -> "主数据"
-                        is AppDataState.Clone -> "分数据"
-                        AppDataState.Unknown -> "状态未知"
-                    },
-                    color = when (dataState) {
-                        AppDataState.Main -> MaterialTheme.ucloneColors.success
-                        is AppDataState.Clone -> MaterialTheme.colorScheme.onPrimaryContainer
-                        AppDataState.Unknown -> MaterialTheme.ucloneColors.warning
-                    },
-                )
-            }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
                 Column {
                     UtilityIconButton(
-                        imageVector = Icons.Default.MoreVert,
+                        imageVector = Icons.Default.MoreHoriz,
                         contentDescription = "更多操作",
                         onClick = { menuExpanded = true },
+                        framed = true,
                     )
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(
@@ -264,11 +248,30 @@ private fun FavoriteAppRow(
                         )
                     }
                 }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StatusBadge(
+                    label = when (dataState) {
+                        AppDataState.Main -> "主数据"
+                        is AppDataState.Clone -> "分数据"
+                        AppDataState.Unknown -> "状态未知"
+                    },
+                    color = when (dataState) {
+                        AppDataState.Main -> MaterialTheme.ucloneColors.success
+                        is AppDataState.Clone -> MaterialTheme.colorScheme.onPrimaryContainer
+                        AppDataState.Unknown -> MaterialTheme.ucloneColors.warning
+                    },
+                )
+                Spacer(Modifier.weight(1f))
                 CompactActionButton(
                     text = when (dataState) {
-                        AppDataState.Main -> "切换"
-                        is AppDataState.Clone -> "还原"
-                        AppDataState.Unknown -> "检查"
+                        AppDataState.Main -> "切换到分身"
+                        is AppDataState.Clone -> "还原主数据"
+                        AppDataState.Unknown -> "检查状态"
                     },
                     onClick = when (dataState) {
                         AppDataState.Main -> onSwitch

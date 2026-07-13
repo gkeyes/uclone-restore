@@ -76,7 +76,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 contentDescription = if (favorite) "取消收藏" else "收藏",
                 onClick = { viewModel.toggleFavorite(app.packageName) },
                 tint = if (favorite) MaterialTheme.ucloneColors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
-                selected = favorite,
+                framed = true,
             )
         }
         SectionCard("安装状态") {

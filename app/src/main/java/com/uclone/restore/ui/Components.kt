@@ -259,13 +259,13 @@ fun CompactActionButton(
 ) {
     val containerColor = when {
         !enabled -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.5f)
-        primary -> MaterialTheme.colorScheme.primary
+        primary -> MaterialTheme.colorScheme.primary.copy(alpha = 0.11f)
         danger -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.76f)
         else -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.92f)
     }
     val contentColor = when {
         !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-        primary -> MaterialTheme.colorScheme.onPrimary
+        primary -> MaterialTheme.colorScheme.primary
         danger -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
@@ -281,7 +281,7 @@ fun CompactActionButton(
         contentColor = contentColor,
         border = when {
             !enabled -> null
-            primary -> BorderStroke(0.5.dp, MaterialTheme.ucloneColors.glassHighlight.copy(alpha = 0.58f))
+            primary -> BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
             danger -> BorderStroke(0.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.16f))
             else -> BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f))
         },
@@ -345,6 +345,7 @@ fun UtilityIconButton(
     modifier: Modifier = Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     selected: Boolean = false,
+    framed: Boolean = false,
     enabled: Boolean = true,
 ) {
     Surface(
@@ -352,16 +353,20 @@ fun UtilityIconButton(
         modifier = modifier.size(48.dp),
         enabled = enabled,
         shape = CircleShape,
-        color = if (selected) tint.copy(alpha = 0.10f) else Color.Transparent,
+        color = when {
+            selected -> tint.copy(alpha = 0.10f)
+            framed -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.82f)
+            else -> Color.Transparent
+        },
         contentColor = tint,
-        border = if (selected) {
-            BorderStroke(0.5.dp, MaterialTheme.ucloneColors.glassHighlight.copy(alpha = 0.52f))
-        } else {
-            null
+        border = when {
+            selected -> BorderStroke(0.5.dp, tint.copy(alpha = 0.14f))
+            framed -> BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.36f))
+            else -> null
         },
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(imageVector, contentDescription = contentDescription, modifier = Modifier.size(22.dp))
+            Icon(imageVector, contentDescription = contentDescription, modifier = Modifier.size(20.dp))
         }
     }
 }
