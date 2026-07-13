@@ -1206,6 +1206,69 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun dataTaskDoesNotClaimOrStopAConcurrentManualTransition() {
+        listOf("BOOTING", "RUNNING_UNLOCKING").forEach { transition ->
+            val result = runDataTaskEnsureScript(
+                """
+                    case "${'$'}1" in
+                      get-started-user-state)
+                        count=0
+                        [ ! -f "${'$'}UCLONE_TEST_QUERY_COUNT_FILE" ] || count=${'$'}(cat "${'$'}UCLONE_TEST_QUERY_COUNT_FILE")
+                        count=${'$'}((count + 1))
+                        printf '%s\n' "${'$'}count" > "${'$'}UCLONE_TEST_QUERY_COUNT_FILE"
+                        case "${'$'}count" in
+                          1) echo "User is not started: 10" ;;
+                          2) echo $transition ;;
+                          *) echo RUNNING_UNLOCKED ;;
+                        esac
+                        ;;
+                      start-user) echo SHOULD_NOT_START ;;
+                      stop-user) echo SHOULD_NOT_STOP ;;
+                    esac
+                """.trimIndent(),
+            )
+
+            assertEquals(0, result.exitCode, result.output)
+            assertContains(result.output, "START_CLONE_OWNERSHIP=preexisting_transition")
+            assertContains(result.output, "STOP_CLONE_AFTER_TASK=0 startedByTask=0")
+            assertFalse(result.output.contains("START_USER_BEGIN"))
+            assertFalse(result.output.contains("SHOULD_NOT_START"))
+            assertFalse(result.output.contains("SHOULD_NOT_STOP"))
+        }
+    }
+
+    @Test
+    fun dataTaskUsesStableTransitionResultWithoutQueryingAgain() {
+        val result = runDataTaskEnsureScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state)
+                    count=0
+                    [ ! -f "${'$'}UCLONE_TEST_QUERY_COUNT_FILE" ] || count=${'$'}(cat "${'$'}UCLONE_TEST_QUERY_COUNT_FILE")
+                    count=${'$'}((count + 1))
+                    printf '%s\n' "${'$'}count" > "${'$'}UCLONE_TEST_QUERY_COUNT_FILE"
+                    case "${'$'}count" in
+                      1|2) echo BOOTING ;;
+                      3) echo "User is not started: 10" ;;
+                      *) echo RUNNING_LOCKED ;;
+                    esac
+                    ;;
+                  start-user) echo SHOULD_NOT_START ;;
+                  stop-user) echo SHOULD_NOT_STOP ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(80, result.exitCode, result.output)
+        assertContains(result.output, "WAIT_AFTER_START_TRANSITION_0=User is not started: 10")
+        assertContains(result.output, "STATE_AFTER_START_TRANSITION=User is not started: 10")
+        assertContains(result.output, "ERR_CLONE_START_TRANSITION_LOST:User is not started: 10")
+        assertFalse(result.output.contains("VERIFY_BEGIN"))
+        assertFalse(result.output.contains("SHOULD_NOT_START"))
+        assertFalse(result.output.contains("SHOULD_NOT_STOP"))
+    }
+
+    @Test
     fun dataTasksOnlyRequestNonBlockingStopWhenTheyStartedCloneUser() {
         val script = ShellScripts.capture(
             "com.example.app",
@@ -1520,7 +1583,7 @@ class ShellScriptsTest {
             )
 
             assertEquals(0, result.exitCode, result.output)
-            assertContains(result.output, "START_CLONE_ALREADY_STARTING=${'$'}state")
+            assertContains(result.output, "START_CLONE_ALREADY_STARTING=$state")
             assertFalse(result.output.contains("SHOULD_NOT_START"))
         }
     }
@@ -1563,6 +1626,33 @@ class ShellScriptsTest {
         assertContains(result.output, "START_CLONE_OWNERSHIP=preexisting")
         assertFalse(result.output.contains("START_USER_BEGIN"))
         assertFalse(result.output.contains("SHOULD_NOT_START"))
+    }
+
+    @Test
+    fun explicitStartDoesNotClaimOrRepeatAConcurrentManualTransition() {
+        listOf("BOOTING", "RUNNING_UNLOCKING").forEach { state ->
+            val result = runExplicitStartScript(
+                """
+                    case "${'$'}1" in
+                      get-started-user-state)
+                        if [ -f "${'$'}UCLONE_TEST_STATE_FILE" ]; then
+                          echo $state
+                        else
+                          : > "${'$'}UCLONE_TEST_STATE_FILE"
+                          echo "User is not started: 10"
+                        fi
+                        exit 0
+                        ;;
+                      start-user) echo SHOULD_NOT_START; exit 9 ;;
+                    esac
+                """.trimIndent(),
+            )
+
+            assertEquals(0, result.exitCode, result.output)
+            assertContains(result.output, "START_CLONE_OWNERSHIP=preexisting_transition")
+            assertFalse(result.output.contains("START_USER_BEGIN"))
+            assertFalse(result.output.contains("SHOULD_NOT_START"))
+        }
     }
 
     @Test
@@ -1662,6 +1752,53 @@ class ShellScriptsTest {
             ?.toLongOrNull()
             ?.let(::terminateTestClient)
         return result
+    }
+
+    private fun runDataTaskEnsureScript(amBody: String): StopScriptResult {
+        val directory = Files.createTempDirectory("uclone-data-task-lifecycle-test")
+        val queryCountFile = directory.resolve("query-count").toFile()
+        val fakeAm = directory.resolve("am").toFile().apply {
+            writeText("#!/bin/sh\n$amBody\n")
+            check(setExecutable(true))
+        }
+        val captureScript = ShellScripts.capture(
+            packageName = "com.example.app",
+            rule = AppRule(packageName = "com.example.app"),
+            settings = settings.copy(
+                autoUnlockClone = true,
+                stopCloneAfterTask = true,
+                cloneUnlockCredential = "123456",
+            ),
+            appPackage = appPackage,
+        )
+        val ensureStart = captureScript.indexOf("CAPTURE_REQUIRE_CE=1\n")
+        require(ensureStart >= 0)
+        val ensureBodyStart = ensureStart + "CAPTURE_REQUIRE_CE=1\n".length
+        val ensureEnd = captureScript.indexOf("capture_cleanup_on_exit()", ensureBodyStart)
+        require(ensureEnd > ensureBodyStart)
+        val script = captureScript.substring(ensureBodyStart, ensureEnd)
+            .replace("/system/bin/am", fakeAm.absolutePath)
+            .replace("START_SLEEP_COMMAND='sleep'", "START_SLEEP_COMMAND='/bin/sleep'")
+            .replace("START_POLL_INTERVAL='0.25'", "START_POLL_INTERVAL='0.01'")
+            .replace("STOP_SLEEP_COMMAND='sleep'", "STOP_SLEEP_COMMAND='/bin/sleep'")
+            .replace("STOP_POLL_INTERVAL='0.25'", "STOP_POLL_INTERVAL='0.01'")
+            .replace("sleep 0.25", "/bin/sleep 0.01")
+        val process = ProcessBuilder("/bin/bash", "-c", script)
+            .redirectErrorStream(true)
+            .apply {
+                environment()["ROOT"] = directory.toAbsolutePath().toString()
+                environment()["UCLONE_REQUEST_ID"] = "lifecycle-test"
+                environment()["UCLONE_TEST_QUERY_COUNT_FILE"] = queryCountFile.absolutePath
+            }
+            .start()
+        process.outputStream.close()
+        val startedAt = System.nanoTime()
+        val output = process.inputStream.bufferedReader().readText()
+        return StopScriptResult(
+            exitCode = process.waitFor(),
+            output = output,
+            executionDurationMs = (System.nanoTime() - startedAt) / 1_000_000,
+        )
     }
 
     private fun terminateTestClient(pid: Long) {

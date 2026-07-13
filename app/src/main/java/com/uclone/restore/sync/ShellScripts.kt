@@ -469,7 +469,7 @@ object ShellScripts {
                     wait_for_clone_stable_state "WAIT_AFTER_START_TRANSITION" 40
                     WAIT_STABLE_RESULT=${'$'}?
                     case "${'$'}WAIT_STABLE_RESULT" in
-                      0) STATE_BEFORE_VERIFY=${'$'}(clone_state); echo "STATE_AFTER_START_TRANSITION=${'$'}STATE_BEFORE_VERIFY" ;;
+                      0) STATE_BEFORE_VERIFY="${'$'}WAIT_STATE"; echo "STATE_AFTER_START_TRANSITION=${'$'}STATE_BEFORE_VERIFY" ;;
                       2) STATE_BEFORE_VERIFY="${'$'}WAIT_STATE"; echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_VERIFY" >&2; exit 86 ;;
                       *) echo "ERR_CLONE_START_TRANSITION_TIMEOUT:${'$'}STATE_BEFORE_VERIFY" >&2; exit 80 ;;
                     esac
@@ -561,6 +561,12 @@ object ShellScripts {
                 START_CLONE_READY=1
                 echo "START_CLONE_CONFIRMED=${'$'}START_STATE_BEFORE_REQUEST"
                 echo "START_CLONE_OWNERSHIP=preexisting"
+                ;;
+              BOOTING|RUNNING_UNLOCKING)
+                START_WAIT_STATE="${'$'}START_STATE_BEFORE_REQUEST"
+                START_CLONE_READY=1
+                echo "START_CLONE_ALREADY_STARTING=${'$'}START_STATE_BEFORE_REQUEST"
+                echo "START_CLONE_OWNERSHIP=preexisting_transition"
                 ;;
               *)
                 echo "START_USER_BEGIN"
