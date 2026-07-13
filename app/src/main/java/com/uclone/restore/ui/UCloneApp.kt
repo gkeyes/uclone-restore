@@ -2,6 +2,7 @@ package com.uclone.restore.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -46,6 +47,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -320,13 +322,24 @@ private fun FloatingTabBar(
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.ucloneColors.navigationSurface.copy(alpha = 0.94f),
-            border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.7f)),
-            shadowElevation = 4.dp,
+            shape = RoundedCornerShape(30.dp),
+            color = Color.Transparent,
+            border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.glassHighlight),
+            shadowElevation = 8.dp,
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                MaterialTheme.ucloneColors.navigationSurface.copy(alpha = 0.94f),
+                                MaterialTheme.ucloneColors.navigationSurface.copy(alpha = 0.80f),
+                            ),
+                        ),
+                        shape = RoundedCornerShape(30.dp),
+                    )
+                    .padding(5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 topLevelDestinations.forEach { item ->
@@ -359,7 +372,20 @@ private fun RowScope.FloatingTabItem(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(item.icon!!, contentDescription = null, modifier = Modifier.size(21.dp))
+            Surface(
+                modifier = Modifier.size(32.dp),
+                shape = CircleShape,
+                color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent,
+                border = if (selected) {
+                    BorderStroke(0.5.dp, MaterialTheme.ucloneColors.glassHighlight.copy(alpha = 0.72f))
+                } else {
+                    null
+                },
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(item.icon!!, contentDescription = null, modifier = Modifier.size(20.dp))
+                }
+            }
             Spacer(Modifier.height(2.dp))
             Text(
                 item.label,

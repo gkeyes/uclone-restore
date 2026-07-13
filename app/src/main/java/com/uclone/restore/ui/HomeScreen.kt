@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -67,18 +66,29 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
                 }
             }
         } else {
-            items(state.favoriteApps, key = { it.packageName }) { app ->
-                FavoriteAppRow(
-                    app = app,
-                    dataState = state.dataStateFor(app.packageName),
-                    onOpen = {
-                        viewModel.selectPackage(app.packageName)
-                        openDetail()
-                    },
-                    onPush = { confirm = HomeConfirm.Push(app.packageName, app.label) },
-                    onSwitch = { confirm = HomeConfirm.Switch(app.packageName, app.label) },
-                    onRestore = { confirm = HomeConfirm.Restore(app.packageName, app.label) },
-                )
+            item(key = "favorite-apps") {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.ucloneColors.groupedSurface,
+                ) {
+                    Column {
+                        state.favoriteApps.forEachIndexed { index, app ->
+                            FavoriteAppRow(
+                                app = app,
+                                dataState = state.dataStateFor(app.packageName),
+                                showDivider = index < state.favoriteApps.lastIndex,
+                                onOpen = {
+                                    viewModel.selectPackage(app.packageName)
+                                    openDetail()
+                                },
+                                onPush = { confirm = HomeConfirm.Push(app.packageName, app.label) },
+                                onSwitch = { confirm = HomeConfirm.Switch(app.packageName, app.label) },
+                                onRestore = { confirm = HomeConfirm.Restore(app.packageName, app.label) },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -179,6 +189,7 @@ private fun CurrentTaskCard(state: UiState) {
 private fun FavoriteAppRow(
     app: AppEntry,
     dataState: AppDataState,
+    showDivider: Boolean,
     onOpen: () -> Unit,
     onPush: () -> Unit,
     onSwitch: () -> Unit,
@@ -188,8 +199,7 @@ private fun FavoriteAppRow(
     Surface(
         onClick = onOpen,
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.ucloneColors.groupedSurface,
+        color = Color.Transparent,
         shadowElevation = 0.dp,
     ) {
         Column(
@@ -270,6 +280,12 @@ private fun FavoriteAppRow(
                 )
             }
         }
+    }
+    if (showDivider) {
+        HorizontalDivider(
+            modifier = Modifier.padding(start = 64.dp),
+            color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+        )
     }
 }
 

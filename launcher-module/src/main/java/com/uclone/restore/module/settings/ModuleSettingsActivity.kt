@@ -903,9 +903,9 @@ class ModuleSettingsActivity : Activity() {
             background = clippedRipple(
                 content = roundedSolid(
                     if (danger) colorWithAlpha(RED, 20) else colorWithAlpha(BLUE, 20),
-                    dp(12),
+                    dp(25),
                 ),
-                radius = dp(12),
+                radius = dp(25),
                 rippleColor = colorWithAlpha(if (danger) RED else BLUE, 28),
             )
             setOnClickListener { onClick() }
@@ -955,8 +955,8 @@ class ModuleSettingsActivity : Activity() {
     }
 
     private fun primaryButtonDrawable(): Drawable {
-        val fill = roundedSolid(BLUE, dp(12))
-        return clippedRipple(fill, dp(12), colorWithAlpha(ON_PRIMARY, 54))
+        val fill = roundedSolid(BLUE, dp(25))
+        return clippedRipple(fill, dp(25), colorWithAlpha(ON_PRIMARY, 54))
     }
 
     private fun segmentedButtonBackground(selected: Boolean, radius: Int): Drawable =

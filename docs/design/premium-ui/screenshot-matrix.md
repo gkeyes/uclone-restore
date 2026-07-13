@@ -2,19 +2,19 @@
 
 ## Status
 
-第一版 A1 产物（commit `6edc5d4`）已完成 GitHub 构建和真机首页截图，但因整行蓝色按钮、Material 选中块和卡片边框过重被判定 `REJECTED`。当前修正版只完成代码与静态审计，尚未生成新的固定签名 APK；除明确记录的拒绝证据外，其余项目继续标记 `UNVERIFIED`。
+第一版 A1 产物（commit `6edc5d4`）已完成 GitHub 构建和真机首页截图，但因整行蓝色按钮、Material 选中块和卡片边框过重被判定 `REJECTED`。commit `6709e8b` 的后续真机截图又确认方角主按钮、逐项独立卡片和近不透明底栏仍偏 Android。当前 A2 只完成源码与静态审计，尚未生成新的固定签名 APK；串窗或不属于当前产物的截图一律不得作为证据。
 
 ## 1. 主 App 核心矩阵
 
 | ID | Window | Theme | Text scale | Input | Screen/state | Screenshot | Interaction test | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| M-01 | compact portrait | light | default | touch | 首页/default/ready | `6edc5d4` 已采集，修正版待采集 | 进入所有顶层页；检查系统动作行和底栏选中态 | `REJECTED / RETEST REQUIRED` | 第一版按钮与底栏不符合 A1；修正版必须保留 6 个入口且无整项蓝色选中块 |
+| M-01 | compact portrait | light | default | touch | 首页/default/ready | A2 待采集 | 进入所有顶层页；检查系统动作行和底栏选中态 | `REJECTED BASELINE / RETEST REQUIRED` | 必须保留 6 个入口；主动作是短胶囊；收藏 App 位于单个连续分组面；选中态只包围图标，不出现整项蓝色块 |
 | M-02 | compact portrait | dark | default | touch | 首页/default/ready | 待采集 | 收藏 App 主动作 | `UNVERIFIED` | 状态不只靠颜色 |
 | M-03 | compact portrait | light | large | touch | 首页/current task | 待采集 | 展开任务详情 | `UNVERIFIED` | 无重叠、行尾动作重排 |
 | M-04 | compact portrait | dark | maximum | TalkBack | 首页/error/unknown | 待采集 | 宣读状态、原因和重试 | `UNVERIFIED` | 技术值不抢主文案 |
 | M-05 | compact portrait | light | default | touch | App/loading candidate | 待采集 | 等待列表完成、搜索 | `UNVERIFIED` | 需先批准并实现逐页 loading 状态；不属于首批 UI-only |
 | M-06 | compact portrait | light | default | touch | App/empty search | 待采集 | 清除筛选 | `UNVERIFIED` | 明确无匹配而非无安装 |
-| M-07 | compact portrait | dark | large | TalkBack | App/list | 待采集 | 收藏、打开详情、返回 | `UNVERIFIED` | App 名/包名/状态朗读顺序 |
+| M-07 | compact portrait | dark | large | TalkBack | App/list | A2 待采集 | 收藏、打开详情、返回 | `UNVERIFIED` | 单个 grouped surface + 缩进分隔线；App 名/包名/状态朗读顺序；行高不得因星标镜片跳动 |
 | M-08 | compact portrait | light | default | touch | App detail/MAIN | 待采集 | 打开切换确认后取消 | `UNVERIFIED` | 来源/目标/保护/后果 |
 | M-09 | compact portrait | light | default | touch | App detail/CLONE | 待采集 | 打开还原确认后取消 | `UNVERIFIED` | “还原主数据”精确文案 |
 | M-10 | compact portrait | dark | large | touch | App detail/UNKNOWN | 待采集 | 检查状态 | `UNVERIFIED` | 禁止猜测切换动作 |
@@ -52,7 +52,7 @@
 
 | ID | Window | Direction | Screen | Required evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| A-01 | compact portrait | A | 6-destination floating tab bar | 所有入口可达、当前位置清楚，选中态仅用蓝色 icon 与文字 | `UNVERIFIED` |
+| A-01 | compact portrait | A | 6-destination floating tab bar | 所有入口可达、当前位置清楚；半透明导航层对比充足；选中镜片仅包围 icon，滚动内容时不得出现整项色块或文字遮挡 | `UNVERIFIED` |
 | A-02 | compact landscape | A | App list/detail | inset、键盘、内容不遮挡 | `UNVERIFIED` |
 | A-03 | medium | A | rail + list/detail | 选择/返回/状态保持 | `UNVERIFIED` |
 | A-04 | expanded | A | drawer + 3 pane | pane 尺寸稳定、无超大空白 | `UNVERIFIED` |
@@ -103,3 +103,13 @@ remaining issues:
 ```
 
 只有当前 commit 对应的固定签名 GitHub artifact 可以关闭 `UNVERIFIED`；旧 APK、旧截图或设计 mockup 均为 `PROHIBITED-AS-EVIDENCE`。
+
+### A2 visual gate
+
+当前 A2 必须同时满足以下五项，任一项失败都不得称为视觉重构完成：
+
+1. 首页和 App 页使用连续分组列表，不再为每个 App 生成独立卡片。
+2. 情境主动作使用短胶囊，普通工具保持行尾文字动作，不形成按钮墙。
+3. Compact 底栏为单层半透明导航 chrome，选中态只形成 icon 镜片，不出现 glass-on-glass。
+4. 深色模式下高光边界可见但不过亮，内容面保持不透明和稳定对比。
+5. 1.3x 及最大字体下，六个导航标签、长中文动作和 App 状态均不重叠、不裁切关键含义。

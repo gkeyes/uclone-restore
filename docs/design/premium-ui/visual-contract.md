@@ -2,14 +2,14 @@
 
 ## Context
 
-- Status: `A1 VISUAL CORRECTION IMPLEMENTED / NEW RENDER VERIFICATION PENDING`
+- Status: `A2 IOS 26 REFERENCE IMPLEMENTED / NEW RENDER VERIFICATION PENDING`
 - Platform/framework: Android, Jetpack Compose Material 3 + Android View
 - Locale: zh-CN
 - Product domain: Root / multi-user system utility
 - Selected official source IDs: see `official-source-evidence.md`
 - Project truth: `需求.md`, `docs/ARCHITECTURE.md`, `docs/INVARIANTS.md`, current production models
 - Existing project design system: `DESIGN.md`, `Theme.kt`, `Components.kt`
-- Approved direction: A1, Android-adapted iOS grouped utility, approved by the user on 2026-07-13
+- Approved direction: A2, Android-adapted iOS grouped utility with navigation-layer glass, approved by the user on 2026-07-13
 
 本合同约束当前生产实现。视觉方向借鉴 iOS 的分组、层级和语义色，但真实平台仍是 Android；不得声称原生 iOS、Apple HIG 合规或使用 SF Symbols。
 
@@ -22,6 +22,9 @@
 | 第一版 A1 仍使用描边、阴影和 18dp 大圆角卡片 | commit `6edc5d4` 真机截图 | `PROJECT-VERIFIED` | 内容面改为 12dp 无描边、无阴影的 inset grouped surface |
 | 第一版 A1 仍有整行实心按钮和 Material 按钮墙 | commit `6edc5d4` 真机截图、`Components.kt` | `PROJECT-VERIFIED` | 普通命令改为行尾蓝色/红色文字；每个情境只允许一个短实心主动作 |
 | 第一版 A1 底栏选中项显示大面积蓝色矩形 | commit `6edc5d4` 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 选中态只使用蓝色 icon 和文字，不增加背景块或额外指示器 |
+| A1 主动作仍是 12dp 方角色块 | commit `6709e8b` 真机首页截图、用户反馈 | `PROJECT-VERIFIED` | 主动作改为短胶囊；普通和危险动作继续使用文字层级，不生成按钮墙 |
+| A1 App/收藏列表仍是逐项独立卡片 | commit `6709e8b` 真机首页截图、用户反馈 | `PROJECT-VERIFIED` | 改为单个 grouped surface 内的连续列表行和缩进分隔线 |
+| A1 底栏材质接近不透明白色托盘 | commit `6709e8b` 真机首页截图、用户提供的 iOS 26 方向 | `PROJECT-VERIFIED` | 保留六入口，使用导航层半透明纵向高光和仅包围图标的选中镜片 |
 | 图标按钮视觉尺寸 40dp | `Components.kt` | `PROJECT-VERIFIED` | 交互触控区域至少 48dp |
 | 诊断/详情连续堆叠多个全宽按钮 | 多个 screen | `PROJECT-VERIFIED` | 工具行 + 单主动作 + 危险区 |
 | 产品已有 6 个顶层入口 | `UCloneApp.kt`、用户要求 | `PROJECT-VERIFIED` | 六项全部保留；Compact 使用等宽 icon + 短标签布局 |
@@ -38,7 +41,7 @@
 | 避免嵌套卡片、动效克制、日志使用 monospace | 保留 | `PROJECT-VERIFIED` | 与系统工具的信息效率一致 |
 | 44dp 最小触控 | 由 Android 48dp 规则取代 | `DERIVED` | Android 是真实目标平台，官方 API defaults 优先 |
 | 普通 group/list row 使用 Liquid Glass | 内容层改为不透明 grouped surface，仅导航层允许半透明 | `PROJECT-VERIFIED` | 保证数据面稳定对比，避免 glass-on-glass |
-| 普通容器与命令按钮圆角 | 容器 12dp、控件 12dp、导航 28dp | `PROJECT-VERIFIED` | 降低过度圆润的 Material 卡片感，同时维持 Android 48dp 触控要求 |
+| 普通容器与命令按钮圆角 | 内容容器/输入 12dp、短命令胶囊、导航 30dp | `PROJECT-VERIFIED` | 内容仍保持克制；只有可点击命令和导航 chrome 使用连续胶囊/圆形轮廓 |
 | Apple 风格色板 | 作为 UClone 产品色选择映射到 semantic light/dark roles | `PROJECT-VERIFIED` | 不以 `Ios*` 命名，不冒充原生 Apple 组件 |
 | Compact 行可省略长包名/路径 | 关键信息换行或进入可复制详情 | `DERIVED` | 不得隐藏危险对象和恢复标识 |
 
@@ -55,7 +58,7 @@
 | VC-005 | Theme | 使用 semantic light/dark color roles | `OFFICIAL-VERIFIED` | Android M3 + Apple color | light/dark/high contrast | 截图 + 对比检查 |
 | VC-006 | Status | 状态使用 icon/shape + text + color | `OFFICIAL-VERIFIED` | accessibility/color | all statuses | 灰阶/色觉模拟 + TalkBack |
 | VC-007 | Typography | 使用有限 Material type roles，系统字体，支持 font scale reflow | `DERIVED` | Android + Apple typography | default/large/max | 长中文和最大字体截图 |
-| VC-008 | Actions | 普通工具使用行尾文字动作；每个操作组最多一个短实心主动作，禁止整页全宽按钮墙 | `DERIVED` | Apple buttons + product risk + `6edc5d4` 真机复盘 | enabled/disabled/busy | 页面动作层级审查 |
+| VC-008 | Actions | 普通工具使用行尾文字动作；每个操作组最多一个短胶囊主动作，禁止整页全宽按钮墙 | `DERIVED` | Apple buttons + product risk + `6edc5d4`/`6709e8b` 真机复盘 | enabled/disabled/busy | 页面动作层级审查 |
 | VC-009 | Destructive | 删除/重置独立危险区并确认后果 | `DERIVED` | action matrix + alerts | default/confirm/error | 实际打开确认框 |
 | VC-010 | Progress | 当前只展示阶段/步骤；未来有可信实时分母才显示百分比 | `DERIVED` | `TaskProgress` 当前无可靠实时总量 | accepted/running/rollback | fixture/真机任务截图；遥测扩展需独立批准 |
 | VC-011 | Content | 中文主文案，技术原值作为可展开次级信息 | `PROJECT-VERIFIED` | product truth | normal/error/diagnostic | 内容审查 + TalkBack |
@@ -112,9 +115,10 @@
 | `space-4` | 16dp | 页面水平 padding、标准 section |
 | `space-6` | 24dp | 主要 section 分隔 |
 | `space-8` | 32dp | 危险区或大段分隔 |
-| control radius | 12dp | buttons, fields, compact rows |
+| control radius | 12dp | fields and compact content rows |
+| command shape | capsule | short primary/secondary command controls only |
 | grouped radius | 12dp | content cards and grouped lists |
-| navigation radius | 28dp | floating compact navigation only |
+| navigation radius | 30dp | floating compact navigation only |
 | status radius | full | status badge and circular icon button |
 | minimum touch | 48dp | 所有 interactive target |
 
@@ -246,10 +250,10 @@
 
 | Item | Why unverified | Risk | Required follow-up |
 | --- | --- | --- | --- |
-| A1 修正版真机视觉还原度 | `6edc5d4` 已真机渲染并因 Material 按钮/选中块过重被拒绝；当前修正版尚未生成固定产物 | 新按钮层级、底栏和自绘开关仍可能在真机偏离合同 | GitHub 构建当前修正版，安装固定签名产物并逐页截图对照 |
+| A2 修正版真机视觉还原度 | `6709e8b` 已真机渲染并确认方角主按钮、独立卡片列表和近不透明底栏仍偏 Android；当前 A2 尚未生成固定产物 | 胶囊动作、连续列表和导航镜片仍可能在真机偏离合同 | 经用户重新授权后 GitHub 构建、安装固定签名产物并逐页截图对照 |
 | Material Adaptive API | 未在本阶段改依赖/编译 | API 可能与当前版本不同 | 实现前核对 Gradle 依赖和官方文档 |
 | Light/dark color values | 未渲染 | 对比/品牌平衡未知 | 真机截图与对比检查 |
-| Chrome translucency | 未实现 | 性能/可读性风险 | 低端设备和内容滚动截图 |
+| Chrome translucency | 已实现半透明高光层，但未做真实 backdrop blur 且尚未真机渲染 | 性能、对比和与内容背景的融合程度未知 | 固定产物真机滚动截图；不通过增加全屏 blur 追求效果 |
 | 大字体/TalkBack | 未实现 | 可访问性风险 | 真机逐页测试 |
 | Module responsive layout | 当前为 programmatic View | 大字体/横屏风险 | 模块真机截图与操作 |
 | Compact/expanded behavior | 无当前渲染证据 | pane/导航可能不适配 | 手机、横屏/平板或模拟器验证 |

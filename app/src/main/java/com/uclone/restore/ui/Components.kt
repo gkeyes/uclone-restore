@@ -1,6 +1,7 @@
 package com.uclone.restore.ui
 
 import android.content.pm.PackageManager
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -259,8 +260,8 @@ fun CompactActionButton(
     val containerColor = when {
         !enabled -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.5f)
         primary -> MaterialTheme.colorScheme.primary
-        danger -> MaterialTheme.colorScheme.errorContainer
-        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        danger -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.76f)
+        else -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.92f)
     }
     val contentColor = when {
         !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
@@ -275,12 +276,18 @@ fun CompactActionButton(
             .widthIn(min = 72.dp)
             .semantics { role = Role.Button },
         enabled = enabled,
-        shape = RoundedCornerShape(12.dp),
+        shape = CircleShape,
         color = containerColor,
         contentColor = contentColor,
+        border = when {
+            !enabled -> null
+            primary -> BorderStroke(0.5.dp, MaterialTheme.ucloneColors.glassHighlight.copy(alpha = 0.58f))
+            danger -> BorderStroke(0.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.16f))
+            else -> BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f))
+        },
     ) {
         Row(
-            Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
+            Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -347,6 +354,11 @@ fun UtilityIconButton(
         shape = CircleShape,
         color = if (selected) tint.copy(alpha = 0.10f) else Color.Transparent,
         contentColor = tint,
+        border = if (selected) {
+            BorderStroke(0.5.dp, MaterialTheme.ucloneColors.glassHighlight.copy(alpha = 0.52f))
+        } else {
+            null
+        },
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(imageVector, contentDescription = contentDescription, modifier = Modifier.size(22.dp))

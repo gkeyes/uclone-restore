@@ -36,6 +36,7 @@ data class UCloneSemanticColors(
     val elevatedSurface: Color,
     val separator: Color,
     val navigationSurface: Color,
+    val glassHighlight: Color,
 )
 
 private val LightSemanticColors = UCloneSemanticColors(
@@ -51,6 +52,7 @@ private val LightSemanticColors = UCloneSemanticColors(
     elevatedSurface = Color(0xFFF7F7FA),
     separator = Color(0xFFC6C6C8),
     navigationSurface = Color(0xFFF9F9FB),
+    glassHighlight = Color(0xD9FFFFFF),
 )
 
 private val DarkSemanticColors = UCloneSemanticColors(
@@ -66,6 +68,7 @@ private val DarkSemanticColors = UCloneSemanticColors(
     elevatedSurface = Color(0xFF2C2C2E),
     separator = Color(0xFF38383A),
     navigationSurface = Color(0xFF242426),
+    glassHighlight = Color(0x33FFFFFF),
 )
 
 private val LocalUCloneSemanticColors = staticCompositionLocalOf { LightSemanticColors }

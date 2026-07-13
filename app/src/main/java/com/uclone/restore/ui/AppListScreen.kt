@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FilterList
@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -29,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -109,22 +111,31 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            Surface(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.ucloneColors.groupedSurface,
             ) {
-                items(apps, key = { it.packageName }) { app ->
-                    AppRow(
-                        app = app,
-                        favorite = app.packageName in state.settings.favoritePackages,
-                        mainUserId = state.settings.mainUserId,
-                        cloneUserId = state.settings.cloneUserId,
-                        onFavorite = { viewModel.toggleFavorite(app.packageName) },
-                        onClick = {
-                            viewModel.selectPackage(app.packageName)
-                            openDetail()
-                        },
-                    )
+                LazyColumn {
+                    itemsIndexed(apps, key = { _, app -> app.packageName }) { index, app ->
+                        AppRow(
+                            app = app,
+                            favorite = app.packageName in state.settings.favoritePackages,
+                            mainUserId = state.settings.mainUserId,
+                            cloneUserId = state.settings.cloneUserId,
+                            onFavorite = { viewModel.toggleFavorite(app.packageName) },
+                            onClick = {
+                                viewModel.selectPackage(app.packageName)
+                                openDetail()
+                            },
+                        )
+                        if (index < apps.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 64.dp),
+                                color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -199,8 +210,7 @@ private fun AppRow(
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.ucloneColors.groupedSurface,
+        color = Color.Transparent,
         shadowElevation = 0.dp,
     ) {
         Row(
