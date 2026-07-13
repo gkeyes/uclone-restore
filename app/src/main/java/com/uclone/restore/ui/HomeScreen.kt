@@ -1,12 +1,12 @@
 package com.uclone.restore.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -38,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.StepStatus
@@ -53,7 +51,8 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(start = 16.dp, top = 12.dp, end = 16.dp),
+        contentPadding = PaddingValues(bottom = LocalBottomBarContentPadding.current),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { PageDescription("先确认系统状态，再处理收藏 App 的切换、还原和推送。") }
@@ -70,7 +69,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             item(key = "favorite-apps") {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large,
+                    shape = MaterialTheme.shapes.medium,
                     color = MaterialTheme.ucloneColors.groupedSurface,
                 ) {
                     Column {
@@ -173,7 +172,7 @@ private fun CurrentTaskCard(state: UiState) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(task.packageName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(task.packageName, fontWeight = FontWeight.SemiBold)
                 Text(
                     "${task.type.displayName} · ${task.status.displayName}",
                     style = MaterialTheme.typography.bodySmall,
@@ -203,84 +202,65 @@ private fun FavoriteAppRow(
         color = Color.Transparent,
         shadowElevation = 0.dp,
     ) {
-        Column(
-            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AppIcon(app.packageName)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(app.label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        "${app.packageName} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Column {
-                    UtilityIconButton(
-                        imageVector = Icons.Default.MoreHoriz,
-                        contentDescription = "更多操作",
-                        onClick = { menuExpanded = true },
-                        framed = true,
-                    )
-                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                        DropdownMenuItem(
-                            text = { Text("推送当前主系统数据到分身") },
-                            leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
-                            onClick = {
-                                menuExpanded = false
-                                onPush()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("查看 App 详情") },
-                            onClick = {
-                                menuExpanded = false
-                                onOpen()
-                            },
-                        )
-                    }
-                }
+            AppIcon(app.packageName)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(app.label, fontWeight = FontWeight.SemiBold)
+                Text(
+                    app.packageName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "${dataState.compactLabel()} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = dataState.color(),
+                    fontWeight = FontWeight.Medium,
+                )
             }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                StatusBadge(
-                    label = when (dataState) {
-                        AppDataState.Main -> "主数据"
-                        is AppDataState.Clone -> "分数据"
-                        AppDataState.Unknown -> "状态未知"
-                    },
-                    color = when (dataState) {
-                        AppDataState.Main -> MaterialTheme.ucloneColors.success
-                        is AppDataState.Clone -> MaterialTheme.colorScheme.onPrimaryContainer
-                        AppDataState.Unknown -> MaterialTheme.ucloneColors.warning
-                    },
+            CompactActionButton(
+                text = when (dataState) {
+                    AppDataState.Main -> "切换"
+                    is AppDataState.Clone -> "还原"
+                    AppDataState.Unknown -> "检查"
+                },
+                onClick = when (dataState) {
+                    AppDataState.Main -> onSwitch
+                    is AppDataState.Clone -> onRestore
+                    AppDataState.Unknown -> onOpen
+                },
+                primary = dataState != AppDataState.Unknown,
+            )
+            Box {
+                UtilityIconButton(
+                    imageVector = Icons.Default.MoreHoriz,
+                    contentDescription = "更多操作",
+                    onClick = { menuExpanded = true },
+                    framed = true,
                 )
-                Spacer(Modifier.weight(1f))
-                CompactActionButton(
-                    text = when (dataState) {
-                        AppDataState.Main -> "切换到分身"
-                        is AppDataState.Clone -> "还原主数据"
-                        AppDataState.Unknown -> "检查状态"
-                    },
-                    onClick = when (dataState) {
-                        AppDataState.Main -> onSwitch
-                        is AppDataState.Clone -> onRestore
-                        AppDataState.Unknown -> onOpen
-                    },
-                    primary = dataState != AppDataState.Unknown,
-                    icon = if (dataState is AppDataState.Clone) Icons.Default.Refresh else Icons.Default.Sync,
-                )
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("推送当前主系统数据到分身") },
+                        leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onPush()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("查看 App 详情") },
+                        onClick = {
+                            menuExpanded = false
+                            onOpen()
+                        },
+                    )
+                }
             }
         }
     }
@@ -290,6 +270,19 @@ private fun FavoriteAppRow(
             color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
         )
     }
+}
+
+private fun AppDataState.compactLabel(): String = when (this) {
+    AppDataState.Main -> "MAIN 主数据"
+    is AppDataState.Clone -> "CLONE 分数据"
+    AppDataState.Unknown -> "UNKNOWN 状态未知"
+}
+
+@Composable
+private fun AppDataState.color(): Color = when (this) {
+    AppDataState.Main -> MaterialTheme.ucloneColors.success
+    is AppDataState.Clone -> MaterialTheme.colorScheme.primary
+    AppDataState.Unknown -> MaterialTheme.ucloneColors.warning
 }
 
 private sealed class HomeConfirm {

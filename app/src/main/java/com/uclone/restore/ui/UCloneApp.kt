@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -209,16 +213,21 @@ private fun CompactShell(
     content: @Composable (Modifier) -> Unit,
 ) {
     if (destination in topLevelDestinations) {
+        val bottomContentPadding = WindowInsets.navigationBars
+            .asPaddingValues()
+            .calculateBottomPadding() + 68.dp
         GlassBackdropHost(
             modifier = Modifier.fillMaxSize(),
             background = {
-                AppScaffold(
-                    destination = destination,
-                    taskActive = taskActive,
-                    navigationIcon = null,
-                    onOpenHistory = onOpenHistory,
-                    content = content,
-                )
+                CompositionLocalProvider(LocalBottomBarContentPadding provides bottomContentPadding) {
+                    AppScaffold(
+                        destination = destination,
+                        taskActive = taskActive,
+                        navigationIcon = null,
+                        onOpenHistory = onOpenHistory,
+                        content = content,
+                    )
+                }
             },
             overlay = {
                 FloatingTabBar(

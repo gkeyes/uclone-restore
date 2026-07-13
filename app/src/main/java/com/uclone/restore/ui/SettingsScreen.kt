@@ -49,8 +49,13 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(
+                start = 16.dp,
+                top = 12.dp,
+                end = 16.dp,
+                bottom = LocalBottomBarContentPadding.current,
+            ),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         PageDescription("配置用户、工作区和默认数据范围；危险维护操作集中在页面底部。")
         SectionCard("诊断与维护") {
@@ -312,7 +317,7 @@ private fun NumberField(label: String, value: Int, onChange: (Int) -> Unit) {
 @Composable
 private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        Modifier.fillMaxWidth().heightIn(min = 56.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -2,12 +2,17 @@ package com.uclone.restore.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -17,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.PassiveBackupStateKind
@@ -44,20 +50,27 @@ fun DataScreen(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(start = 16.dp, top = 12.dp, end = 16.dp),
+        contentPadding = PaddingValues(bottom = LocalBottomBarContentPadding.current),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-        item { PageDescription("按主动快照、主系统侧备份和分身回滚分别管理。") }
         item {
-            SectionCard("存储区分") {
-                SingleLinePathText("主动快照: $rootDir/snapshots/<包名>/active")
-                SingleLinePathText("被动备份: $rootDir/rollback/<包名>/<备份ID>")
-                SingleLinePathText("分身回滚: $rootDir/clone_rollback/<包名>/latest")
-                Text(
-                    "主数据 MAIN 与分数据 CLONE 分别标记；长期状态备份与本次事务回滚分开处理。",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+            Box(Modifier.padding(bottom = 12.dp)) {
+                PageDescription("按主动快照、主系统侧备份和分身回滚分别管理。")
+            }
+        }
+        item {
+            Box(Modifier.padding(bottom = 12.dp)) {
+                SectionCard("存储区分") {
+                    SingleLinePathText("主动快照: $rootDir/snapshots/<包名>/active")
+                    SingleLinePathText("被动备份: $rootDir/rollback/<包名>/<备份ID>")
+                    SingleLinePathText("分身回滚: $rootDir/clone_rollback/<包名>/latest")
+                    Text(
+                        "主数据 MAIN 与分数据 CLONE 分别标记；长期状态备份与本次事务回滚分开处理。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
         item {
@@ -65,15 +78,22 @@ fun DataScreen(
         }
         if (activeBackups.isEmpty()) {
             item {
-                SectionCard("暂无主动备份") {
-                    Text("点击 App 详情里的“建立主动备份”后会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(Modifier.padding(bottom = 12.dp)) {
+                    SectionCard("暂无主动备份") {
+                        Text("点击 App 详情里的“建立主动备份”后会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         } else {
-            items(activeBackups, key = { "active-${it.packageName}" }) { app ->
-                ActiveBackupRow(app) {
+            itemsIndexed(activeBackups, key = { _, app -> "active-${app.packageName}" }) { index, app ->
+                ActiveBackupRow(
+                    app = app,
+                    shape = groupedRowShape(index, activeBackups.lastIndex),
+                    showDivider = index < activeBackups.lastIndex,
+                ) {
                     openActiveBackup(app.packageName)
                 }
+                if (index == activeBackups.lastIndex) Spacer(Modifier.height(12.dp))
             }
         }
         item {
@@ -81,21 +101,26 @@ fun DataScreen(
         }
         if (passiveBackups.isEmpty()) {
             item {
-                SectionCard("暂无被动备份") {
-                    Text("执行恢复或切换前，App 会自动保存当前 user${state.settings.mainUserId} 数据。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(Modifier.padding(bottom = 12.dp)) {
+                    SectionCard("暂无被动备份") {
+                        Text("执行恢复或切换前，App 会自动保存当前 user${state.settings.mainUserId} 数据。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         } else {
-            items(passiveBackups, key = { "passive-${it.packageName}-${it.rollbackId}" }) { backup ->
+            itemsIndexed(
+                passiveBackups,
+                key = { _, backup -> "passive-${backup.packageName}-${backup.rollbackId}" },
+            ) { index, backup ->
                 PassiveBackupRow(
                     backup = backup,
-                    rootDir = rootDir,
                     app = appByPackage[backup.packageName],
-                    onOpenDetail = {
-                        openPassiveBackup(backup)
-                    },
+                    onOpenDetail = { openPassiveBackup(backup) },
                     onRestore = { confirmRestore = backup },
+                    shape = groupedRowShape(index, passiveBackups.lastIndex),
+                    showDivider = index < passiveBackups.lastIndex,
                 )
+                if (index == passiveBackups.lastIndex) Spacer(Modifier.height(12.dp))
             }
         }
         item {
@@ -108,13 +133,17 @@ fun DataScreen(
                 }
             }
         } else {
-            items(cloneRollbackBackups, key = { "clone-${it.packageName}-${it.rollbackId}" }) { backup ->
+            itemsIndexed(
+                cloneRollbackBackups,
+                key = { _, backup -> "clone-${backup.packageName}-${backup.rollbackId}" },
+            ) { index, backup ->
                 PassiveBackupRow(
                     backup = backup,
-                    rootDir = rootDir,
                     app = appByPackage[backup.packageName],
                     onOpenDetail = null,
                     onRestore = { confirmCloneRestore = backup },
+                    shape = groupedRowShape(index, cloneRollbackBackups.lastIndex),
+                    showDivider = index < cloneRollbackBackups.lastIndex,
                 )
             }
         }
@@ -180,4 +209,11 @@ fun DataScreen(
             },
         )
     }
+}
+
+private fun groupedRowShape(index: Int, lastIndex: Int): Shape = when {
+    lastIndex <= 0 -> RoundedCornerShape(12.dp)
+    index == 0 -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+    index == lastIndex -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+    else -> RoundedCornerShape(0.dp)
 }

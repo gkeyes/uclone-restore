@@ -1,6 +1,7 @@
 package com.uclone.restore.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,7 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
-import com.uclone.restore.util.Formatters
+import com.uclone.restore.sync.AppDataState
 
 @Composable
 fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, openDetail: () -> Unit) {
@@ -52,7 +53,7 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
     Column(
         modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(start = 16.dp, top = 12.dp, end = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
@@ -115,16 +116,17 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
             )
             Surface(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
+                shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.ucloneColors.groupedSurface,
             ) {
-                LazyColumn {
+                LazyColumn(contentPadding = PaddingValues(bottom = LocalBottomBarContentPadding.current)) {
                     itemsIndexed(apps, key = { _, app -> app.packageName }) { index, app ->
                         AppRow(
                             app = app,
                             favorite = app.packageName in state.settings.favoritePackages,
                             mainUserId = state.settings.mainUserId,
                             cloneUserId = state.settings.cloneUserId,
+                            dataState = state.dataStateFor(app.packageName),
                             onFavorite = { viewModel.toggleFavorite(app.packageName) },
                             onClick = {
                                 viewModel.selectPackage(app.packageName)
@@ -207,6 +209,7 @@ private fun AppRow(
     favorite: Boolean,
     mainUserId: Int,
     cloneUserId: Int,
+    dataState: AppDataState,
     onFavorite: () -> Unit,
     onClick: () -> Unit,
 ) {
@@ -228,11 +231,11 @@ private fun AppRow(
                     app.packageName,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "user$mainUserId ${if (app.user0Installed) "已安装" else "未安装"} · user$cloneUserId ${if (app.user10Installed) "已安装" else "未安装"} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
+                    "user$mainUserId ${if (app.user0Installed) "已安装" else "未安装"} · " +
+                        "user$cloneUserId ${if (app.user10Installed) "已安装" else "未安装"} · " +
+                        dataState.listLabel(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -251,4 +254,10 @@ private fun AppRow(
             )
         }
     }
+}
+
+private fun AppDataState.listLabel(): String = when (this) {
+    AppDataState.Main -> "MAIN 主数据"
+    is AppDataState.Clone -> "CLONE 分数据"
+    AppDataState.Unknown -> "UNKNOWN 状态未知"
 }

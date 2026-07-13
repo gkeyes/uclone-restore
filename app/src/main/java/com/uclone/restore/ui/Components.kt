@@ -25,6 +25,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -40,12 +43,16 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -62,6 +69,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.core.graphics.drawable.toBitmap
 import com.uclone.restore.model.RiskLevel
 import com.uclone.restore.model.StepStatus
+
+internal val LocalBottomBarContentPadding = staticCompositionLocalOf { 16.dp }
 
 @Composable
 fun SectionCard(
@@ -88,8 +97,8 @@ fun SectionCard(
             shadowElevation = 0.dp,
         ) {
             Column(
-                Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 content()
             }
@@ -136,7 +145,7 @@ fun InfoRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 44.dp),
+            .heightIn(min = 56.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -257,6 +266,7 @@ fun CompactActionButton(
     danger: Boolean = false,
     icon: ImageVector? = null,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     val containerColor = when {
         !enabled -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.5f)
         primary -> MaterialTheme.colorScheme.primary.copy(alpha = 0.11f)
@@ -274,11 +284,13 @@ fun CompactActionButton(
         modifier = modifier
             .heightIn(min = 48.dp)
             .widthIn(min = 72.dp)
+            .pressScale(interactionSource, enabled)
             .semantics { role = Role.Button },
         enabled = enabled,
-        shape = CircleShape,
+        shape = RoundedCornerShape(22.dp),
         color = containerColor,
         contentColor = contentColor,
+        interactionSource = interactionSource,
         border = when {
             !enabled -> null
             primary -> BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
@@ -317,7 +329,7 @@ fun InlineActionButton(
     Surface(
         onClick = onClick,
         modifier = modifier
-            .heightIn(min = 52.dp)
+            .heightIn(min = 48.dp)
             .semantics { role = Role.Button },
         enabled = enabled,
         color = Color.Transparent,
@@ -348,22 +360,26 @@ fun UtilityIconButton(
     framed: Boolean = false,
     enabled: Boolean = true,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
-        modifier = modifier.size(48.dp),
+        modifier = modifier
+            .size(48.dp)
+            .pressScale(interactionSource, enabled),
         enabled = enabled,
         shape = CircleShape,
         color = when {
             selected -> tint.copy(alpha = 0.10f)
-            framed -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.82f)
+            framed -> MaterialTheme.ucloneColors.navigationSurface.copy(alpha = 0.66f)
             else -> Color.Transparent
         },
         contentColor = tint,
         border = when {
             selected -> BorderStroke(0.5.dp, tint.copy(alpha = 0.14f))
-            framed -> BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.36f))
+            framed -> BorderStroke(0.5.dp, MaterialTheme.ucloneColors.glassHighlight.copy(alpha = 0.72f))
             else -> null
         },
+        interactionSource = interactionSource,
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(imageVector, contentDescription = contentDescription, modifier = Modifier.size(20.dp))
@@ -405,8 +421,8 @@ fun ToolRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 58.dp)
-                .padding(vertical = 7.dp),
+                .heightIn(min = 64.dp)
+                .padding(vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -448,8 +464,10 @@ fun UCloneSwitch(
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
 ) {
+    val reduceMotion = rememberReduceMotionEnabled()
     val thumbOffset by animateDpAsState(
         targetValue = if (checked) 20.dp else 0.dp,
+        animationSpec = if (reduceMotion) snap() else tween(180),
         label = "ucloneSwitchThumb",
     )
     val trackColor = if (checked) MaterialTheme.ucloneColors.switchOn else MaterialTheme.colorScheme.surfaceVariant
@@ -482,6 +500,24 @@ fun UCloneSwitch(
                     .background(Color.White, CircleShape),
             )
         }
+    }
+}
+
+@Composable
+private fun Modifier.pressScale(
+    interactionSource: MutableInteractionSource,
+    enabled: Boolean,
+): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val reduceMotion = rememberReduceMotionEnabled()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && enabled && !reduceMotion) 0.97f else 1f,
+        animationSpec = if (reduceMotion) snap() else tween(150),
+        label = "controlPressScale",
+    )
+    return graphicsLayer {
+        scaleX = scale
+        scaleY = scale
     }
 }
 
