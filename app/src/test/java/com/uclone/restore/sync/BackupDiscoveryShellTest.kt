@@ -19,7 +19,7 @@ class BackupDiscoveryShellTest {
         root.resolve("rollback/com.example.app/rollback-1").apply {
             mkdirs()
             resolve("manifest.json").writeText(
-                "{\"schemaVersion\":5,\"packageName\":\"com.example.app\",\"reason\":\"main backup\",\"stateKind\":\"main\",\"sourceUser\":\"0\",\"targetUser\":\"0\",\"backupKind\":\"rollback\"}\n",
+                "{\"schemaVersion\":5,\"packageName\":\"com.example.app\",\"reason\":\"main backup\",\"stateKind\":\"main\",\"sourceUser\":\"0\",\"targetUser\":\"0\",\"backupKind\":\"rollback\",\"sourceSigningCertificateSha256\":\"${"a".repeat(64)}\"}\n",
             )
         }
         root.resolve("switches/com.example.app").apply {

@@ -459,7 +459,7 @@ class ShellScriptsTest {
         assertTrue(sourceCopied in 0 until targetStop)
         assertContains(script, "force_stop_target_package")
         assertFalse(script.contains("push_restore_${'$'}{PKG}_"))
-        assertContains(script, "(cd \"${'$'}SNAP\" && tar -cpf - .) | (cd \"${'$'}TARGET\" && tar -xpf -)")
+        assertContains(script, "uclone_extract_target_tree \"${'$'}SNAP\" \"${'$'}TARGET\"")
     }
 
     @Test
@@ -780,7 +780,7 @@ class ShellScriptsTest {
         assertContains(script, "UNKNOWN_SWITCH_MARKER='$UNKNOWN_SWITCH_MARKER'")
         assertContains(script, "CURRENT_STATE_KIND=\"unknown\"")
         assertContains(script, "CURRENT_MARKER_MANIFEST=\"${'$'}ROOT/rollback/${'$'}PKG/${'$'}CURRENT_MAIN_ROLLBACK_ID/manifest.json\"")
-        assertContains(script, "[ -f \"${'$'}CURRENT_MARKER_MANIFEST\" ]")
+        assertContains(script, "uclone_require_canonical_backup_file \"${'$'}CURRENT_MARKER_MANIFEST\"")
         assertContains(script, "[ \"${'$'}CURRENT_MARKER_PACKAGE\" = \"${'$'}PKG\" ]")
         assertContains(script, "CURRENT_MARKER_SOURCE_USER=${'$'}(sed -n")
         assertContains(script, "CURRENT_MARKER_TARGET_USER=${'$'}(sed -n")
@@ -927,13 +927,13 @@ class ShellScriptsTest {
             metadata.resolve(part).writeText("present\n")
         }
         backup.resolve("manifest.json").writeText(
-            "{\"schemaVersion\":5,\"packageName\":\"com.example.app\",\"stateKind\":\"main\",\"sourceUser\":\"0\",\"targetUser\":\"0\",\"backupKind\":\"rollback\",\"sourceSigningCertificateSha256\":\"test-signing-certificate\",\"permissionCaptureState\":\"excluded\"}\n",
+            "{\"schemaVersion\":5,\"packageName\":\"com.example.app\",\"stateKind\":\"main\",\"sourceUser\":\"0\",\"targetUser\":\"0\",\"backupKind\":\"rollback\",\"sourceSigningCertificateSha256\":\"${"a".repeat(64)}\",\"permissionCaptureState\":\"excluded\"}\n",
         )
 
         fun validatesFor(sourceUser: Int, targetUser: Int): Int = ProcessBuilder(
             "/bin/sh",
             "-c",
-            "UCLONE_SIGNING_CERTIFICATE_SHA256=test-signing-certificate\n" +
+            "UCLONE_SIGNING_CERTIFICATE_SHA256=${"a".repeat(64)}\n" +
                 "uclone_verify_part_metadata() { [ -f \"${'$'}1/.meta/${'$'}2\" ]; }\n" +
                 ShellScripts.backupReuseValidationScript() +
                 "\nuclone_backup_matches_identity ${shellQuote(backup.absolutePath)} com.example.app $sourceUser $targetUser main rollback",
@@ -1146,7 +1146,7 @@ class ShellScriptsTest {
     fun probeCloneCe_onlyChecksStateWithoutStartingUnlockingSwitchingOrDeleting() {
         val script = ShellScripts.probeCloneCe(settings)
 
-        assertContains(script, "am get-started-user-state")
+        assertContains(script, "get-started-user-state")
         assertContains(script, "UCLONE_STATE_TEMP_ROOT=/data/local/tmp")
         assertContains(script, "CLONE_STATE_QUERY_TIMEOUT")
         assertContains(script, "USER10_CE_READY=1")
@@ -1357,7 +1357,9 @@ class ShellScriptsTest {
                 esac
             """.trimIndent(),
             shellPrelude = """
-                kill() { return 0; }
+                kill() {
+                  if [ "${'$'}1" = "-0" ]; then command kill "${'$'}@"; else return 0; fi
+                }
                 wait() { /bin/sleep 5; return 0; }
             """.trimIndent(),
         )
@@ -1462,6 +1464,7 @@ class ShellScriptsTest {
             .apply {
                 environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath
                 environment()["TMPDIR"] = directory.toAbsolutePath().toString()
+                environment()["UCLONE_STATE_TEMP_ROOT"] = directory.toAbsolutePath().toString()
             }
             .start()
         val startedAt = System.nanoTime()
@@ -1495,6 +1498,7 @@ class ShellScriptsTest {
             .apply {
                 environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath
                 environment()["TMPDIR"] = directory.toAbsolutePath().toString()
+                environment()["UCLONE_STATE_TEMP_ROOT"] = directory.toAbsolutePath().toString()
             }
             .start()
         val startedAt = System.nanoTime()

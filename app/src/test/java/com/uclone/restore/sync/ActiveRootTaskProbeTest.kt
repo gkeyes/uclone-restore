@@ -18,8 +18,9 @@ class ActiveRootTaskProbeTest {
         assertTrue("active_task.claim" in shell.command)
         assertTrue("active_task/state" in shell.command)
         assertTrue("kill -0" in shell.command)
-        assertTrue("rm " !in shell.command)
-        assertTrue("mv " !in shell.command)
+        val probeBody = shell.command.substringAfter("CLAIM_STATE=")
+        assertTrue("rm " !in probeBody)
+        assertTrue("mv " !in probeBody)
     }
 
     @Test

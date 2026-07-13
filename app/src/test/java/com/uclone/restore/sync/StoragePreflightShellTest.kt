@@ -11,6 +11,7 @@ class StoragePreflightShellTest {
         val root = Files.createTempDirectory("uclone-space-ok-").toFile().apply { deleteOnExit() }
         val script = """
             ROOT='${root.absolutePath}'
+            ${FilesystemSafetyShell.functions()}
             ${ShellScripts.storagePreflightScript()}
             uclone_require_space 1 test_ok
         """.trimIndent()
@@ -49,6 +50,7 @@ class StoragePreflightShellTest {
         }
         val script = """
             ROOT='${root.absolutePath}'
+            ${FilesystemSafetyShell.functions()}
             ${ShellScripts.storagePreflightScript()}
             UCLONE_ESTIMATED_KB=0
             uclone_add_first_dir_kb '${empty.absolutePath}' '${populated.absolutePath}'

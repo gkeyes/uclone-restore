@@ -352,7 +352,7 @@ object ShellScripts {
           esac
           CLONE_STATE_TEMP_ROOT="${'$'}{UCLONE_STATE_TEMP_ROOT:-${'$'}{ROOT:-${'$'}{TMPDIR:-/data/local/tmp}}}"
           CLONE_STATE_TEMP_DIR="${'$'}CLONE_STATE_TEMP_ROOT/tmp"
-          /system/bin/mkdir -p "${'$'}CLONE_STATE_TEMP_DIR" 2>/dev/null || {
+          mkdir -p "${'$'}CLONE_STATE_TEMP_DIR" 2>/dev/null || {
             echo "CLONE_STATE_QUERY_UNAVAILABLE:temp_dir"
             return 0
           }
