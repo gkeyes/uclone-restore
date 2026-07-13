@@ -61,7 +61,7 @@ class WorkspaceIndexTest {
         createCompleteMainReturn(backup)
         val marker = root.resolve("switches/$packageName/active")
         Files.createDirectories(marker.parent)
-        Files.writeString(marker, "$rollbackId\n")
+        Files.write(marker, "$rollbackId\n".toByteArray())
 
         val valid = runShell(workspaceIndexScript(root.toString()))
         assertEquals(0, valid.exitCode, valid.output)
@@ -77,9 +77,9 @@ class WorkspaceIndexTest {
 
     private fun createCompleteMainReturn(backup: Path) {
         val state = Files.createDirectories(backup.resolve(".state"))
-        Files.writeString(backup.resolve("manifest.json"), "{\"stateKind\":\"MAIN\"}\n")
+        Files.write(backup.resolve("manifest.json"), "{\"stateKind\":\"MAIN\"}\n".toByteArray())
         listOf("ce", "de", "external", "media", "obb").forEach { part ->
-            Files.writeString(state.resolve(part), "absent\n")
+            Files.write(state.resolve(part), "absent\n".toByteArray())
         }
     }
 

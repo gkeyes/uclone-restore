@@ -164,7 +164,7 @@ class PermissionStateShellTest {
         val directory = Files.createTempDirectory("uclone-permission-capture")
         val bin = Files.createDirectories(directory.resolve("bin"))
         val dumpsysFixture = directory.resolve("dumpsys.fixture")
-        Files.writeString(dumpsysFixture, dumpsysOutput)
+        Files.write(dumpsysFixture, dumpsysOutput.toByteArray())
         writeExecutable(bin.resolve("dumpsys"), "cat ${shellQuote(dumpsysFixture.toString())}")
         writeExecutable(bin.resolve("cmd"), cmdBody)
         val outputDirectory = directory.resolve("capture")
@@ -188,7 +188,7 @@ class PermissionStateShellTest {
     }
 
     private fun writeExecutable(path: Path, body: String) {
-        Files.writeString(path, "#!/bin/sh\n$body\n")
+        Files.write(path, "#!/bin/sh\n$body\n".toByteArray())
         check(path.toFile().setExecutable(true))
     }
 

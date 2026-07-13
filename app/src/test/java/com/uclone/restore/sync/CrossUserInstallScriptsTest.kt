@@ -121,7 +121,7 @@ class CrossUserInstallScriptsTest {
         )
 
     private fun writeExecutable(path: Path, body: String): Path {
-        Files.writeString(path, "#!/bin/sh\n$body\n")
+        Files.write(path, "#!/bin/sh\n$body\n".toByteArray())
         check(path.toFile().setExecutable(true))
         return path
     }

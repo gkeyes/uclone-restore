@@ -88,7 +88,7 @@ class StateBackupShellTest {
         createStateBackup(root, "transaction_1", "MAIN", PARTS)
         val marker = root.resolve("switches/com.example.app/active")
         Files.createDirectories(marker.parent)
-        Files.writeString(marker, "transaction_1\n")
+        Files.write(marker, "transaction_1\n".toByteArray())
 
         val result = runShell(
             """
@@ -169,8 +169,8 @@ class StateBackupShellTest {
         val backup = root.resolve("rollback/com.example.app/$id")
         val stateDirectory = backup.resolve(".state")
         Files.createDirectories(stateDirectory)
-        Files.writeString(backup.resolve("manifest.json"), "{\"stateKind\":\"$stateKind\"}\n")
-        parts.forEach { part -> Files.writeString(stateDirectory.resolve(part), "absent\n") }
+        Files.write(backup.resolve("manifest.json"), "{\"stateKind\":\"$stateKind\"}\n".toByteArray())
+        parts.forEach { part -> Files.write(stateDirectory.resolve(part), "absent\n".toByteArray()) }
     }
 
     private fun runShell(script: String): ShellRun {
