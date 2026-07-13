@@ -37,6 +37,7 @@ object ModuleRelayContract {
     const val UCLONE_EXTRA_PACKAGE_NAME = "com.uclone.restore.extra.PACKAGE_NAME"
     const val UCLONE_EXTRA_REQUEST_ID = "com.uclone.restore.extra.REQUEST_ID"
     const val UCLONE_EXTRA_SOURCE = "com.uclone.restore.extra.SOURCE"
+    const val UCLONE_EXTRA_TARGET_USER_ID = "com.uclone.restore.extra.TARGET_USER_ID"
     const val UCLONE_EXTRA_STATUS = "com.uclone.restore.extra.STATUS"
     const val UCLONE_EXTRA_MESSAGE = "com.uclone.restore.extra.MESSAGE"
     const val UCLONE_PROTOCOL_VERSION = 1

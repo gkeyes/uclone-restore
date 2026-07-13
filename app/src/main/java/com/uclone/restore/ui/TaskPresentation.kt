@@ -13,7 +13,7 @@ val TaskType.userFacingLabel: String
         TaskType.PUSH_MAIN_TO_CLONE -> "推送主系统数据到分身"
         TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE -> "恢复分身回滚备份"
         TaskType.RESTORE_SWITCH_MAIN_STATE -> "还原主系统态"
-        TaskType.RESET_SWITCH_STATE -> "重置切换状态"
+        TaskType.RESET_SWITCH_STATE -> "将数据状态设为未知"
         TaskType.DELETE_SNAPSHOT -> "删除主动备份"
         TaskType.DELETE_RESTORE_BACKUP -> "删除被动备份"
         TaskType.DELETE_CLONE_ROLLBACK -> "删除分身回滚"

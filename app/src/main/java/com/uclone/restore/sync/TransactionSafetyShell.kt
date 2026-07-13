@@ -151,6 +151,37 @@ internal object TransactionSafetyShell {
             ${'$'}0 ~ "^[[:space:]]*User " user ":" { print; exit }
           '
         }
+        uclone_pm_bridge_apk() {
+          PM_BRIDGE_PATHS=${'$'}(/system/bin/cmd package path "${'$'}APP_PKG" 2>/dev/null || true)
+          PM_BRIDGE_APK=${'$'}(printf '%s\n' "${'$'}PM_BRIDGE_PATHS" | awk '
+            ${'$'}0 ~ /^package:/ {
+              sub(/^package:/, "")
+              if (${'$'}0 ~ /base[.]apk${'$'}/) { print; exit }
+            }
+          ')
+          [ -n "${'$'}PM_BRIDGE_APK" ] || PM_BRIDGE_APK=${'$'}(printf '%s\n' "${'$'}PM_BRIDGE_PATHS" | awk '
+            ${'$'}0 ~ /^package:/ { sub(/^package:/, ""); print; exit }
+          ')
+          [ -r "${'$'}PM_BRIDGE_APK" ] || return 1
+          printf '%s\n' "${'$'}PM_BRIDGE_APK"
+        }
+        uclone_pm_bridge_run() {
+          PM_BRIDGE_APK=${'$'}(uclone_pm_bridge_apk) || return 1
+          PM_BRIDGE_PROCESS=/system/bin/app_process64
+          [ -x "${'$'}PM_BRIDGE_PROCESS" ] || PM_BRIDGE_PROCESS=/system/bin/app_process
+          [ -x "${'$'}PM_BRIDGE_PROCESS" ] || return 1
+          CLASSPATH="${'$'}PM_BRIDGE_APK" "${'$'}PM_BRIDGE_PROCESS" /system/bin com.uclone.restore.sync.RootPackageStateBridge "${'$'}@"
+        }
+        uclone_pm_bridge_probe() {
+          uclone_pm_bridge_run --probe
+        }
+        uclone_pm_bridge_set_stopped() {
+          PM_BRIDGE_USER="${'$'}1"
+          PM_BRIDGE_STOPPED="${'$'}2"
+          case "${'$'}PM_BRIDGE_USER" in ''|*[!0-9]*) return 1 ;; esac
+          case "${'$'}PM_BRIDGE_STOPPED" in true|false) ;; *) return 1 ;; esac
+          uclone_pm_bridge_run --set-stopped --user "${'$'}PM_BRIDGE_USER" --package "${'$'}PKG" "${'$'}PM_BRIDGE_STOPPED"
+        }
         uclone_gate_value() {
           GATE_FILE="${'$'}1"
           GATE_KEY="${'$'}2"
@@ -206,12 +237,6 @@ internal object TransactionSafetyShell {
             *) return 1 ;;
           esac
         }
-        uclone_gate_can_restore_stopped_state() {
-          case "${'$'}(/system/bin/cmd package help 2>&1)" in
-            *"unstop [--user USER_ID] PACKAGE"*) return 0 ;;
-            *) return 1 ;;
-          esac
-        }
         uclone_gate_abort_acquire() {
           ABORT_GATE_DIR="${'$'}1"
           if uclone_gate_release "${'$'}ABORT_GATE_DIR"; then
@@ -264,10 +289,10 @@ internal object TransactionSafetyShell {
           case "${'$'}GATE_ENABLED" in 0|1|2|3|4) ;; *) echo "ERR_GATE_ENABLED_STATE:${'$'}GATE_ENABLED" >&2; return 1 ;; esac
           case "${'$'}GATE_SUSPENDED" in true|false) ;; *) echo "ERR_GATE_SUSPENDED_STATE:${'$'}GATE_SUSPENDED" >&2; return 1 ;; esac
           case "${'$'}GATE_STOPPED" in true|false) ;; *) echo "ERR_GATE_STOPPED_STATE:${'$'}GATE_STOPPED" >&2; return 1 ;; esac
-          if [ "${'$'}GATE_STOPPED" = "false" ] && ! uclone_gate_can_restore_stopped_state; then
-            echo "ERR_GATE_UNSTOP_UNSUPPORTED:user=${'$'}GATE_USER" >&2
+          uclone_pm_bridge_set_stopped "${'$'}GATE_USER" "${'$'}GATE_STOPPED" >/dev/null 2>&1 || {
+            echo "ERR_GATE_STOPPED_BRIDGE_UNAVAILABLE:user=${'$'}GATE_USER" >&2
             return 1
-          fi
+          }
           GATE_DIR="${'$'}UCLONE_TXN_DIR/gates/${'$'}{GATE_ROLE}_${'$'}GATE_USER"
           mkdir -p "${'$'}GATE_DIR" || return 1
           GATE_STATE="${'$'}GATE_DIR/gate.state"
@@ -354,16 +379,16 @@ internal object TransactionSafetyShell {
           [ "${'$'}RELEASE_PACKAGE" = "${'$'}PKG" ] || return 1
           case "${'$'}RELEASE_ENABLED" in 0|1|2|3|4) ;; *) return 1 ;; esac
           case "${'$'}RELEASE_SUSPENDED:${'$'}RELEASE_STOPPED" in true:true|true:false|false:true|false:false) ;; *) return 1 ;; esac
+          uclone_gate_restore_enabled "${'$'}RELEASE_USER" "${'$'}RELEASE_ENABLED" || return 1
           RELEASE_LINE=${'$'}(uclone_package_user_line "${'$'}RELEASE_USER")
           RELEASE_CURRENT_SUSPENDED=${'$'}(printf '%s\n' "${'$'}RELEASE_LINE" | sed -n 's/.* suspended=\([^ ]*\).*/\1/p')
           if [ "${'$'}RELEASE_CURRENT_SUSPENDED" != "${'$'}RELEASE_SUSPENDED" ]; then
             uclone_gate_restore_suspended "${'$'}RELEASE_USER" "${'$'}RELEASE_SUSPENDED" || return 1
           fi
-          case "${'$'}RELEASE_STOPPED" in
-            false) /system/bin/cmd package unstop --user "${'$'}RELEASE_USER" "${'$'}PKG" >/dev/null 2>&1 || return 1 ;;
-            true) /system/bin/am force-stop --user "${'$'}RELEASE_USER" "${'$'}PKG" >/dev/null 2>&1 || return 1 ;;
-          esac
-          uclone_gate_restore_enabled "${'$'}RELEASE_USER" "${'$'}RELEASE_ENABLED" || return 1
+          uclone_pm_bridge_set_stopped "${'$'}RELEASE_USER" "${'$'}RELEASE_STOPPED" >/dev/null 2>&1 || {
+            echo "ERR_GATE_STOPPED_BRIDGE_RELEASE:user=${'$'}RELEASE_USER" >&2
+            return 1
+          }
           RELEASE_WAIT=0
           while [ "${'$'}RELEASE_WAIT" -lt 20 ]; do
             RELEASE_LINE=${'$'}(uclone_package_user_line "${'$'}RELEASE_USER")

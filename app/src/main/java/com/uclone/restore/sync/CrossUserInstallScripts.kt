@@ -38,7 +38,7 @@ internal object CrossUserInstallScripts {
         }
         return """
             set -u
-            ROOT=${shellQuote(settings.rootDir)}
+            ${WorkspacePathGuard.require(settings.rootDir)}
             PKG=${shellQuote(packageName)}
             APP_PKG=${shellQuote(appPackage)}
             REQUEST_ID=${shellQuote(requestId)}
@@ -104,7 +104,7 @@ internal object CrossUserInstallScripts {
     private fun permissionMigration(): String = """
         install_stage RESTORE_PERMISSIONS
         PERM_DIR="${'$'}ROOT/tmp/install_permissions_${'$'}{PKG}_${'$'}{REQUEST_ID}"
-        rm -rf "${'$'}PERM_DIR"
+        uclone_remove_tree "${'$'}PERM_DIR" || exit 94
         if uclone_capture_permission_state "${'$'}PERM_DIR" "${'$'}SRC_USER"; then
           if uclone_restore_permission_state "${'$'}PERM_DIR" "${'$'}DST_USER" MERGE; then
             echo "INSTALL_PERMISSIONS_DONE targetUser=${'$'}DST_USER mode=MERGE"
@@ -116,7 +116,7 @@ internal object CrossUserInstallScripts {
           echo "WARN_INSTALL_PERMISSIONS_CAPTURE_FAILED:user=${'$'}SRC_USER"
           echo "INSTALL_PERMISSIONS_DONE targetUser=${'$'}DST_USER mode=MERGE status=partial"
         fi
-        rm -rf "${'$'}PERM_DIR"
+        uclone_remove_tree "${'$'}PERM_DIR" || exit 94
         install_stage COMMIT
     """.trimIndent()
 

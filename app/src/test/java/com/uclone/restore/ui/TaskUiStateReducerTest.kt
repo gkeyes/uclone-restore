@@ -14,6 +14,7 @@ import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.sync.SnapshotMetadata
 import com.uclone.restore.sync.InterruptedTransaction
 import com.uclone.restore.sync.TransactionRecoveryState
+import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.sync.WorkspaceIndex
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -184,6 +185,7 @@ class TaskUiStateReducerTest {
             restoreBackups = listOf(backup),
             cloneRollbackBackups = listOf(backup.copy(isCloneRollback = true)),
             switchRollbackIds = mapOf(app.packageName to "rollback-1"),
+            unknownStatePackages = setOf(app.packageName),
         )
         val reset = task(TaskType.RESET_WORKSPACE, TaskStatus.SUCCESS)
         val refreshed = TaskUiStateReducer.refreshed(
@@ -202,9 +204,30 @@ class TaskUiStateReducerTest {
         assertEquals(emptyList(), refreshed.restoreBackups)
         assertEquals(emptyList(), refreshed.cloneRollbackBackups)
         assertEquals(emptyMap(), refreshed.switchRollbackIds)
+        assertEquals(emptySet<String>(), refreshed.unknownStatePackages)
         assertNull(refreshed.apps.single().lastSnapshotAt)
         assertNull(refreshed.apps.single().snapshotSizeKb)
         assertNull(refreshed.apps.single().lastRestoreAt)
+    }
+
+    @Test
+    fun workspaceRefreshPropagatesUnknownDataState() {
+        val packageName = "com.example.app"
+        val initial = UiState(
+            unknownStatePackages = setOf("com.stale.app"),
+        )
+        val workspace = WorkspaceIndex(
+            unknownSwitchPackages = setOf(packageName),
+        )
+
+        val refreshed = TaskUiStateReducer.refreshed(
+            initial,
+            task(TaskType.RESET_SWITCH_STATE, TaskStatus.SUCCESS),
+            TaskRefreshSnapshot(history = emptyList(), workspaceIndex = workspace),
+        )
+
+        assertEquals(setOf(packageName), refreshed.unknownStatePackages)
+        assertEquals(AppDataState.Unknown, refreshed.dataStateFor(packageName))
     }
 
     @Test

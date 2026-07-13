@@ -6,8 +6,8 @@ English documentation: [README.en.md](README.en.md)
 
 ## 当前版本
 
-- 主 App：`0.3.0`
-- 桌面长按模块：`0.3.0`
+- 主 App：`0.3.1`
+- 桌面长按模块：`0.3.1`
 - 主要测试环境：小米 / HyperOS，多用户为 `user0` + `user10`，Root 为 KernelSU / KernelSU Next 一类方案
 
 ## 界面预览
@@ -62,14 +62,14 @@ English documentation: [README.en.md](README.en.md)
 
 每次发布会提供两个 APK：
 
-- `uclone-restore-v0.3.0-release.apk`：主 App。
-- `uclone-launcher-module-v0.3.0-release.apk`：桌面长按 LSPosed 模块。
+- `uclone-restore-v0.3.1-release.apk`：主 App。
+- `uclone-launcher-module-v0.3.1-release.apk`：桌面长按 LSPosed 模块。
 
 安装命令示例：
 
 ```bash
-adb install -r uclone-restore-v0.3.0-release.apk
-adb install -r uclone-launcher-module-v0.3.0-release.apk
+adb install -r uclone-restore-v0.3.1-release.apk
+adb install -r uclone-launcher-module-v0.3.1-release.apk
 ```
 
 如果从旧的 debug 签名版本升级，Android 可能会因为签名不同拒绝覆盖安装。这种情况下需要先卸载旧版，再安装 release 版。
@@ -232,7 +232,7 @@ UClone 永远不会复制 `/data/misc/keystore`。依赖 Android Keystore 的 Ap
 
 模块只负责显示入口和转发请求。真正的 root 操作、备份、恢复、日志、通知都由 UClone Restore 主 App 执行。
 
-Android 15 及以上会限制 `dataSync` 类型前台服务的后台累计运行时间。`0.3.0` 起，来自桌面长按模块和桌面快捷方式的显式用户操作使用已声明用途的 `specialUse` 前台服务类型，避免在主 App 未打开时因 `dataSync` 时限耗尽而在通知出现前失败；从主 App 内提交的任务仍使用 `dataSync`。如果手机仍显示 `0.2.0`，必须同时更新主 App 和模块后，这项修复才会生效。
+Android 15 及以上会限制 `dataSync` 类型前台服务的后台累计运行时间。Android 14 及以上，UClone 的外部任务服务统一使用已声明用途的 `specialUse` 前台服务类型，避免桌面长按或主 App 冷启动时因 `dataSync` 时限耗尽而在通知出现前失败。如果手机仍显示 `0.2.0`，必须同时更新主 App 和模块后，这项修复才会生效。
 
 ### F. 把 App 安装到另一用户
 

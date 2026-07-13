@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.automirrored.outlined.FactCheck
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskStep
+import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.sync.TransactionRecoveryState
 import com.uclone.restore.util.Formatters
 
@@ -111,7 +113,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             items(state.favoriteApps, key = { it.packageName }) { app ->
                 FavoriteAppRow(
                     app = app,
-                    switched = state.switchRollbackIds.containsKey(app.packageName),
+                    dataState = state.dataStateFor(app.packageName),
                     onOpen = {
                         viewModel.selectPackage(app.packageName)
                         openDetail()
@@ -132,8 +134,22 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
                 confirm = null
                 when (action) {
                     is HomeConfirm.Push -> viewModel.pushMainToClone(action.packageName)
-                    is HomeConfirm.Switch -> viewModel.switchToCloneState(action.packageName)
-                    is HomeConfirm.Restore -> viewModel.restoreSwitchMainState(action.packageName)
+                    is HomeConfirm.Switch -> {
+                        if (state.dataStateFor(action.packageName).homePrimaryAction == HomePrimaryAction.SWITCH) {
+                            viewModel.switchToCloneState(action.packageName)
+                        } else {
+                            viewModel.selectPackage(action.packageName)
+                            openDetail()
+                        }
+                    }
+                    is HomeConfirm.Restore -> {
+                        if (state.dataStateFor(action.packageName).homePrimaryAction == HomePrimaryAction.RESTORE) {
+                            viewModel.restoreSwitchMainState(action.packageName)
+                        } else {
+                            viewModel.selectPackage(action.packageName)
+                            openDetail()
+                        }
+                    }
                 }
             },
         )
@@ -212,12 +228,13 @@ private fun CurrentTaskCard(state: UiState, onCancel: () -> Unit) {
 @Composable
 private fun FavoriteAppRow(
     app: AppEntry,
-    switched: Boolean,
+    dataState: AppDataState,
     onOpen: () -> Unit,
     onPush: () -> Unit,
     onSwitch: () -> Unit,
     onRestore: () -> Unit,
 ) {
+    val primaryAction = dataState.homePrimaryAction
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -236,9 +253,17 @@ private fun FavoriteAppRow(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(app.label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    "${app.packageName} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
+                    if (primaryAction == HomePrimaryAction.OPEN_DETAILS) {
+                        "状态未知 · 进入详情确认"
+                    } else {
+                        "${app.packageName} · ${Formatters.kilobytes(app.snapshotSizeKb)}"
+                    },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (primaryAction == HomePrimaryAction.OPEN_DETAILS) {
+                        IosOrange
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -250,10 +275,25 @@ private fun FavoriteAppRow(
                     icon = Icons.Default.Upload,
                 )
                 IosCompactButton(
-                    text = if (switched) "还原" else "切换",
-                    onClick = if (switched) onRestore else onSwitch,
-                    primary = !switched,
-                    icon = if (switched) Icons.Default.Refresh else Icons.Default.Sync,
+                    text = when (primaryAction) {
+                        HomePrimaryAction.SWITCH -> "切换"
+                        HomePrimaryAction.RESTORE -> "还原"
+                        HomePrimaryAction.OPEN_DETAILS -> "检查"
+                    },
+                    onClick = {
+                        when (primaryAction) {
+                            HomePrimaryAction.SWITCH -> onSwitch()
+                            HomePrimaryAction.RESTORE -> onRestore()
+                            HomePrimaryAction.OPEN_DETAILS -> onOpen()
+                        }
+                    },
+                    primary = primaryAction == HomePrimaryAction.SWITCH,
+                    semanticTint = if (primaryAction == HomePrimaryAction.OPEN_DETAILS) IosOrange else null,
+                    icon = when (primaryAction) {
+                        HomePrimaryAction.SWITCH -> Icons.Default.Sync
+                        HomePrimaryAction.RESTORE -> Icons.Default.Refresh
+                        HomePrimaryAction.OPEN_DETAILS -> Icons.AutoMirrored.Outlined.FactCheck
+                    },
                 )
             }
         }

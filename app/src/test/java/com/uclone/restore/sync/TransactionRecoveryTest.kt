@@ -97,7 +97,7 @@ class TransactionRecoveryTest {
 
     @Test
     fun recoveryScriptKeepsGateUntilRollbackAndUsesFreshPermissionSnapshotStrictly() {
-        val script = TransactionRecoveryShell.build("request-1", UCloneSettings())
+        val script = TransactionRecoveryShell.build("request-1", UCloneSettings(), "com.uclone.restore")
 
         assertContains(script, "uclone_recovery_gate_ensure_held")
         assertContains(script, "uclone_transaction_part_requires_recovery")
@@ -108,7 +108,9 @@ class TransactionRecoveryTest {
         assertContains(script, "if uclone_transaction_part_requires_recovery permissions; then")
         assertContains(script, "ERR_TRANSACTION_PERMISSION_ROLLBACK_MISSING")
         assertContains(script, "ERR_TRANSACTION_SIGNATURE_MISMATCH")
-        assertContains(script, "case \"${'$'}ROLLBACK_SCHEMA\" in 3|4)")
+        assertContains(script, "case \"${'$'}ROLLBACK_SCHEMA\" in 3|4|5)")
+        assertContains(script, "APP_PKG='com.uclone.restore'")
+        assertContains(script, "uclone_pm_bridge_probe")
         assertContains(script, "UCLONE_TXN_SELECTED_PARTS=")
         assertContains(script, "UCLONE_TXN_ORIGIN_BOOT_ID=")
         assertContains(script, "UCLONE_TXN_ORIGIN_ROOT_PID=")
@@ -116,6 +118,8 @@ class TransactionRecoveryTest {
         assertContains(script, "uclone_app_process_exists")
         assertContains(script, "uclone_verify_part_metadata")
         assertContains(script, "uclone_require_canonical_backup_file \"${'$'}ROLLBACK_MANIFEST\"")
+        assertContains(script, "ROLLBACK_TRANSACTION_REQUEST_ID")
+        assertContains(script, "ERR_TRANSACTION_ROLLBACK_UNBOUND")
         assertContains(script, "uclone_restore_permission_state \"${'$'}ROLLBACK/permissions\" \"${'$'}UCLONE_TXN_TARGET_USER\" EXACT")
         assertContains(script, "uclone_transaction_recovery_required")
         assertTrue(script.indexOf("uclone_transaction_rolled_back") < script.lastIndexOf("uclone_recovery_release_all_gates"))

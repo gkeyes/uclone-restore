@@ -112,6 +112,45 @@ class TaskLogStoreTest {
     }
 
     @Test
+    fun persistedAcceptedRecordLoadsAsInterruptedFailure() {
+        val historyFile = Files.createTempDirectory("uclone-history-accepted")
+            .resolve("task_history_v2.jsonl")
+            .toFile()
+        TaskLogStore(NoopShell, historyFile).accepted(
+            type = TaskType.SWITCH_TO_CLONE_STATE,
+            packageName = "com.example.app",
+            requestId = "accepted-request",
+        )
+
+        val record = TaskLogStore(NoopShell, historyFile).all().single()
+
+        assertEquals(TaskStatus.INTERRUPTED, record.status)
+        assertEquals("任务中断", record.message)
+        assertTrue(record.finishedAt != null)
+    }
+
+    @Test
+    fun persistedAutoRollbackRecordLoadsAsInterruptedFailure() {
+        val historyFile = Files.createTempDirectory("uclone-history-auto-rollback")
+            .resolve("task_history_v2.jsonl")
+            .toFile()
+        val store = TaskLogStore(NoopShell, historyFile)
+        val running = store.running(
+            requestId = "auto-rollback-request",
+            type = TaskType.SWITCH_TO_CLONE_STATE,
+            packageName = "com.example.app",
+            logPath = "/data/adb/uclone/logs/auto-rollback.log",
+        )
+        store.finish(running, TaskStatus.AUTO_ROLLING_BACK, "正在自动回滚")
+
+        val record = TaskLogStore(NoopShell, historyFile).all().single()
+
+        assertEquals(TaskStatus.INTERRUPTED, record.status)
+        assertEquals("任务中断", record.message)
+        assertTrue(record.finishedAt != null)
+    }
+
+    @Test
     fun legacyTsvHistoryIsImportedOnce() {
         val directory = Files.createTempDirectory("uclone-history-legacy")
         val historyFile = directory.resolve("task_history_v2.jsonl").toFile()

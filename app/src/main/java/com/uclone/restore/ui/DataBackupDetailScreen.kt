@@ -115,9 +115,27 @@ fun DataBackupDetailScreen(
             IosSecondaryButton(
                 onClick = { confirm = DataBackupAction.DELETE },
                 modifier = Modifier.fillMaxWidth(),
+                enabled = passiveBackup?.isActiveSwitchBackup != true,
             ) {
                 Icon(Icons.Default.Delete, contentDescription = null, tint = IosRed)
-                Text(if (isPassive) "删除被动备份" else "删除 active 快照", color = IosRed)
+                Text(
+                    when {
+                        passiveBackup?.isActiveSwitchBackup == true -> "当前主数据返回点不可删除"
+                        isPassive -> "删除被动备份"
+                        else -> "删除 active 快照"
+                    },
+                    color = if (passiveBackup?.isActiveSwitchBackup == true) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        IosRed
+                    },
+                )
+            }
+            if (passiveBackup?.isActiveSwitchBackup == true) {
+                Text(
+                    "请先还原主系统，或在 App 详情将数据状态设为未知后再删除。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

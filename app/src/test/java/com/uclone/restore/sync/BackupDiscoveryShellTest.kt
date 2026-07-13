@@ -18,7 +18,9 @@ class BackupDiscoveryShellTest {
         }
         root.resolve("rollback/com.example.app/rollback-1").apply {
             mkdirs()
-            resolve("manifest.json").writeText("{\"reason\":\"main backup\"}\n")
+            resolve("manifest.json").writeText(
+                "{\"schemaVersion\":5,\"packageName\":\"com.example.app\",\"reason\":\"main backup\",\"stateKind\":\"main\",\"sourceUser\":\"0\",\"targetUser\":\"0\",\"backupKind\":\"rollback\"}\n",
+            )
         }
         root.resolve("switches/com.example.app").apply {
             mkdirs()
@@ -29,7 +31,7 @@ class BackupDiscoveryShellTest {
             resolve("manifest.json").writeText("{\"reason\":\"clone backup\"}\n")
         }
         val rootPath = root.canonicalPath
-        val discoveryScript = workspaceIndexScript(rootPath).replace(
+        val discoveryScript = workspaceIndexScript(rootPath, mainUserId = 0).replace(
             WorkspacePathGuard.inspect(rootPath),
             "ROOT=${shellQuote(rootPath)}\nROOT_REAL=${shellQuote(rootPath)}",
         )
@@ -81,7 +83,7 @@ class BackupDiscoveryShellTest {
 
     @Test
     fun workspaceIndexNeverChangesWorkspaceOwnership() {
-        val script = workspaceIndexScript("/data/adb/uclone")
+        val script = workspaceIndexScript("/data/adb/uclone", mainUserId = 0)
 
         assertFalse(script.contains("WORKSPACE_OWNER_REPAIR"))
         assertFalse(script.contains("chown"))
@@ -101,6 +103,101 @@ class BackupDiscoveryShellTest {
         assertEquals(setOf(PassiveBackupStateKind.MAIN, PassiveBackupStateKind.CLONE), backups.map { it.stateKind }.toSet())
         assertEquals("main-new", backups.first { it.stateKind == PassiveBackupStateKind.MAIN }.rollbackId)
         assertEquals("clone-new", backups.first { it.stateKind == PassiveBackupStateKind.CLONE }.rollbackId)
+    }
+
+    @Test
+    fun workspaceIndexTreatsUnknownAndBrokenActiveMarkersAsUnknownState() {
+        val root = Files.createTempDirectory("uclone-unknown-switch-").toFile().apply { deleteOnExit() }
+        root.resolve("switches/com.unknown.app").apply {
+            mkdirs()
+            resolve("active").writeText("$UNKNOWN_SWITCH_MARKER\n")
+        }
+        root.resolve("switches/com.broken.app").apply {
+            mkdirs()
+            resolve("active").writeText("missing-return-point\n")
+        }
+        root.resolve("rollback/com.wrong-package.app/return-point").apply {
+            mkdirs()
+            resolve("manifest.json").writeText(
+                "{\"packageName\":\"com.other.app\",\"stateKind\":\"main\",\"sourceUser\":\"0\",\"targetUser\":\"0\"}\n",
+            )
+        }
+        root.resolve("switches/com.wrong-package.app").apply {
+            mkdirs()
+            resolve("active").writeText("return-point\n")
+        }
+        root.resolve("rollback/com.wrong-state.app/return-point").apply {
+            mkdirs()
+            resolve("manifest.json").writeText(
+                "{\"packageName\":\"com.wrong-state.app\",\"stateKind\":\"clone\",\"sourceUser\":\"0\",\"targetUser\":\"0\"}\n",
+            )
+        }
+        root.resolve("switches/com.wrong-state.app").apply {
+            mkdirs()
+            resolve("active").writeText("return-point\n")
+        }
+        root.resolve("rollback/com.wrong-user.app/return-point").apply {
+            mkdirs()
+            resolve("manifest.json").writeText(
+                "{\"packageName\":\"com.wrong-user.app\",\"stateKind\":\"main\",\"sourceUser\":\"10\",\"targetUser\":\"10\"}\n",
+            )
+        }
+        root.resolve("switches/com.wrong-user.app").apply {
+            mkdirs()
+            resolve("active").writeText("return-point\n")
+        }
+        root.resolve("switches/com.unsafe-id.app").apply {
+            mkdirs()
+            resolve("active").writeText("../outside\n")
+        }
+        root.resolve("rollback/com.symlink-manifest.app/return-point").apply {
+            mkdirs()
+            resolve("manifest-target.json").writeText(
+                "{\"packageName\":\"com.symlink-manifest.app\",\"stateKind\":\"main\",\"sourceUser\":\"0\",\"targetUser\":\"0\"}\n",
+            )
+            Files.createSymbolicLink(
+                resolve("manifest.json").toPath(),
+                resolve("manifest-target.json").toPath(),
+            )
+        }
+        root.resolve("switches/com.symlink-manifest.app").apply {
+            mkdirs()
+            resolve("active").writeText("return-point\n")
+        }
+        val rootPath = root.canonicalPath
+        val discoveryScript = workspaceIndexScript(rootPath, mainUserId = 0).replace(
+            WorkspacePathGuard.inspect(rootPath),
+            "ROOT=${shellQuote(rootPath)}\nROOT_REAL=${shellQuote(rootPath)}",
+        )
+
+        val process = ProcessBuilder("/bin/sh", "-c", discoveryScript).start()
+        val output = process.inputStream.bufferedReader().readText()
+        val error = process.errorStream.bufferedReader().readText()
+        val index = WorkspaceIndexParser.parse(output)
+        val exitCode = process.waitFor()
+        root.deleteRecursively()
+
+        assertEquals(0, exitCode, error)
+        assertEquals(
+            setOf(
+                "com.unknown.app",
+                "com.broken.app",
+                "com.wrong-package.app",
+                "com.wrong-state.app",
+                "com.wrong-user.app",
+                "com.unsafe-id.app",
+                "com.symlink-manifest.app",
+            ),
+            index.unknownSwitchPackages,
+        )
+        assertEquals(AppDataState.Unknown, index.dataState("com.unknown.app"))
+        assertEquals(AppDataState.Unknown, index.dataState("com.broken.app"))
+        assertEquals(AppDataState.Unknown, index.dataState("com.wrong-package.app"))
+        assertEquals(AppDataState.Unknown, index.dataState("com.wrong-state.app"))
+        assertEquals(AppDataState.Unknown, index.dataState("com.wrong-user.app"))
+        assertEquals(AppDataState.Unknown, index.dataState("com.unsafe-id.app"))
+        assertEquals(AppDataState.Unknown, index.dataState("com.symlink-manifest.app"))
+        assertEquals(AppDataState.Main, index.dataState("com.main.app"))
     }
 
 }

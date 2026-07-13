@@ -27,6 +27,7 @@ internal object TaskResultMessages {
         if (events.has("INSTALL_SYNC_DONE")) return "App 已安装到 user${installTarget.orEmpty()}，数据同步完成"
         if (events.has("INSTALL_PERMISSIONS_DONE")) {
             val permissionWarning = events.has("WARN_INSTALL_PERMISSIONS_CAPTURE_FAILED") ||
+                events.has("WARN_INSTALL_PERMISSIONS_RESTORE_FAILED") ||
                 events.has("WARN_GRANT_FAILED") || events.hasPrefix("WARN_APPOPS_")
             return if (permissionWarning) {
                 "App 已安装到 user${installTarget.orEmpty()}，但部分权限/AppOps 未能迁移"
@@ -35,6 +36,17 @@ internal object TaskResultMessages {
             }
         }
         if (events.has("INSTALL_ONLY_DONE")) return "App 已安装到 user${installTarget.orEmpty()}，未迁移权限或数据"
+        val cloneStopWarnings = events.countPrefix("WARN_STOP_CLONE_")
+        val cloneStopSuffix = if (cloneStopWarnings > 0) "；分身自动关闭失败，分身可能仍在运行" else ""
+        if (events.has("WARN_DATA_STATE_REMAINS_UNKNOWN") && events.has("WARN_SOURCE_PERMISSION_CAPTURE_SKIPPED")) {
+            return "数据已恢复，但主分状态保持未知，且源 App 的权限/AppOps 未同步；请进入详情核对$cloneStopSuffix"
+        }
+        if (events.has("WARN_DATA_STATE_REMAINS_UNKNOWN")) {
+            return "数据已恢复，但无法建立可安全切换或还原的主分状态；当前状态保持未知，请在详情中核对$cloneStopSuffix"
+        }
+        if (events.has("WARN_SOURCE_PERMISSION_CAPTURE_SKIPPED")) {
+            return "数据处理已完成，但源 App 的权限/AppOps 未同步$cloneStopSuffix"
+        }
         if (events.first("UCLONE_RECOVERY")?.startsWith("UCLONE_RECOVERY:ORPHANED") == true) {
             return "完成；已隔离上次进程遗留的孤儿任务标记"
         }
@@ -52,7 +64,6 @@ internal object TaskResultMessages {
         val grantWarnings = events.countPrefix("WARN_GRANT_FAILED:")
         val revokeWarnings = events.countPrefix("WARN_REVOKE_FAILED:")
         val appOpsWarnings = events.countPrefix("WARN_APPOPS_")
-        val cloneStopWarnings = events.countPrefix("WARN_STOP_CLONE_")
         val completion = if (events.has("FORCE_UPDATE_CLONE_DATA_AND_MAIN_RESTORE_DONE")) {
             "分数据已更新，主数据已还原"
         } else {

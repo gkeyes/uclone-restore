@@ -39,6 +39,20 @@ class SettingsValidationTest {
     }
 
     @Test
+    fun rootDirectoryWithInternalWhitespaceIsRejected() {
+        assertFailsWith<IllegalArgumentException> {
+            SettingsValidation.requireValid(UCloneSettings(rootDir = "/data/adb/u clone"))
+        }
+    }
+
+    @Test
+    fun rootDirectoryWithBackslashIsRejectedBecauseMountInfoEscapesIt() {
+        assertFailsWith<IllegalArgumentException> {
+            SettingsValidation.requireValid(UCloneSettings(rootDir = "/data/adb/uclone\\archive"))
+        }
+    }
+
+    @Test
     fun settingsAreNormalizedBeforePersistence() {
         val normalized = SettingsValidation.normalized(
             UCloneSettings(rootDir = "  /data/adb/uclone///  "),

@@ -6,7 +6,20 @@ import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.sync.RestoreCompatibilityOptions
+
+internal sealed interface SwitchOrRestoreDecision {
+    data object SwitchToClone : SwitchOrRestoreDecision
+
+    data class RestoreMain(val rollbackId: String) : SwitchOrRestoreDecision
+}
+
+internal fun switchOrRestoreDecision(state: AppDataState): SwitchOrRestoreDecision = when (state) {
+    AppDataState.Main -> SwitchOrRestoreDecision.SwitchToClone
+    is AppDataState.Clone -> SwitchOrRestoreDecision.RestoreMain(state.mainReturnPointId)
+    AppDataState.Unknown -> error("数据状态未知，请先进入 App 详情选择已标识的备份恢复状态")
+}
 
 internal class ExternalActionDispatcher(private val container: AppContainer) {
     suspend fun execute(
@@ -122,11 +135,18 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
     ): TaskRecord {
-        val rollbackId = container.syncEngine.switchMarkerId(request.packageName, settings)
-        return if (rollbackId == null) switchToClone(request, settings, report) else {
-            container.syncEngine.restoreSwitchMainState(
+        val state = container.syncEngine.appDataState(request.packageName, settings)
+        return when (val decision = switchOrRestoreDecision(state)) {
+            SwitchOrRestoreDecision.SwitchToClone -> container.syncEngine.switchToCloneState(
                 request.packageName,
-                rollbackId,
+                ruleFor(request.packageName, settings),
+                settings,
+                report,
+                request.requestId,
+            )
+            is SwitchOrRestoreDecision.RestoreMain -> container.syncEngine.restoreSwitchMainState(
+                request.packageName,
+                decision.rollbackId,
                 ruleFor(request.packageName, settings),
                 settings,
                 report,
@@ -141,8 +161,10 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
     ): TaskRecord {
-        check(container.syncEngine.switchMarkerId(request.packageName, settings) == null) {
-            "已处于分身态，请先还原主系统"
+        when (container.syncEngine.appDataState(request.packageName, settings)) {
+            AppDataState.Main -> Unit
+            is AppDataState.Clone -> error("已处于分身态，请先还原主系统")
+            AppDataState.Unknown -> error("数据状态未知，请先进入 App 详情选择已标识的备份恢复状态")
         }
         return container.syncEngine.switchToCloneState(
             request.packageName,
@@ -158,8 +180,11 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
     ): TaskRecord {
-        val rollbackId = container.syncEngine.switchMarkerId(request.packageName, settings)
-            ?: error("没有可用的切换回滚点")
+        val rollbackId = when (val state = container.syncEngine.appDataState(request.packageName, settings)) {
+            AppDataState.Main -> error("没有可用的切换回滚点")
+            is AppDataState.Clone -> state.mainReturnPointId
+            AppDataState.Unknown -> error("数据状态未知，请先进入 App 详情选择已标识的备份恢复状态")
+        }
         return container.syncEngine.restoreSwitchMainState(
             request.packageName,
             rollbackId,

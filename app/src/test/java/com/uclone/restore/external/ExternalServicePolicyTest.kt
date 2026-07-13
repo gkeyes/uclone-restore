@@ -8,6 +8,7 @@ import com.uclone.restore.model.TaskStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlinx.coroutines.runBlocking
 
 class ExternalServicePolicyTest {
     @Test
@@ -79,6 +80,41 @@ class ExternalServicePolicyTest {
             "桌面快捷入口不允许执行此操作",
             shortcut.copy(operation = ExternalActionContract.OPERATION_BACKUP_DEFAULT).sourceOperationRejection(),
         )
+    }
+
+    @Test
+    fun moduleSourcesMustBindUser0IconToConfiguredMainUser() {
+        val module = request(
+            source = ExternalActionContract.SOURCE_MODULE,
+            token = null,
+            targetUserId = 0,
+        )
+        val launcherModule = module.copy(source = ExternalActionContract.SOURCE_LAUNCHER_MODULE)
+
+        assertEquals(null, module.moduleTargetUserRejection(mainUserId = 0))
+        assertEquals(null, launcherModule.moduleTargetUserRejection(mainUserId = 0))
+        assertEquals(
+            "模块桌面目标是 user0，但当前主系统配置为 user10",
+            module.moduleTargetUserRejection(mainUserId = 10),
+        )
+        assertEquals(
+            "模块桌面目标是 user0，但当前主系统配置为 user10",
+            launcherModule.moduleTargetUserRejection(mainUserId = 10),
+        )
+        assertEquals(null, module.copy(targetUserId = null).moduleTargetUserRejection(mainUserId = 0))
+        assertEquals(
+            "模块桌面目标是 user0，但当前主系统配置为 user10",
+            launcherModule.copy(targetUserId = null).moduleTargetUserRejection(mainUserId = 10),
+        )
+    }
+
+    @Test
+    fun internalAppAndLauncherShortcutDoNotUseModuleTargetUserBinding() {
+        val app = request(ExternalActionContract.SOURCE_APP, "secret", targetUserId = 10)
+        val shortcut = request(ExternalActionContract.SOURCE_LAUNCHER_SHORTCUT, "secret", targetUserId = null)
+
+        assertEquals(null, app.moduleTargetUserRejection(mainUserId = 0))
+        assertEquals(null, shortcut.moduleTargetUserRejection(mainUserId = 10))
     }
 
     @Test
@@ -158,13 +194,50 @@ class ExternalServicePolicyTest {
         assertEquals(1, repository.all().size)
     }
 
-    private fun request(source: String, token: String?, requestId: String = "request-1") = ExternalActionRequest(
+    @Test
+    fun successfulStateChangeRefreshesShortcutsWithoutViewModel() = runBlocking {
+        var refreshCount = 0
+        val refresh = suspend { refreshCount += 1 }
+
+        refreshFavoriteShortcutsAfterSuccessfulStateChange(
+            ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
+            TaskStatus.SUCCESS,
+            refresh,
+        )
+        refreshFavoriteShortcutsAfterSuccessfulStateChange(
+            ExternalActionContract.OPERATION_RESET_SWITCH_STATE,
+            TaskStatus.SUCCESS_WITH_WARNINGS,
+            refresh,
+        )
+        refreshFavoriteShortcutsAfterSuccessfulStateChange(
+            ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
+            TaskStatus.FAILED,
+            refresh,
+        )
+        refreshFavoriteShortcutsAfterSuccessfulStateChange(
+            ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE,
+            TaskStatus.SUCCESS,
+            refresh,
+        )
+
+        assertEquals(2, refreshCount)
+        assertEquals(true, isShortcutStateChangingOperation(ExternalActionContract.OPERATION_RESTORE_MAIN))
+        assertEquals(false, isShortcutStateChangingOperation(ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE))
+    }
+
+    private fun request(
+        source: String,
+        token: String?,
+        requestId: String = "request-1",
+        targetUserId: Int? = null,
+    ) = ExternalActionRequest(
         operation = ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
         packageName = "com.example.app",
         requestId = requestId,
         source = source,
         rollbackId = null,
         internalToken = token,
+        targetUserId = targetUserId,
     )
 
     private object NoopShell : RootShellExecutor {

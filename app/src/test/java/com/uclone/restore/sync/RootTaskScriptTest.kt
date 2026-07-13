@@ -128,6 +128,7 @@ class RootTaskScriptTest {
         val platform = if (System.getProperty("os.name").orEmpty().startsWith("Mac")) {
             common
                 .replace("stat -c '%u:%g'", "stat -f '%u:%g'")
+                .replace("stat -c '%u'", "stat -f '%u'")
                 .replace("stat -c '%a'", "stat -f '%Lp'")
                 .replace("stat -c %Y", "stat -f %m")
         } else {
@@ -136,6 +137,9 @@ class RootTaskScriptTest {
         return platform.replace(
             "[ \"${'$'}UCLONE_IDENTITY_OWNER\" = \"0:0\" ]",
             "[ \"${'$'}UCLONE_IDENTITY_OWNER\" = \"${'$'}(/usr/bin/id -u):${'$'}(/usr/bin/id -g)\" ]",
+        ).replace(
+            "[ \"${'$'}UCLONE_GUARD_OWNER\" = \"0\" ]",
+            "[ \"${'$'}UCLONE_GUARD_OWNER\" = \"${'$'}(/usr/bin/id -u)\" ]",
         )
     }
 

@@ -15,6 +15,7 @@ internal object ExternalRequestPolicy {
         request.sourceAccessRejection(settings.allowModuleControl, internalRequestToken)?.let { return it }
         request.sourceOperationRejection()?.let { return it }
         request.compatibilityOverrideRejection()?.let { return it }
+        request.moduleTargetUserRejection(settings.mainUserId)?.let { return it }
         val installOperation = request.operation in INSTALL_OPERATIONS
         if (installOperation && request.targetUserId !in setOf(settings.mainUserId, settings.cloneUserId)) {
             return "目标用户必须是 user${settings.mainUserId} 或 user${settings.cloneUserId}"
@@ -42,6 +43,20 @@ internal object ExternalRequestPolicy {
             }
         }
         return null
+    }
+}
+
+internal fun ExternalActionRequest.moduleTargetUserRejection(mainUserId: Int): String? {
+    if (source != ExternalActionContract.SOURCE_MODULE &&
+        source != ExternalActionContract.SOURCE_LAUNCHER_MODULE
+    ) {
+        return null
+    }
+    val moduleTargetUserId = targetUserId ?: LEGACY_MODULE_TARGET_USER_ID
+    return if (moduleTargetUserId == mainUserId) {
+        null
+    } else {
+        "模块桌面目标是 user$moduleTargetUserId，但当前主系统配置为 user$mainUserId"
     }
 }
 
@@ -95,6 +110,8 @@ private val DATA_OPERATIONS = setOf(
     ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK,
     ExternalActionContract.OPERATION_RESTORE_ROLLBACK,
 )
+
+private const val LEGACY_MODULE_TARGET_USER_ID = 0
 
 internal fun ExternalActionRequest.sourceAccessRejection(
     allowModuleControl: Boolean,

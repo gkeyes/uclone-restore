@@ -15,6 +15,7 @@ import com.uclone.restore.external.ExternalRequestRecovery
 import com.uclone.restore.external.hasLauncherModuleStatusRecipient
 import com.uclone.restore.external.toExternalRequestStage
 import com.uclone.restore.external.toExternalStatus
+import com.uclone.restore.launcher.FavoriteShortcutEntry
 import com.uclone.restore.launcher.LauncherShortcutController
 import com.uclone.restore.root.ProcessRootShellExecutor
 import com.uclone.restore.root.RootEnvironmentChecker
@@ -143,6 +144,17 @@ class UCloneApplication : Application() {
                     ExternalActionContract.PERMISSION_CONTROL,
                 )
             }
+            if (
+                activeRootTask?.isLive != true &&
+                transactionRecovery.state.value == TransactionRecoveryState.Ready &&
+                !container.taskCoordinator.isBusy() &&
+                container.launcherShortcutController.pendingStateRefreshGeneration > 0L
+            ) {
+                runCatching { container.refreshFavoriteShortcuts() }
+                    .onFailure { error ->
+                        Log.w("UCloneApplication", "Unable to finish pending shortcut refresh", error)
+                    }
+            }
         }
     }
 
@@ -246,6 +258,14 @@ class UCloneApplication : Application() {
                 )
             }
         }
+        if (record.status.isSuccessful) {
+            container.taskScope.launch {
+                runCatching { container.refreshFavoriteShortcuts() }
+                    .onFailure { error ->
+                        Log.w("UCloneApplication", "Unable to refresh shortcuts after reconciliation", error)
+                    }
+            }
+        }
     }
 
     private fun startRequiredRecovery(required: TransactionRecoveryState.Required) {
@@ -284,4 +304,27 @@ class AppContainer internal constructor(
     internal val taskPostmortemReconciler: TaskPostmortemReconciler,
     val taskScope: CoroutineScope,
     val internalRequestToken: String,
-)
+) {
+    suspend fun refreshFavoriteShortcuts(expectedGeneration: Long? = null) {
+        val refreshGeneration = expectedGeneration ?: launcherShortcutController.pendingStateRefreshGeneration
+        val settings = settingsStore.load()
+        val apps = runCatching { packageInspector.listApps(settings) }
+            .getOrDefault(emptyList())
+            .associateBy { it.packageName }
+        val workspace = runCatching { syncEngine.loadWorkspaceIndex(settings) }
+            .getOrNull()
+        val entries = settings.favoritePackages.map { packageName ->
+            val app = apps[packageName]
+            FavoriteShortcutEntry(
+                packageName = packageName,
+                label = app?.label ?: packageName,
+                dataState = workspace?.dataState(packageName) ?: com.uclone.restore.sync.AppDataState.Unknown,
+            )
+        }
+        if (refreshGeneration > 0L) {
+            launcherShortcutController.updateFavoriteShortcutsIfCurrent(entries, refreshGeneration)
+        } else {
+            launcherShortcutController.updateFavoriteShortcuts(entries)
+        }
+    }
+}

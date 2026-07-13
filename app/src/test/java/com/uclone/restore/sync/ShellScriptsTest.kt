@@ -67,6 +67,32 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun mergePermissionCaptureFailureSkipsPermissionsWithoutAbortingDataCopy() {
+        val rule = AppRule(packageName = "com.example.app")
+        val mergeSettings = settings.copy(permissionRestoreMode = PermissionRestoreMode.MERGE)
+        val exactSettings = settings.copy(permissionRestoreMode = PermissionRestoreMode.EXACT)
+
+        val mergeScripts = listOf(
+            ShellScripts.capture("com.example.app", rule, mergeSettings, appPackage),
+            ShellScripts.pushMainToClone("com.example.app", rule, mergeSettings, appPackage),
+            ShellScripts.switchFromCloneLatest("com.example.app", rule, mergeSettings, appPackage),
+        )
+        mergeScripts.forEach { script ->
+            assertContains(script, "WARN_SOURCE_PERMISSION_CAPTURE_SKIPPED:")
+            assertFalse(script.contains("ERR_SOURCE_PERMISSION_CAPTURE:"))
+            assertContains(script, "PERMISSION_CAPTURE_STATE=skipped")
+        }
+        assertContains(
+            mergeScripts.first(),
+            "\\\"permissionCaptureState\\\":\\\"${'$'}PERMISSION_CAPTURE_STATE\\\"",
+        )
+        assertContains(mergeScripts[1], "\\\"permissionCaptureState\\\":\\\"valid\\\"")
+
+        val exactPush = ShellScripts.pushMainToClone("com.example.app", rule, exactSettings, appPackage)
+        assertContains(exactPush, "ERR_SOURCE_PERMISSION_CAPTURE:")
+    }
+
+    @Test
     fun mutationScriptsDoNotSilentlyIgnoreForceStopFailures() {
         val rule = AppRule(packageName = "com.example.app")
         val scripts = listOf(
@@ -81,6 +107,35 @@ class ShellScriptsTest {
             assertTrue(
                 "ERR_SOURCE_GATE_ACQUIRE:" in script || "ERR_TARGET_GATE_ACQUIRE:" in script,
                 "Gate acquisition failures must remain observable",
+            )
+        }
+    }
+
+    @Test
+    fun transactionJournalPrecedesTargetDirectoryCreation() {
+        val rule = AppRule(packageName = "com.example.app")
+        val scripts = listOf(
+            ShellScripts.pushMainToClone("com.example.app", rule, settings, appPackage),
+            ShellScripts.restore("com.example.app", settings, appPackage),
+        )
+
+        scripts.forEach { script ->
+            val functionStart = requireNotNull(
+                Regex("(?m)^\\s*restore_part\\(\\) \\{\\s*$").find(script),
+            ).range.last + 1
+            val targetModeIndex = script.indexOf("TARGET_MODE=", functionStart)
+            val journalIndex = script.indexOf(
+                "uclone_transaction_target_mutating \"${'$'}PART_NAME\" || exit 77",
+                targetModeIndex,
+            )
+            val mutationFlagIndex = script.indexOf("TARGET_MUTATED=1", journalIndex)
+            val mkdirIndex = script.indexOf("mkdir -p \"${'$'}TARGET\" || exit 56", targetModeIndex)
+
+            assertTrue(
+                targetModeIndex in functionStart until journalIndex &&
+                    journalIndex < mutationFlagIndex &&
+                    mutationFlagIndex < mkdirIndex,
+                "The durable TARGET_MUTATING journal must precede target directory creation",
             )
         }
     }
@@ -139,10 +194,14 @@ class ShellScriptsTest {
         val capture = ShellScripts.capture("com.example.app", rule, settings, appPackage)
         val push = ShellScripts.pushMainToClone("com.example.app", rule, settings, appPackage)
         val restore = ShellScripts.restore("com.example.app", settings, appPackage)
+        val rollback = ShellScripts.rollback("com.example.app", "main-return-point", settings, appPackage)
+        val cloneRollback = ShellScripts.restoreCloneRollback("com.example.app", settings, appPackage)
 
         assertContains(capture, "uclone_transaction_init CAPTURE_SNAPSHOT \"${'$'}CONFIG_SRC_USER\" 0 'ce,external,media'")
         assertContains(push, "uclone_transaction_init PUSH_MAIN_TO_CLONE \"${'$'}SRC_USER\" \"${'$'}DST_USER\" 'ce,external,media'")
-        assertContains(restore, "uclone_transaction_init ACTIVE -1 \"${'$'}DST_USER\" 'ce,de,external,permissions'")
+        assertContains(restore, "uclone_transaction_init ACTIVE 10 \"${'$'}DST_USER\" 'ce,de,external,permissions'")
+        assertContains(rollback, "uclone_transaction_init ROLLBACK 0 \"${'$'}DST_USER\" 'ce,de,external,permissions'")
+        assertContains(cloneRollback, "uclone_transaction_init CLONE_ROLLBACK 10 \"${'$'}DST_USER\" 'ce,de,external,permissions'")
     }
 
     @Test
@@ -278,7 +337,7 @@ class ShellScriptsTest {
             assertContains(script, "uclone_verify_part_metadata")
             assertContains(script, "echo \"schema=2\"")
             assertContains(script, "\\\"integrityMode\\\":\\\"FAST_METADATA\\\"")
-            assertContains(script, "\\\"schemaVersion\\\":4")
+            assertContains(script, "\\\"schemaVersion\\\":5")
             assertContains(script, "sourceSigningCertificateSha256")
             assertContains(script, "sourceVersionName")
             assertContains(script, "sourceUid")
@@ -306,6 +365,33 @@ class ShellScriptsTest {
         assertContains(strict, "ERR_LEGACY_PACKAGE_IDENTITY_CONFIRMATION_REQUIRED:${'$'}ACTIVE")
         assertContains(strict, "UCLONE_ALLOW_LEGACY_IDENTITY=0")
         assertContains(allowed, "UCLONE_ALLOW_LEGACY_IDENTITY=1")
+    }
+
+    @Test
+    fun schema4RestoreRejectsWrongSourceOrTargetUserBeforeTargetGate() {
+        val restore = ShellScripts.restore("com.example.app", settings, appPackage)
+        val sourceCheck = restore.indexOf("ERR_SNAPSHOT_SOURCE_USER_MISMATCH:")
+        val targetCheck = restore.indexOf("ERR_SNAPSHOT_TARGET_USER_MISMATCH:")
+        val targetGate = restore.indexOf("uclone_gate_acquire target")
+
+        assertContains(restore, "ACTIVE_SOURCE_USER=${'$'}(sed -n")
+        assertContains(restore, "ACTIVE_TARGET_USER=${'$'}(sed -n")
+        assertContains(restore, "[ \"${'$'}ACTIVE_SOURCE_USER\" = \"10\" ]")
+        assertContains(restore, "[ \"${'$'}ACTIVE_TARGET_USER\" = \"${'$'}DST_USER\" ]")
+        assertTrue(sourceCheck in 0 until targetGate)
+        assertTrue(targetCheck in 0 until targetGate)
+    }
+
+    @Test
+    fun restoreStateInferenceRequiresTheCurrentSigningCertificate() {
+        val script = ShellScripts.restore("com.example.app", settings, appPackage)
+
+        assertContains(script, "CURRENT_MARKER_SIGNING_CERTIFICATE=")
+        assertContains(
+            script,
+            "[ \"${'$'}CURRENT_MARKER_SIGNING_CERTIFICATE\" = \"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\" ]",
+        )
+        assertContains(script, "uclone_require_canonical_backup_file \"${'$'}CURRENT_MARKER_MANIFEST\"")
     }
 
     @Test
@@ -416,6 +502,7 @@ class ShellScriptsTest {
 
         assertFalse(script.contains("chmod -R 700"))
         assertContains(script, "chmod 700 \"${'$'}BASE\" \"${'$'}BASE/active\" \"${'$'}BASE/history\"")
+        assertContains(script, "ERR_SNAPSHOT_WORKSPACE_MODE")
     }
 
     @Test
@@ -426,12 +513,27 @@ class ShellScriptsTest {
         val restore = ShellScripts.restore("com.example.app", settings, appPackage)
         val switch = ShellScripts.switchFromCloneLatest("com.example.app", rule, settings, appPackage)
 
-        assertContains(capture, "(cd \"${'$'}DST.tmp\" && tar -xopf -)")
-        assertContains(push, "(cd \"${'$'}DST.tmp\" && tar -xopf -)")
-        assertContains(push, "(cd \"${'$'}DST\" && tar -xopf -) || exit 55")
-        assertContains(restore, "(cd \"${'$'}PREPARE_DST\" && tar -xopf -)")
-        assertContains(restore, "(cd \"${'$'}DST\" && tar -xopf -) || exit 55")
-        assertContains(switch, "(cd \"${'$'}DST.tmp\" && tar -xopf -)")
+        listOf(capture, push, restore, switch).forEach { script ->
+            assertContains(script, "uclone_extract_workspace_tree")
+            assertContains(script, "tar -xopf -")
+            assertContains(script, "tar -cpf - .")
+            assertFalse(script.contains("--null"))
+        }
+    }
+
+    @Test
+    fun sourceCaptureStateChecksUseTheBoundedCloneStateClient() {
+        val rule = AppRule(packageName = "com.example.app")
+        val scripts = listOf(
+            ShellScripts.capture("com.example.app", rule, settings, appPackage),
+            ShellScripts.switchFromCloneLatest("com.example.app", rule, settings, appPackage),
+        )
+
+        scripts.forEach { script ->
+            assertEquals(1, Regex("get-started-user-state").findAll(script).count())
+            assertContains(script, "STATE=${'$'}(clone_state)")
+            assertContains(script, "ERR_CLONE_STATE_QUERY:${'$'}STATE")
+        }
     }
 
     private val settings = UCloneSettings(rootDir = "/data/adb/uclone")
@@ -529,14 +631,29 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun deleteRestoreBackup_onlyDeletesRequestedPassiveRollback() {
+    fun restoreFailsWhenCacheOwnershipCannotBeRepaired() {
+        val restore = ShellScripts.restore("com.example.app", settings, appPackage)
+        val push = ShellScripts.pushMainToClone("com.example.app", AppRule(packageName = "com.example.app"), settings, appPackage)
+
+        listOf(restore, push).forEach { script ->
+            assertContains(script, "ERR_CACHE_GID_RESTORE:")
+            assertFalse(script.contains("cache\" >/dev/null 2>&1 || true"))
+            assertFalse(script.contains("code_cache\" >/dev/null 2>&1 || true"))
+        }
+    }
+
+    @Test
+    fun deleteRestoreBackup_rejectsActiveReturnPointBeforeDeletion() {
         val script = ShellScripts.deleteRestoreBackup("com.example.app", "20260709-010203", settings, appPackage)
 
         assertContains(script, "ROLLBACK_PARENT=\"${'$'}ROOT/rollback/${'$'}PKG\"")
         assertContains(script, "TARGET=\"${'$'}ROOT/rollback/${'$'}PKG/${'$'}ROLLBACK_ID\"")
-        assertContains(script, "rm -rf \"${'$'}TARGET\"")
+        assertContains(script, "ERR_ACTIVE_RETURN_POINT_DELETE:")
+        assertContains(script, "uclone_remove_tree \"${'$'}TARGET\"")
         assertContains(script, "DELETED_RESTORE_BACKUP=${'$'}TARGET")
         assertContains(script, "[ \"${'$'}MARKER_ROLLBACK_ID\" = \"${'$'}ROLLBACK_ID\" ]")
+        assertTrue(script.indexOf("ERR_ACTIVE_RETURN_POINT_DELETE:") < script.indexOf("uclone_remove_tree \"${'$'}TARGET\""))
+        assertFalse(script.contains("SWITCH_MARKER_CLEARED="))
         assertFalse(script.contains("find \"${'$'}ROLLBACK_PARENT\" -mindepth 1 -maxdepth 1"))
         assertFalse(script.contains("rm -rf \"${'$'}ROLLBACK_PARENT\""))
         assertFalse(script.contains("rm -rf \"${'$'}ROOT/snapshots"))
@@ -544,12 +661,15 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun resetSwitchState_onlyRemovesThePackageMarker() {
+    fun resetSwitchState_persistsUnknownStateWithoutDeletingReturnPoint() {
         val script = ShellScripts.resetSwitchState("com.example.app", settings, appPackage)
 
         assertContains(script, "SWITCH_MARKER=\"${'$'}ROOT/switches/${'$'}PKG/active\"")
-        assertContains(script, "rm -f \"${'$'}SWITCH_MARKER\"")
-        assertContains(script, "SWITCH_STATE_RESET=${'$'}SWITCH_MARKER")
+        assertContains(script, "UNKNOWN_SWITCH_MARKER='$UNKNOWN_SWITCH_MARKER'")
+        assertContains(script, "MARKER_TMP=\"${'$'}SWITCH_MARKER.tmp_${'$'}${'$'}\"")
+        assertContains(script, "mv -f \"${'$'}MARKER_TMP\" \"${'$'}SWITCH_MARKER\"")
+        assertContains(script, "SWITCH_STATE_RESET=unknown")
+        assertFalse(script.contains("rm -f \"${'$'}SWITCH_MARKER\""))
         assertFalse(script.contains("rm -rf"))
         assertFalse(script.contains("/data/user/"))
         assertFalse(script.contains("/data/user_de/"))
@@ -573,7 +693,9 @@ class ShellScriptsTest {
         assertContains(script, "RESET_TARGETS=\"snapshots rollback clone_rollback switches logs tmp audit transactions config/workspace_owner_root_v1 locks/orphaned\"")
         assertContains(script, "\"${'$'}ROOT\"/snapshots|\"${'$'}ROOT\"/rollback|\"${'$'}ROOT\"/clone_rollback")
         assertContains(script, "ERR_UNSAFE_RESET_TARGET")
-        assertContains(script, "rm -rf \"${'$'}TARGET\"")
+        assertContains(script, "uclone_remove_file")
+        assertContains(script, "uclone_remove_tree \"${'$'}TARGET\"")
+        assertContains(script, "[ -e \"${'$'}TARGET\" ] || [ -L \"${'$'}TARGET\" ] || continue")
         assertContains(script, "ERR_WORKSPACE_IDENTITY_LOST")
         assertContains(script, "RESET_WORKSPACE_DONE")
         assertFalse(script.contains("rm -rf \"${'$'}ROOT\""))
@@ -585,13 +707,15 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun restorePruneKeepsExistingMainReturnPointAndClearsOnlyMissingMarkerTarget() {
+    fun restorePruneNeverClearsUnknownOrBrokenStateIntoFalseMainState() {
         val script = ShellScripts.restore("com.example.app", settings, appPackage)
 
         assertContains(script, "SWITCH_ID_AFTER_PRUNE=")
         assertContains(script, "[ ! -d \"${'$'}ROLLBACK_PARENT/${'$'}SWITCH_ID_AFTER_PRUNE\" ]")
-        assertFalse(script.contains("[ \"${'$'}SWITCH_ID_AFTER_PRUNE\" != \"${'$'}ROLLBACK_ID\" ]"))
-        assertContains(script, "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER_FOR_PRUNE")
+        assertContains(script, "KEPT_ROLLBACK_ACTIVE_RETURN_POINT=")
+        assertContains(script, "KEPT_SWITCH_MARKER_UNKNOWN=")
+        assertContains(script, "KEPT_SWITCH_MARKER_BROKEN=")
+        assertFalse(script.contains("SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER_FOR_PRUNE"))
     }
 
     @Test
@@ -645,12 +769,63 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun restoreTreatsUnknownOrBrokenCurrentMarkerAsUnknownState() {
+        val script = ShellScripts.rollback(
+            "com.example.app",
+            "20260710-010203",
+            settings,
+            appPackage,
+        )
+
+        assertContains(script, "UNKNOWN_SWITCH_MARKER='$UNKNOWN_SWITCH_MARKER'")
+        assertContains(script, "CURRENT_STATE_KIND=\"unknown\"")
+        assertContains(script, "CURRENT_MARKER_MANIFEST=\"${'$'}ROOT/rollback/${'$'}PKG/${'$'}CURRENT_MAIN_ROLLBACK_ID/manifest.json\"")
+        assertContains(script, "[ -f \"${'$'}CURRENT_MARKER_MANIFEST\" ]")
+        assertContains(script, "[ \"${'$'}CURRENT_MARKER_PACKAGE\" = \"${'$'}PKG\" ]")
+        assertContains(script, "CURRENT_MARKER_SOURCE_USER=${'$'}(sed -n")
+        assertContains(script, "CURRENT_MARKER_TARGET_USER=${'$'}(sed -n")
+        assertContains(script, "[ \"${'$'}CURRENT_MARKER_SOURCE_USER\" = \"0\" ]")
+        assertContains(script, "[ \"${'$'}CURRENT_MARKER_TARGET_USER\" = \"0\" ]")
+        assertContains(script, "PASSIVE_BACKUP_STATE=${'$'}CURRENT_STATE_KIND")
+    }
+
+    @Test
+    fun restoringUnknownBackupSucceedsAndPersistsUnknownMarker() {
+        val script = ShellScripts.rollback(
+            "com.example.app",
+            "20260710-010203",
+            settings,
+            appPackage,
+        )
+
+        assertFalse(script.contains("ERR_BACKUP_STATE_UNKNOWN:"))
+        assertContains(script, "write_switch_marker_atomic \"${'$'}SWITCH_MARKER\" \"${'$'}UNKNOWN_SWITCH_MARKER\"")
+        assertContains(script, "WARN_DATA_STATE_REMAINS_UNKNOWN:")
+    }
+
+    @Test
+    fun restoringCloneFromUnknownCurrentStateDoesNotFabricateCloneState() {
+        val script = ShellScripts.rollback(
+            "com.example.app",
+            "20260710-010203",
+            settings,
+            appPackage,
+        )
+
+        assertContains(script, "if [ \"${'$'}CURRENT_STATE_KIND\" = \"unknown\" ]")
+        assertContains(script, "write_switch_marker_atomic \"${'$'}SWITCH_MARKER\" \"${'$'}UNKNOWN_SWITCH_MARKER\"")
+        assertFalse(script.contains("ERR_MAIN_STATE_BACKUP_MISSING"))
+    }
+
+    @Test
     fun passiveRollbackPruningKeepsBackupFromOtherDataState() {
         val script = ShellScripts.restore("com.example.app", settings, appPackage)
 
         assertContains(script, "OLD_STATE_KIND")
         assertContains(script, "KEPT_ROLLBACK_OTHER_STATE=")
         assertContains(script, "KEPT_ROLLBACK_LEGACY=")
+        assertContains(script, "[ \"${'$'}SWITCH_ID_AFTER_PRUNE\" = \"${'$'}UNKNOWN_SWITCH_MARKER\" ]")
+        assertContains(script, "KEPT_SWITCH_MARKER_UNKNOWN=")
     }
 
     @Test
@@ -664,18 +839,18 @@ class ShellScriptsTest {
             appPackage,
         )
 
-        assertContains(restore, "REUSE_STATE")
-        assertContains(restore, "REUSE_STATE\" = \"${'$'}CURRENT_STATE_KIND")
-        assertContains(restore, "uclone_backup_is_valid \"${'$'}REUSE_CANDIDATE\"")
+        assertContains(restore, "uclone_backup_matches_identity \"${'$'}REUSE_CANDIDATE\" \"${'$'}PKG\" \"${'$'}DST_USER\" \"${'$'}DST_USER\" \"${'$'}CURRENT_STATE_KIND\" rollback")
         assertContains(restore, "PASSIVE_BACKUP_REUSED=")
         assertContains(restore, "TRANSACTION_UNDO=\"${'$'}ROOT/tmp/undo_${'$'}{PKG}_${'$'}TS\"")
         assertContains(restore, "ROLLBACK=\"${'$'}TRANSACTION_UNDO\"")
         assertContains(restore, "TRANSACTION_UNDO_CREATED=")
-        assertContains(push, "uclone_backup_is_valid \"${'$'}ROLLBACK_LATEST\"")
+        assertContains(restore, "\\\"transactionRequestId\\\":\\\"${'$'}UCLONE_REQUEST_ID\\\"")
+        assertContains(push, "uclone_backup_matches_identity \"${'$'}ROLLBACK_LATEST\" \"${'$'}PKG\" \"${'$'}DST_USER\" \"${'$'}DST_USER\" clone clone_rollback")
         assertContains(push, "CLONE_ROLLBACK_REUSED=")
         assertContains(push, "TRANSACTION_UNDO=\"${'$'}ROOT/tmp/undo_clone_${'$'}{PKG}_${'$'}TS\"")
         assertContains(push, "ROLLBACK=\"${'$'}TRANSACTION_UNDO\"")
         assertContains(push, "TRANSACTION_UNDO_CREATED=")
+        assertContains(push, "\\\"transactionRequestId\\\":\\\"${'$'}UCLONE_REQUEST_ID\\\"")
         val relocatedRollback = push.indexOf("uclone_transaction_rollback_relocated \"${'$'}ROLLBACK_LATEST\"")
         val persistentRollbackAssignment = push.indexOf("ROLLBACK=\"${'$'}ROLLBACK_LATEST\"")
         assertTrue(relocatedRollback >= 0)
@@ -702,10 +877,70 @@ class ShellScriptsTest {
         assertEquals(1, validate())
         backup.resolve("ce").apply { mkdirs(); resolve("token.db").writeText("data") }
         assertEquals(0, validate())
-        backup.resolve("manifest.json").writeText("{\"schemaVersion\":4,\"stateKind\":\"main\"}\n")
+        backup.resolve("manifest.json").writeText("{\"schemaVersion\":4,\"stateKind\":\"main\",\"permissionCaptureState\":\"excluded\"}\n")
         assertEquals(0, validate())
-        backup.resolve("manifest.json").writeText("{\"schemaVersion\":5,\"stateKind\":\"main\"}\n")
+        backup.resolve("manifest.json").writeText("{\"schemaVersion\":5,\"stateKind\":\"main\",\"permissionCaptureState\":\"excluded\"}\n")
+        assertEquals(0, validate())
+        root.deleteRecursively()
+    }
+
+    @Test
+    fun backupReuseValidatorRequiresPermissionCaptureWhenManifestMarksItValid() {
+        val root = Files.createTempDirectory("uclone-reuse-permission-validator").toFile()
+        val backup = root.resolve("backup").apply { mkdirs() }
+        val state = backup.resolve(".state").apply { mkdirs() }
+        val metadata = backup.resolve(".meta").apply { mkdirs() }
+        listOf("ce", "de", "external", "media", "obb").forEach { part ->
+            state.resolve(part).writeText("absent\n")
+            metadata.resolve(part).writeText("present\n")
+        }
+        backup.resolve("manifest.json").writeText("{\"schemaVersion\":5,\"permissionCaptureState\":\"valid\"}\n")
+
+        fun validate(): Int = ProcessBuilder(
+            "/bin/sh",
+            "-c",
+            "uclone_verify_part_metadata() { [ -f \"${'$'}1/.meta/${'$'}2\" ]; }\n" +
+                "uclone_permission_capture_valid() { [ -d \"${'$'}1\" ] && [ -f \"${'$'}1/capture.state\" ] && [ -f \"${'$'}1/runtime_grants.txt\" ] && [ -f \"${'$'}1/appops.txt\" ]; }\n" +
+                ShellScripts.backupReuseValidationScript() +
+                "\nuclone_backup_is_valid ${shellQuote(backup.absolutePath)}",
+        ).start().waitFor()
+
         assertEquals(1, validate())
+        backup.resolve("permissions").apply {
+            mkdirs()
+            resolve("capture.state").writeText("schema=1\n")
+            resolve("runtime_grants.txt").writeText("")
+            resolve("appops.txt").writeText("")
+        }
+        assertEquals(0, validate())
+        root.deleteRecursively()
+    }
+
+    @Test
+    fun persistentBackupReuseRejectsWrongUserIdentity() {
+        val root = Files.createTempDirectory("uclone-reuse-identity").toFile()
+        val backup = root.resolve("backup").apply { mkdirs() }
+        val state = backup.resolve(".state").apply { mkdirs() }
+        val metadata = backup.resolve(".meta").apply { mkdirs() }
+        listOf("ce", "de", "external", "media", "obb").forEach { part ->
+            state.resolve(part).writeText("absent\n")
+            metadata.resolve(part).writeText("present\n")
+        }
+        backup.resolve("manifest.json").writeText(
+            "{\"schemaVersion\":5,\"packageName\":\"com.example.app\",\"stateKind\":\"main\",\"sourceUser\":\"0\",\"targetUser\":\"0\",\"backupKind\":\"rollback\",\"sourceSigningCertificateSha256\":\"test-signing-certificate\",\"permissionCaptureState\":\"excluded\"}\n",
+        )
+
+        fun validatesFor(sourceUser: Int, targetUser: Int): Int = ProcessBuilder(
+            "/bin/sh",
+            "-c",
+            "UCLONE_SIGNING_CERTIFICATE_SHA256=test-signing-certificate\n" +
+                "uclone_verify_part_metadata() { [ -f \"${'$'}1/.meta/${'$'}2\" ]; }\n" +
+                ShellScripts.backupReuseValidationScript() +
+                "\nuclone_backup_matches_identity ${shellQuote(backup.absolutePath)} com.example.app $sourceUser $targetUser main rollback",
+        ).start().waitFor()
+
+        assertEquals(0, validatesFor(sourceUser = 0, targetUser = 0))
+        assertEquals(1, validatesFor(sourceUser = 10, targetUser = 10))
         root.deleteRecursively()
     }
 
@@ -773,7 +1008,7 @@ class ShellScriptsTest {
         assertContains(script, "uclone_restore_permission_state \"${'$'}1\" \"${'$'}DST_USER\" \"MERGE\"")
         assertContains(script, "if [ \"${'$'}RESTORE_MODE\" = \"EXACT\" ]; then")
         assertContains(script, "WARN_PERMISSION_RESTORE_SKIPPED_INVALID_CAPTURE:")
-        assertContains(script, "ERR_SOURCE_PERMISSION_CAPTURE:${'$'}SRC_USER")
+        assertContains(script, "WARN_SOURCE_PERMISSION_CAPTURE_SKIPPED:${'$'}SRC_USER")
         assertContains(script, "ERR_TRANSACTION_PERMISSION_CAPTURE:${'$'}DST_USER")
         assertTrue(script.indexOf("if [ \"${'$'}RESTORE_MODE\" = \"EXACT\" ]; then") < script.indexOf("cmd package revoke --user"))
     }
@@ -912,12 +1147,25 @@ class ShellScriptsTest {
         val script = ShellScripts.probeCloneCe(settings)
 
         assertContains(script, "am get-started-user-state")
+        assertContains(script, "UCLONE_STATE_TEMP_ROOT=/data/local/tmp")
+        assertContains(script, "CLONE_STATE_QUERY_TIMEOUT")
         assertContains(script, "USER10_CE_READY=1")
         assertFalse(script.contains("am start-user"))
         assertFalse(script.contains("am unlock-user"))
         assertFalse(script.contains("switch-user"))
-        assertFalse(script.contains("rm "))
-        assertFalse(script.contains("rm -"))
+        assertFalse(script.contains("rm -rf"))
+    }
+
+    @Test
+    fun environmentStateProbeUsesTheBoundedStateClient() {
+        val script = ShellScripts.boundedUserStateProbe(10)
+
+        assertContains(script, "CLONE_USER=10")
+        assertContains(script, "UCLONE_STATE_TEMP_ROOT=/data/local/tmp")
+        assertContains(script, "CLONE_STATE_QUERY_TIMEOUT")
+        assertContains(script, "clone_state \"${'$'}CLONE_USER\"")
+        assertFalse(script.contains("start-user"))
+        assertFalse(script.contains("stop-user"))
     }
 
     @Test
@@ -1022,7 +1270,6 @@ class ShellScriptsTest {
 
     @Test
     fun explicitStopStopsWaitingForHungActivityManagerAfterStateIsStopped() {
-        val startedAt = System.nanoTime()
         val result = runExplicitStopScript(
             """
                 case "${'$'}1" in
@@ -1034,12 +1281,10 @@ class ShellScriptsTest {
                 esac
             """.trimIndent(),
         )
-        val durationMs = (System.nanoTime() - startedAt) / 1_000_000
-
         assertEquals(0, result.exitCode, result.output)
         assertContains(result.output, "STOP_CLONE_CONFIRMED=1")
         assertContains(result.output, "STOP_USER_CLIENT_TERMINATED=1")
-        assertTrue(durationMs < 2_000, "stop helper waited ${'$'}durationMs ms for a hung ActivityManager client")
+        assertTrue(result.executionDurationMs < 2_000, "stop helper waited ${result.executionDurationMs} ms for a hung ActivityManager client")
     }
 
     @Test
@@ -1082,7 +1327,6 @@ class ShellScriptsTest {
 
     @Test
     fun explicitStartStopsWaitingForHungActivityManagerAfterStateIsRunning() {
-        val startedAt = System.nanoTime()
         val result = runExplicitStartScript(
             """
                 case "${'$'}1" in
@@ -1094,12 +1338,51 @@ class ShellScriptsTest {
                 esac
             """.trimIndent(),
         )
-        val durationMs = (System.nanoTime() - startedAt) / 1_000_000
-
         assertEquals(0, result.exitCode, result.output)
         assertContains(result.output, "START_CLONE_CONFIRMED=RUNNING_LOCKED")
         assertContains(result.output, "START_USER_CLIENT_TERMINATED=1")
-        assertTrue(durationMs < 2_000, "start helper waited ${'$'}durationMs ms for a hung ActivityManager client")
+        assertTrue(result.executionDurationMs < 2_000, "start helper waited ${result.executionDurationMs} ms for a hung ActivityManager client")
+    }
+
+    @Test
+    fun explicitStartDoesNotWaitForAnUnkillableActivityManagerClientAfterStateIsRunning() {
+        val result = runExplicitStartScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state)
+                    if [ -f "${'$'}UCLONE_TEST_STATE_FILE" ]; then echo RUNNING_LOCKED; else echo "User is not started: 10"; fi
+                    exit 0
+                    ;;
+                  start-user) : > "${'$'}UCLONE_TEST_STATE_FILE"; exec sleep 5 ;;
+                esac
+            """.trimIndent(),
+            shellPrelude = """
+                kill() { return 0; }
+                wait() { /bin/sleep 5; return 0; }
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "START_CLONE_CONFIRMED=RUNNING_LOCKED")
+        assertContains(result.output, "START_USER_CLIENT_DETACHED=1")
+        assertTrue(result.executionDurationMs < 2_000, "start helper waited ${result.executionDurationMs} ms after state was ready")
+    }
+
+    @Test
+    fun explicitStartFailsQuicklyWhenStateProbeClientHangs() {
+        val result = runExplicitStartScript(
+            """
+                case "${'$'}1" in
+                  get-started-user-state) exec sleep 5 ;;
+                  start-user) echo SHOULD_NOT_START; exit 9 ;;
+                esac
+            """.trimIndent(),
+        )
+
+        assertEquals(88, result.exitCode, result.output)
+        assertContains(result.output, "ERR_CLONE_STATE_QUERY:CLONE_STATE_QUERY_TIMEOUT")
+        assertFalse(result.output.contains("SHOULD_NOT_START"))
+        assertTrue(result.executionDurationMs < 2_000, "state probe waited ${result.executionDurationMs} ms for a hung ActivityManager client")
     }
 
     @Test
@@ -1152,9 +1435,10 @@ class ShellScriptsTest {
         assertContains(script, "appops_pkg.txt")
         assertContains(script, "appops_uid.txt")
         assertContains(script, "summary.md")
+        assertContains(script, "capture_user_states")
+        assertContains(script, "UCLONE_STATE_TEMP_ROOT=/data/local/tmp")
         assertContains(script, "restorecon: not run in this read-only audit")
-        assertFalse(script.contains("rm "))
-        assertFalse(script.contains("rm -"))
+        assertFalse(script.contains("rm -rf"))
         assertFalse(script.contains("restorecon -"))
         assertFalse(script.contains("am switch-user"))
     }
@@ -1180,11 +1464,19 @@ class ShellScriptsTest {
                 environment()["TMPDIR"] = directory.toAbsolutePath().toString()
             }
             .start()
+        val startedAt = System.nanoTime()
         val output = process.inputStream.bufferedReader().readText()
-        return StopScriptResult(process.waitFor(), output)
+        return StopScriptResult(
+            exitCode = process.waitFor(),
+            output = output,
+            executionDurationMs = (System.nanoTime() - startedAt) / 1_000_000,
+        )
     }
 
-    private fun runExplicitStartScript(amBody: String): StopScriptResult {
+    private fun runExplicitStartScript(
+        amBody: String,
+        shellPrelude: String = "",
+    ): StopScriptResult {
         val directory = Files.createTempDirectory("uclone-start-test")
         val stateFile = directory.resolve("state").toFile()
         val fakeAm = directory.resolve("am").toFile().apply {
@@ -1198,16 +1490,25 @@ class ShellScriptsTest {
             startPollLimit = 2,
             startPollIntervalSeconds = 0.01,
         )
-        val process = ProcessBuilder("/bin/bash", "-c", script)
+        val process = ProcessBuilder("/bin/bash", "-c", "$shellPrelude\n$script")
             .redirectErrorStream(true)
             .apply {
                 environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath
                 environment()["TMPDIR"] = directory.toAbsolutePath().toString()
             }
             .start()
+        val startedAt = System.nanoTime()
         val output = process.inputStream.bufferedReader().readText()
-        return StopScriptResult(process.waitFor(), output)
+        return StopScriptResult(
+            exitCode = process.waitFor(),
+            output = output,
+            executionDurationMs = (System.nanoTime() - startedAt) / 1_000_000,
+        )
     }
 
-    private data class StopScriptResult(val exitCode: Int, val output: String)
+    private data class StopScriptResult(
+        val exitCode: Int,
+        val output: String,
+        val executionDurationMs: Long,
+    )
 }

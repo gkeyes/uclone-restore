@@ -5,6 +5,7 @@ import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskType
 import com.uclone.restore.root.RootShellExecutor
 import com.uclone.restore.root.ShellResult
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -116,6 +117,30 @@ class TaskCoordinatorTest {
         assertTrue(coordinator.tryRunWhileIdle { mutations += 1 })
 
         assertEquals(2, mutations)
+    }
+
+    @Test
+    fun persistedAcceptedRequestCannotBeReacceptedAfterStoreRecreation() {
+        val historyFile = Files.createTempDirectory("uclone-coordinator-restart")
+            .resolve("task_history_v2.jsonl")
+            .toFile()
+        TaskLogStore(NoopShell, historyFile).accepted(
+            type = TaskType.SWITCH_TO_CLONE_STATE,
+            packageName = "com.example.app",
+            requestId = "persisted-request",
+        )
+        val restartedRepository = TaskLogStore(NoopShell, historyFile)
+        val restartedCoordinator = TaskCoordinator(restartedRepository)
+
+        val duplicate = restartedCoordinator.accept(
+            requestId = "persisted-request",
+            type = TaskType.SWITCH_TO_CLONE_STATE,
+            packageName = "com.example.app",
+        )
+
+        assertIs<TaskSubmissionResult.AlreadyCompleted>(duplicate)
+        assertEquals(TaskStatus.INTERRUPTED, duplicate.record.status)
+        assertEquals(1, restartedRepository.all().size)
     }
 
     private object NoopShell : RootShellExecutor {

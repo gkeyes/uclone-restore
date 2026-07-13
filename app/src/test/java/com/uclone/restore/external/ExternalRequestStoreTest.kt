@@ -5,9 +5,15 @@ import com.uclone.restore.model.TaskMetrics
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskType
+import com.uclone.restore.root.RootShellExecutor
+import com.uclone.restore.root.ShellResult
+import com.uclone.restore.sync.TaskCoordinator
+import com.uclone.restore.sync.TaskLogStore
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 
 class ExternalRequestStoreTest {
     @Test
@@ -43,6 +49,83 @@ class ExternalRequestStoreTest {
         assertEquals(
             listOf("new-request-3", "new-request-2"),
             restored.all().map(ExternalRequestEvent::requestId),
+        )
+    }
+
+    @Test
+    fun runningDuplicateAcknowledgementDoesNotCreateATerminalRecord() {
+        val file = Files.createTempDirectory("uclone-external-running")
+            .resolve("external_requests_v1.jsonl")
+            .toFile()
+        val store = ExternalRequestStore(file)
+
+        store.record(event("request-1", ExternalRequestStage.RUNNING))
+
+        assertEquals(null, store.terminal("request-1"))
+    }
+
+    @Test
+    fun malformedTerminalIndexBlocksReplayAdmissionInsteadOfTreatingItAsEmpty() {
+        val file = Files.createTempDirectory("uclone-external-corrupt-terminal")
+            .resolve("external_requests_v1.jsonl")
+            .toFile()
+        file.resolveSibling("external_requests_v1_terminals.jsonl").writeText("{not-json}\n")
+        val store = ExternalRequestStore(file)
+
+        assertNotNull(store.replayProtectionFailure())
+        val admission = admitExternalTask(
+            coordinator = TaskCoordinator(TaskLogStore(NoopShell)),
+            request = request("request-after-corruption"),
+            requestStore = store,
+        )
+
+        val rejected = assertIs<ExternalTaskAdmission.Rejected>(admission)
+        assertEquals(ExternalActionContract.STATUS_REJECTED, rejected.status)
+    }
+
+    @Test
+    fun explicitClearRepairsReplayProtectionAfterTerminalIndexCorruption() {
+        val file = Files.createTempDirectory("uclone-external-clear-corrupt-terminal")
+            .resolve("external_requests_v1.jsonl")
+            .toFile()
+        file.resolveSibling("external_requests_v1_terminals.jsonl").writeText("{not-json}\n")
+        val store = ExternalRequestStore(file)
+
+        store.clear()
+
+        assertEquals(null, store.replayProtectionFailure())
+        assertIs<ExternalTaskAdmission.Accepted>(
+            admitExternalTask(
+                coordinator = TaskCoordinator(TaskLogStore(NoopShell)),
+                request = request("request-after-explicit-clear"),
+                requestStore = store,
+            ),
+        )
+    }
+
+    @Test
+    fun onlyConfirmedMainAppMaintenanceCanRepairCorruptReplayProtection() {
+        val file = Files.createTempDirectory("uclone-external-repair-admission")
+            .resolve("external_requests_v1.jsonl")
+            .toFile()
+        file.resolveSibling("external_requests_v1_terminals.jsonl").writeText("{not-json}\n")
+        val store = ExternalRequestStore(file)
+        val coordinator = TaskCoordinator(TaskLogStore(NoopShell))
+
+        assertIs<ExternalTaskAdmission.Rejected>(
+            admitExternalTask(coordinator, request("module-request"), store),
+        )
+        assertIs<ExternalTaskAdmission.Accepted>(
+            admitExternalTask(
+                coordinator,
+                request(
+                    requestId = "clear-request",
+                    operation = ExternalActionContract.OPERATION_CLEAR_LOGS,
+                    source = ExternalActionContract.SOURCE_APP,
+                    packageName = "user10",
+                ),
+                store,
+            ),
         )
     }
 
@@ -191,4 +274,22 @@ class ExternalRequestStoreTest {
         metrics = TaskMetrics(),
         audit = TaskAudit(source = source),
     )
+
+    private fun request(
+        requestId: String,
+        operation: String = ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
+        source: String = ExternalActionContract.SOURCE_LAUNCHER_MODULE,
+        packageName: String = "com.example.app",
+    ) = ExternalActionRequest(
+        operation = operation,
+        packageName = packageName,
+        requestId = requestId,
+        source = source,
+        rollbackId = null,
+        internalToken = null,
+    )
+
+    private object NoopShell : RootShellExecutor {
+        override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult = ShellResult(0, "", "")
+    }
 }

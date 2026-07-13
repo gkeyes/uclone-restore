@@ -216,11 +216,16 @@ class CrossUserInstallScriptsTest {
                 """,
             )
         }
+        val rootDir = directory.resolve("root").canonicalPath
         val portableScript = script(
             targetUser = 10,
             mode = CrossUserInstallMode.INSTALL_WITH_PERMISSIONS,
-            scriptSettings = settings.copy(rootDir = directory.resolve("root").canonicalPath),
+            scriptSettings = settings.copy(rootDir = rootDir),
         )
+            .replace(
+                WorkspacePathGuard.require(rootDir),
+                "ROOT=${com.uclone.restore.root.shellQuote(rootDir)}\nROOT_REAL=${com.uclone.restore.root.shellQuote(rootDir)}",
+            )
             .replace("/system/bin/cmd", cmd.absolutePath)
             .replace("/system/bin/pm", pm.absolutePath)
             .replace("/system/bin/dumpsys", bin.resolve("dumpsys").absolutePath)

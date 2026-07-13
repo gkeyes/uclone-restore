@@ -4,6 +4,7 @@ import com.uclone.restore.model.CheckResult
 import com.uclone.restore.model.EnvironmentStatus
 import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.model.User10CeState
+import com.uclone.restore.sync.ShellScripts
 import com.uclone.restore.sync.WorkspacePathGuard
 
 class RootEnvironmentChecker(private val shell: RootShellExecutor) {
@@ -43,7 +44,10 @@ class RootEnvironmentChecker(private val shell: RootShellExecutor) {
         val root = CheckResult(id.stdout.contains("uid=0"), id.stdout.ifBlank { id.stderr })
         val users = shell.exec("pm list users", timeoutSeconds = 20)
         val currentUser = shell.exec("am get-current-user", timeoutSeconds = 20)
-        val cloneState = shell.exec("am get-started-user-state ${settings.cloneUserId}", timeoutSeconds = 20)
+        val cloneState = shell.exec(
+            ShellScripts.boundedUserStateProbe(settings.cloneUserId),
+            timeoutSeconds = 5,
+        )
         val cloneStateRaw = cloneState.stdout.trim().ifBlank { cloneState.stderr.trim().ifBlank { "未知" } }
         val user0Present = users.stdout.contains("UserInfo{${settings.mainUserId}:")
         val user10Present = users.stdout.contains("UserInfo{${settings.cloneUserId}:")

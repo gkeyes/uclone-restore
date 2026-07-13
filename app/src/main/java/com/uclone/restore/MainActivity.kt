@@ -28,6 +28,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (handleLauncherShortcutIntent(intent)) return
         val container = (application as UCloneApplication).container
+        launcherShortcutRequest = LauncherShortcutRequest.fromIntent(
+            intent,
+            container.launcherShortcutController.shortcutToken(),
+        )
         setContent {
             val viewModel: UCloneViewModel = viewModel(
                 factory = UCloneViewModelFactory(application, container),
@@ -44,7 +48,10 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleLauncherShortcutIntent(intent)
+        if (!handleLauncherShortcutIntent(intent)) {
+            val controller = (application as UCloneApplication).container.launcherShortcutController
+            launcherShortcutRequest = LauncherShortcutRequest.fromIntent(intent, controller.shortcutToken())
+        }
     }
 
     private fun handleLauncherShortcutIntent(intent: Intent?): Boolean {

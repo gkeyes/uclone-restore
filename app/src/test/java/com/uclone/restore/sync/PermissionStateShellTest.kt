@@ -33,4 +33,13 @@ class PermissionStateShellTest {
         assertContains(script, "uclone_permission_require_file \"${'$'}PERMISSION_DIR/runtime_grants.txt\"")
         assertContains(script, "uclone_permission_require_file \"${'$'}PERMISSION_DIR/appops.txt\"")
     }
+
+    @Test
+    fun restoreRetainsCapturedCustomRuntimePermissions() {
+        val script = PermissionStateShell.functions()
+
+        assertContains(script, "^[[:space:]]*[A-Za-z][A-Za-z0-9_.]*:")
+        assertContains(script, "case \"${'$'}PERMISSION\" in *[!A-Za-z0-9_.]*|\"\") continue ;; esac")
+        assertContains(script, "uclone_permission_capture_valid_for_user")
+    }
 }

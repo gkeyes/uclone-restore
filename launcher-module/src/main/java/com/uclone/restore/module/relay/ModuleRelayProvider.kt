@@ -63,6 +63,7 @@ class ModuleRelayProvider : ContentProvider() {
             .putExtra(ModuleRelayContract.UCLONE_EXTRA_PACKAGE_NAME, packageName)
             .putExtra(ModuleRelayContract.UCLONE_EXTRA_REQUEST_ID, requestId)
             .putExtra(ModuleRelayContract.UCLONE_EXTRA_SOURCE, ModuleRelayContract.UCLONE_SOURCE)
+            .putExtra(ModuleRelayContract.UCLONE_EXTRA_TARGET_USER_ID, userId)
 
         val flags = PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
         val pendingIntent = PendingIntent.getForegroundService(context, requestId.hashCode(), actionIntent, flags)

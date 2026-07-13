@@ -175,6 +175,29 @@ class TaskOutcomeTest {
     }
 
     @Test
+    fun skippedSourcePermissionCaptureIsPartialSuccessAfterDataCompletes() {
+        val result = ShellResult(
+            0,
+            "RESTORED:/data/user/0/com.example.app ITEMS=10\nWARN_SOURCE_PERMISSION_CAPTURE_SKIPPED:10",
+            "",
+        )
+
+        assertEquals(TaskStatus.SUCCESS_WITH_WARNINGS, TaskOutcome.status(result))
+    }
+
+    @Test
+    fun restoredDataWithUnknownStateIsPartialSuccess() {
+        val result = ShellResult(
+            0,
+            "RESTORE_SUMMARY: restoredParts=3 restoredItems=10 backupParts=3\n" +
+                "WARN_DATA_STATE_REMAINS_UNKNOWN:/data/adb/uclone/rollback/com.example.app/legacy",
+            "",
+        )
+
+        assertEquals(TaskStatus.SUCCESS_WITH_WARNINGS, TaskOutcome.status(result))
+    }
+
+    @Test
     fun appOpsResetAndPersistenceWarningsHaveExplicitPartialSuccessStatus() {
         listOf("WARN_APPOPS_RESET_FAILED", "WARN_APPOPS_WRITE_SETTINGS_FAILED").forEach { warning ->
             val result = ShellResult(0, warning, "")

@@ -36,12 +36,20 @@ class SyncEngine(
         environmentChecker.validateSettingsTarget(settings)
 
     suspend fun loadWorkspaceIndex(settings: UCloneSettings): WorkspaceIndex {
-        val result = shell.exec(workspaceIndexScript(settings.rootDir), 60)
+        val result = shell.exec(
+            workspaceIndexScript(
+                rootDir = settings.rootDir,
+                mainUserId = settings.mainUserId,
+            ),
+            60,
+        )
         check(result.isSuccess) {
             result.stderr.lineSequence().firstOrNull(String::isNotBlank)
                 ?: "无法读取 UClone 工作区索引（exit=${result.exitCode}）"
         }
-        return WorkspaceIndexParser.parse(result.stdout)
+        return WorkspaceIndexParser.parse(result.stdout).verifySwitchMarkerSignatures { packageName ->
+            runCatching { signingIdentityProvider.certificateSha256(packageName) }.getOrNull()
+        }
     }
 
     suspend fun scanWorkspaceOwnership(
@@ -309,7 +317,7 @@ class SyncEngine(
         type = TaskType.RESET_SWITCH_STATE,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "清除切换标记", "刷新状态"),
+        labels = listOf("检查 root", "将数据状态设为未知", "刷新状态"),
         script = ShellScripts.resetSwitchState(packageName, settings, appPackage),
         report = report,
         requestId = requestId,
@@ -340,7 +348,7 @@ class SyncEngine(
         type = TaskType.DELETE_RESTORE_BACKUP,
         packageName = packageName,
         settings = settings,
-        labels = listOf("检查 root", "读取被动备份", "删除备份目录", "清理切换标记", "完成"),
+        labels = listOf("检查 root", "读取被动备份", "验证非当前返回点", "删除备份目录", "完成"),
         script = ShellScripts.deleteRestoreBackup(packageName, rollbackId, settings, appPackage),
         report = report,
         requestId = requestId,
@@ -373,7 +381,7 @@ class SyncEngine(
         packageName = packageName,
         settings = settings,
         labels = listOf("检查事务记录", "确认 App 门禁", "验证回滚数据", "自动回滚", "恢复 App 状态"),
-        script = TransactionRecoveryShell.build(transactionRequestId, settings),
+        script = TransactionRecoveryShell.build(transactionRequestId, settings, appPackage),
         report = report,
         requestId = requestId,
         relatedTransactionId = transactionRequestId,
@@ -476,7 +484,7 @@ class SyncEngine(
               pkg=${'$'}(basename "${'$'}(dirname "${'$'}(dirname "${'$'}f")")")
               ts=${'$'}(stat -c %Y "${'$'}f" 2>/dev/null || echo 0)
               size=${'$'}(sed -n 's/.*"snapshotSizeKb":"\([0-9][0-9]*\)".*/\1/p' "${'$'}f" | head -1)
-              [ -n "${'$'}size" ] || size=${'$'}(du -sk "${'$'}(dirname "${'$'}f")" 2>/dev/null | awk '{print ${'$'}1}')
+              [ -n "${'$'}size" ] || size=${'$'}(du -skx "${'$'}(dirname "${'$'}f")" 2>/dev/null | awk '{print ${'$'}1}')
               echo "${'$'}pkg ${'$'}ts ${'$'}size"
             done
         """.trimIndent()
@@ -495,32 +503,114 @@ class SyncEngine(
     suspend fun snapshotTimes(settings: UCloneSettings): Map<String, Long> =
         snapshotMetadata(settings).mapValues { it.value.updatedAt }
 
-    suspend fun switchMarkerIds(settings: UCloneSettings): Map<String, String> {
-        val root = settings.rootDir
-        val switchRoot = "$root/switches"
-        val script = """
-            ${WorkspacePathGuard.inspect(settings.rootDir)}
-            [ -d ${shellQuote(switchRoot)} ] || exit 0
-            for f in ${shellQuote(switchRoot)}/*/active; do
-              [ -f "${'$'}f" ] || continue
-              pkg=${'$'}(basename "${'$'}(dirname "${'$'}f")")
-              id=${'$'}(sed -n '1p' "${'$'}f" | tr -d '\r')
-              [ -n "${'$'}pkg" ] && [ -n "${'$'}id" ] || continue
-              [ -f ${shellQuote(root)}/rollback/"${'$'}pkg"/"${'$'}id"/manifest.json ] || continue
-              echo "${'$'}pkg ${'$'}id"
-            done
-        """.trimIndent()
-        val result = shell.exec(script, 20)
-        return result.stdout.lineSequence().mapNotNull { line ->
-            val parts = line.trim().split(" ", limit = 2)
-            val packageName = parts.getOrNull(0)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            val rollbackId = parts.getOrNull(1)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            packageName to rollbackId
-        }.toMap()
-    }
+    suspend fun switchMarkerIds(settings: UCloneSettings): Map<String, String> =
+        loadWorkspaceIndex(settings).switchMarkers
 
     suspend fun switchMarkerId(packageName: String, settings: UCloneSettings): String? =
         switchMarkerIds(settings)[packageName]
+
+    suspend fun appDataState(packageName: String, settings: UCloneSettings): AppDataState {
+        require(ANDROID_PACKAGE_NAME.matches(packageName)) { "Unsafe package name: $packageName" }
+        val expectedSigningCertificateSha256 = runCatching {
+            signingIdentityProvider.certificateSha256(packageName)
+        }.getOrElse {
+            return AppDataState.Unknown
+        }
+        val result = shell.exec(
+            appDataStateScript(
+                packageName = packageName,
+                rootDir = settings.rootDir,
+                mainUserId = settings.mainUserId,
+                expectedSigningCertificateSha256 = expectedSigningCertificateSha256,
+            ),
+            10,
+        )
+        if (!result.isSuccess) return AppDataState.Unknown
+        return parseAppDataState(result.stdout)
+    }
+
+    private fun appDataStateScript(
+        packageName: String,
+        rootDir: String,
+        mainUserId: Int,
+        expectedSigningCertificateSha256: String,
+    ): String = """
+        ${WorkspacePathGuard.inspect(rootDir)}
+        PKG=${shellQuote(packageName)}
+        MAIN_USER=$mainUserId
+        EXPECTED_SIGNING_CERTIFICATE=${shellQuote(expectedSigningCertificateSha256)}
+        UNKNOWN_SWITCH_MARKER=${shellQuote(UNKNOWN_SWITCH_MARKER)}
+        MARKER="${'$'}ROOT/switches/${'$'}PKG/active"
+
+        if [ ! -e "${'$'}MARKER" ] && [ ! -L "${'$'}MARKER" ]; then
+          printf 'APP_DATA_STATE\tMAIN\n'
+          exit 0
+        fi
+        if [ ! -f "${'$'}MARKER" ] || [ -L "${'$'}MARKER" ]; then
+          printf 'APP_DATA_STATE\tUNKNOWN\n'
+          exit 0
+        fi
+        MARKER_REAL=${'$'}(readlink -f "${'$'}MARKER" 2>/dev/null || true)
+        if [ "${'$'}MARKER_REAL" != "${'$'}ROOT/switches/${'$'}PKG/active" ]; then
+          printf 'APP_DATA_STATE\tUNKNOWN\n'
+          exit 0
+        fi
+
+        MARKER_ID=${'$'}(sed -n '1p' "${'$'}MARKER" 2>/dev/null | tr -d '\r')
+        case "${'$'}MARKER_ID" in
+          "${'$'}UNKNOWN_SWITCH_MARKER")
+            printf 'APP_DATA_STATE\tUNKNOWN\n'
+            ;;
+          ''|.|..|*[!A-Za-z0-9_.-]*)
+            printf 'APP_DATA_STATE\tUNKNOWN\n'
+            ;;
+          *)
+            MANIFEST="${'$'}ROOT/rollback/${'$'}PKG/${'$'}MARKER_ID/manifest.json"
+            if [ -f "${'$'}MANIFEST" ] && [ ! -L "${'$'}MANIFEST" ]; then
+              MANIFEST_REAL=${'$'}(readlink -f "${'$'}MANIFEST" 2>/dev/null || true)
+              if [ "${'$'}MANIFEST_REAL" = "${'$'}ROOT/rollback/${'$'}PKG/${'$'}MARKER_ID/manifest.json" ]; then
+                MANIFEST_SCHEMA=${'$'}(sed -n 's/.*"schemaVersion":\([0-9][0-9]*\).*/\1/p' "${'$'}MANIFEST" | head -1)
+                MANIFEST_PACKAGE=${'$'}(sed -n 's/.*"packageName":"\([^"]*\)".*/\1/p' "${'$'}MANIFEST" | head -1)
+                MANIFEST_STATE=${'$'}(sed -n 's/.*"stateKind":"\([^"]*\)".*/\1/p' "${'$'}MANIFEST" | head -1)
+                MANIFEST_KIND=${'$'}(sed -n 's/.*"backupKind":"\([^"]*\)".*/\1/p' "${'$'}MANIFEST" | head -1)
+                MANIFEST_SIGNING_CERTIFICATE=${'$'}(sed -n 's/.*"sourceSigningCertificateSha256":"\([0-9a-f,]*\)".*/\1/p' "${'$'}MANIFEST" | head -1)
+                MANIFEST_SOURCE_USER=${'$'}(${manifestUserIdReadCommand("sourceUser", "\"${'$'}MANIFEST\"")})
+                MANIFEST_TARGET_USER=${'$'}(${manifestUserIdReadCommand("targetUser", "\"${'$'}MANIFEST\"")})
+                if [ "${'$'}MANIFEST_SCHEMA" = "$CURRENT_MANIFEST_SCHEMA" ] &&
+                  [ "${'$'}MANIFEST_PACKAGE" = "${'$'}PKG" ] &&
+                  [ "${'$'}MANIFEST_STATE" = "main" ] &&
+                  [ "${'$'}MANIFEST_KIND" = "rollback" ] &&
+                  [ "${'$'}MANIFEST_SIGNING_CERTIFICATE" = "${'$'}EXPECTED_SIGNING_CERTIFICATE" ] &&
+                  [ "${'$'}MANIFEST_SOURCE_USER" = "${'$'}MAIN_USER" ] &&
+                  [ "${'$'}MANIFEST_TARGET_USER" = "${'$'}MAIN_USER" ]; then
+                  printf 'APP_DATA_STATE\tCLONE\t%s\n' "${'$'}MARKER_ID"
+                else
+                  printf 'APP_DATA_STATE\tUNKNOWN\n'
+                fi
+              else
+                printf 'APP_DATA_STATE\tUNKNOWN\n'
+              fi
+            else
+              printf 'APP_DATA_STATE\tUNKNOWN\n'
+            fi
+            ;;
+        esac
+    """.trimIndent()
+
+    private fun parseAppDataState(output: String): AppDataState {
+        val fields = output.lineSequence()
+            .map { it.split('\t', limit = 3) }
+            .firstOrNull { it.firstOrNull() == "APP_DATA_STATE" }
+            ?: return AppDataState.Unknown
+        return when (fields.getOrNull(1)) {
+            "MAIN" -> AppDataState.Main
+            "CLONE" -> fields.getOrNull(2)
+                ?.takeIf { it != UNKNOWN_SWITCH_MARKER && SAFE_ROLLBACK_ID.matches(it) && it != "." && it != ".." }
+                ?.let(AppDataState::Clone)
+                ?: AppDataState.Unknown
+            else -> AppDataState.Unknown
+        }
+    }
 
     suspend fun listRollbackIds(packageName: String, settings: UCloneSettings): List<String> {
         val path = "${settings.rootDir}/rollback/$packageName"
@@ -577,7 +667,7 @@ class SyncEngine(
               [ -f "${'$'}d/manifest.json" ] || continue
               pkg=${'$'}(basename "${'$'}(dirname "${'$'}d")")
               ts=${'$'}(stat -c %Y "${'$'}d" 2>/dev/null || echo 0)
-              size=${'$'}(du -sk "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
+              size=${'$'}(du -skx "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
               reason=""
               if [ -f "${'$'}d/manifest.json" ]; then
                 reason=${'$'}(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
@@ -824,6 +914,7 @@ class SyncEngine(
             events.has("ERR_PACKAGE_NOT_LISTED_SOURCE") -> "主系统未安装此 App，无法推送"
             events.has("ERR_PACKAGE_NOT_LISTED") -> "分身系统未安装此 App，未执行备份或切换"
             events.has("ERR_MAIN_STATE_BACKUP_MISSING") -> "缺少可返回的主系统数据备份，未更新切换状态"
+            events.has("ERR_ACTIVE_RETURN_POINT_DELETE") -> "该备份是当前分身态返回主系统所必需的回滚点，请先将数据状态设为未知再删除"
             events.has("ERR_BACKUP_STATE_UNKNOWN") -> "旧备份没有主系统/分身来源标识，为避免状态错乱已停止恢复"
             events.has("ERR_PUSH_CE_MISSING") -> "主系统 CE 数据缺失，未执行推送"
             events.has("ERR_FORCE_STOP_FAILED") -> "无法停止分身 App，未读取或写入数据"
@@ -842,8 +933,9 @@ class SyncEngine(
                 events.has("ERR_GATE_SUSPENDED_STATE") ||
                 events.has("ERR_GATE_STOPPED_STATE") -> "当前系统无法可靠读取 App 启动状态，任务未修改数据"
             events.has("ERR_GATE_PROCESS_STILL_RUNNING") -> "无法完全停止目标 App 进程，任务未修改数据"
-            events.has("ERR_GATE_UNSTOP_UNSUPPORTED") ->
-                "当前 Android 版本无法精确恢复 App 的 stopped 状态，任务未修改数据"
+            events.has("ERR_GATE_STOPPED_BRIDGE_UNAVAILABLE") ||
+                events.has("ERR_GATE_STOPPED_BRIDGE_RELEASE") ->
+                "当前系统无法精确恢复 App 的 stopped 状态，任务未修改数据"
             events.has("ERR_GATE_ACQUIRE_ROLLBACK") -> "App 启动门禁未能恢复原状态，已进入安全恢复模式"
             events.has("ERR_SOURCE_GATE_ACQUIRE") -> "无法冻结源 App，未读取可能变化中的数据"
             events.has("ERR_TARGET_GATE_ACQUIRE") -> "无法冻结目标 App，任务未修改数据"
@@ -861,6 +953,8 @@ class SyncEngine(
     }
 
     private companion object {
+        val ANDROID_PACKAGE_NAME = Regex("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)+")
+        val SAFE_ROLLBACK_ID = Regex("[A-Za-z0-9_.-]+")
         val SIGNING_CERTIFICATE_SET = Regex("[0-9a-f]{64}(?:,[0-9a-f]{64})*")
         val PACKAGE_IDENTITY_TASKS = setOf(
             TaskType.CAPTURE_SNAPSHOT_FROM_CLONE,
@@ -905,7 +999,7 @@ class SyncEngine(
 internal fun taskHostTimeoutSeconds(type: TaskType): Long =
     if (type in TRANSACTIONAL_TASK_TYPES) 0 else 900
 
-private val TRANSACTIONAL_TASK_TYPES = setOf(
+internal val TRANSACTIONAL_TASK_TYPES = setOf(
     TaskType.RESTORE_SNAPSHOT_TO_MAIN,
     TaskType.ROLLBACK_MAIN_DATA,
     TaskType.RESTORE_FROM_CLONE_LATEST,
@@ -932,7 +1026,7 @@ internal fun restoreBackupListScript(rollbackRoot: String, switchRoot: String): 
       pkg=${'$'}(basename "${'$'}(dirname "${'$'}d")")
       id=${'$'}(basename "${'$'}d")
       ts=${'$'}(stat -c %Y "${'$'}d" 2>/dev/null || echo 0)
-      size=${'$'}(du -sk "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
+      size=${'$'}(du -skx "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
       active=0
       if [ -f "${'$'}SWITCH_ROOT/${'$'}pkg/active" ] && [ "${'$'}(sed -n '1p' "${'$'}SWITCH_ROOT/${'$'}pkg/active" | tr -d '\r')" = "${'$'}id" ]; then
         active=1

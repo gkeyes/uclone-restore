@@ -11,6 +11,16 @@ internal fun admitExternalTask(
     request: ExternalActionRequest,
     requestStore: ExternalRequestStore? = null,
 ): ExternalTaskAdmission {
+    requestStore?.replayProtectionFailure()?.takeUnless {
+        request.source == ExternalActionContract.SOURCE_APP &&
+            request.operation in replayProtectionRepairOperations
+    }?.let {
+        return ExternalTaskAdmission.Rejected(
+            record = null,
+            status = ExternalActionContract.STATUS_REJECTED,
+            message = "外部请求终态索引异常，已拒绝执行以防 requestId 重放",
+        )
+    }
     requestStore?.terminal(request.requestId)?.let { terminal ->
         return ExternalTaskAdmission.Rejected(
             record = null,
@@ -59,6 +69,11 @@ internal fun admitExternalTask(
         )
     }
 }
+
+private val replayProtectionRepairOperations = setOf(
+    ExternalActionContract.OPERATION_CLEAR_LOGS,
+    ExternalActionContract.OPERATION_RESET_WORKSPACE,
+)
 
 internal sealed interface ExternalTaskAdmission {
     val record: TaskRecord?

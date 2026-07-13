@@ -45,7 +45,7 @@ internal object PermissionStateShell {
           PERMISSION_USER="${'$'}2"
           CAPTURE_MODE="${'$'}{3:-MERGE}"
           case "${'$'}CAPTURE_MODE" in MERGE|EXACT) ;; *) return 1 ;; esac
-          rm -rf "${'$'}PERMISSION_DIR"
+          uclone_remove_tree "${'$'}PERMISSION_DIR" || return 1
           mkdir -p "${'$'}PERMISSION_DIR" || return 1
           uclone_permission_require_directory "${'$'}PERMISSION_DIR" || return 1
           PACKAGE_DUMP="${'$'}PERMISSION_DIR/package.dump.tmp"
@@ -82,7 +82,7 @@ internal object PermissionStateShell {
             ${'$'}0 ~ "^[[:space:]]*User [0-9]+:" { in_user=0; in_runtime=0 }
             in_user && ${'$'}0 ~ "^[[:space:]]*runtime permissions:" { in_runtime=1; next }
             in_runtime && substr(${'$'}0, 1, 8) != "        " { in_runtime=0 }
-            in_runtime && ${'$'}0 ~ "^[[:space:]]*android\\.permission\\." {
+            in_runtime && ${'$'}0 ~ "^[[:space:]]*[A-Za-z][A-Za-z0-9_.]*:" {
               name=${'$'}1; sub(":", "", name); if (${'$'}0 ~ "granted=true") print name; next
             }
           ' "${'$'}PACKAGE_DUMP" | sort -u > "${'$'}RUNTIME_TMP" || {
@@ -130,15 +130,29 @@ internal object PermissionStateShell {
           [ "${'$'}(uclone_permission_value "${'$'}PERMISSION_STATE" runtimePermissionBlockFound)" = "1" ] || return 1
           return 0
         }
+        uclone_permission_capture_valid_for_user() {
+          PERMISSION_DIR="${'$'}1"
+          PERMISSION_EXPECTED_SOURCE_USER="${'$'}2"
+          case "${'$'}PERMISSION_EXPECTED_SOURCE_USER" in ''|*[!0-9]*) return 1 ;; esac
+          uclone_permission_capture_valid "${'$'}PERMISSION_DIR" || return 1
+          [ "${'$'}(uclone_permission_value "${'$'}PERMISSION_DIR/capture.state" sourceUserId)" = "${'$'}PERMISSION_EXPECTED_SOURCE_USER" ]
+        }
         uclone_restore_permission_state() {
           PERMISSION_DIR="${'$'}1"
           PERMISSION_USER="${'$'}2"
           RESTORE_MODE="${'$'}3"
+          PERMISSION_EXPECTED_SOURCE_USER="${'$'}{4:-}"
           PERMISSION_STATE="${'$'}PERMISSION_DIR/capture.state"
           uclone_permission_capture_valid "${'$'}PERMISSION_DIR" || {
             echo "ERR_PERMISSION_CAPTURE_STATE_INVALID:${'$'}PERMISSION_DIR" >&2
             return 1
           }
+          if [ -n "${'$'}PERMISSION_EXPECTED_SOURCE_USER" ]; then
+            uclone_permission_capture_valid_for_user "${'$'}PERMISSION_DIR" "${'$'}PERMISSION_EXPECTED_SOURCE_USER" || {
+              echo "ERR_PERMISSION_CAPTURE_SOURCE_USER_MISMATCH:${'$'}PERMISSION_DIR" >&2
+              return 1
+            }
+          fi
           GRANTS_FILE="${'$'}PERMISSION_DIR/runtime_grants.txt"
           APPOPS_FILE="${'$'}PERMISSION_DIR/appops.txt"
           GRANT_COUNT=0
@@ -167,7 +181,7 @@ internal object PermissionStateShell {
           fi
           while IFS= read -r PERMISSION; do
             [ -n "${'$'}PERMISSION" ] || continue
-            case "${'$'}PERMISSION" in android.permission.*) ;; *) continue ;; esac
+            case "${'$'}PERMISSION" in *[!A-Za-z0-9_.]*|"") continue ;; esac
             if /system/bin/cmd package grant --user "${'$'}PERMISSION_USER" "${'$'}PKG" "${'$'}PERMISSION" >/dev/null 2>&1 ||
                /system/bin/pm grant --user "${'$'}PERMISSION_USER" "${'$'}PKG" "${'$'}PERMISSION" >/dev/null 2>&1; then
               GRANT_COUNT=${'$'}((GRANT_COUNT + 1))
@@ -179,7 +193,7 @@ internal object PermissionStateShell {
           if [ "${'$'}RESTORE_MODE" = "EXACT" ]; then
             if ! /system/bin/cmd appops reset --user "${'$'}PERMISSION_USER" "${'$'}PKG" >/dev/null 2>&1; then
               echo "WARN_APPOPS_RESET_FAILED"
-              rm -rf "${'$'}CURRENT_PERMISSION_DIR"
+              uclone_remove_tree "${'$'}CURRENT_PERMISSION_DIR" || true
               return 1
             fi
           elif [ "${'$'}RESTORE_MODE" != "MERGE" ]; then
@@ -199,7 +213,7 @@ internal object PermissionStateShell {
             echo "WARN_APPOPS_WRITE_SETTINGS_FAILED"
             PERMISSION_RESTORE_FAILURES=${'$'}((PERMISSION_RESTORE_FAILURES + 1))
           fi
-          [ -z "${'$'}CURRENT_PERMISSION_DIR" ] || rm -rf "${'$'}CURRENT_PERMISSION_DIR"
+          [ -z "${'$'}CURRENT_PERMISSION_DIR" ] || uclone_remove_tree "${'$'}CURRENT_PERMISSION_DIR"
           echo "RESTORED_PERMISSIONS:mode=${'$'}RESTORE_MODE grants=${'$'}GRANT_COUNT revokes=${'$'}REVOKE_COUNT appops=${'$'}APPOPS_COUNT failures=${'$'}PERMISSION_RESTORE_FAILURES"
           if [ "${'$'}RESTORE_MODE" = "EXACT" ] && [ "${'$'}PERMISSION_RESTORE_FAILURES" -gt 0 ]; then
             echo "ERR_PERMISSION_EXACT_PARTIAL:${'$'}PERMISSION_RESTORE_FAILURES" >&2

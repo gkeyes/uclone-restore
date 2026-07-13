@@ -1,9 +1,12 @@
 package com.uclone.restore.sync
 
+import com.uclone.restore.root.shellQuote
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class TransactionSafetyShellTest {
     @Test
@@ -23,6 +26,53 @@ class TransactionSafetyShellTest {
 
         assertEquals(0, process.waitFor(), stderr)
         assertContains(stdout, "CHECKPOINT_OK")
+    }
+
+    @Test
+    fun cancelCheckpointRecognizesPersistedCancellationBeforeMutation() {
+        val transactionDirectory = Files.createTempDirectory("uclone-cancel-checkpoint-").toFile()
+        transactionDirectory.resolve("cancel.requested").writeText("requested")
+        val process = ProcessBuilder(
+            "/bin/sh",
+            "-c",
+            """
+                set -u
+                ${TransactionSafetyShell.functions()}
+                UCLONE_TXN_DIR=${shellQuote(transactionDirectory.absolutePath)}
+                CANCEL_STATUS=0
+                uclone_cancel_checkpoint SOURCE_PREPARE || CANCEL_STATUS=${'$'}?
+                [ "${'$'}CANCEL_STATUS" = "2" ]
+            """.trimIndent(),
+        ).start()
+        val stderr = process.errorStream.bufferedReader().readText()
+
+        assertEquals(0, process.waitFor(), stderr)
+        transactionDirectory.deleteRecursively()
+    }
+
+    @Test
+    fun mutatedTargetKeepsItsGateDuringPreMutationGateRelease() {
+        val process = ProcessBuilder(
+            "/bin/sh",
+            "-c",
+            """
+                set -u
+                ${TransactionSafetyShell.functions()}
+                uclone_transaction_write() { :; }
+                uclone_gate_release() { echo "RELEASE:${'$'}1"; }
+                SOURCE_GATE_DIR=""
+                TARGET_GATE_DIR="target-gate"
+                TARGET_MUTATED=1
+                UCLONE_TXN_COMMITTED=false
+                UCLONE_TXN_TARGET_MUTATED=true
+                uclone_release_pre_mutation_gates
+                [ "${'$'}TARGET_GATE_DIR" = "target-gate" ]
+            """.trimIndent(),
+        ).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText()
+
+        assertEquals(0, process.waitFor(), output)
+        assertTrue("RELEASE:target-gate" !in output, output)
     }
 
     @Test
@@ -59,11 +109,14 @@ class TransactionSafetyShellTest {
         assertContains(script, "cmd package disable-until-used --user")
         assertContains(script, "cmd package suspend --user")
         assertContains(script, "cmd package unsuspend --user")
-        assertContains(script, "cmd package unstop --user")
-        assertContains(script, "uclone_gate_can_restore_stopped_state")
-        assertContains(script, "ERR_GATE_UNSTOP_UNSUPPORTED:user=${'$'}GATE_USER")
+        assertContains(script, "RootPackageStateBridge")
+        assertContains(script, "--set-stopped --user")
+        assertContains(script, "case \"${'$'}PM_BRIDGE_USER\" in ''|*[!0-9]*)")
+        assertContains(script, "case \"${'$'}PM_BRIDGE_STOPPED\" in true|false)")
+        assertContains(script, "ERR_GATE_STOPPED_BRIDGE_UNAVAILABLE:user=${'$'}GATE_USER")
+        assertContains(script, "ERR_GATE_STOPPED_BRIDGE_RELEASE:user=${'$'}RELEASE_USER")
         val gateAcquire = script.substringAfter("uclone_gate_acquire() {")
-        val compatibilityCheck = gateAcquire.indexOf("ERR_GATE_UNSTOP_UNSUPPORTED")
+        val compatibilityCheck = gateAcquire.indexOf("ERR_GATE_STOPPED_BRIDGE_UNAVAILABLE")
         val disableApp = gateAcquire.indexOf("cmd package disable-user --user")
         kotlin.test.assertTrue(compatibilityCheck in 0 until disableApp)
         assertContains(script, "am force-stop --user")
@@ -84,7 +137,7 @@ class TransactionSafetyShellTest {
         assertContains(script, "ERR_GATE_ACQUIRE_ROLLBACK:")
         assertContains(script, "UCLONE_GATE_DIR=\"${'$'}GATE_DIR\"")
         assertFalse(script.contains("pm enable --user"))
-        assertFalse(script.contains("set-stopped-state"))
+        assertFalse(script.contains("cmd package unstop"))
     }
 
     @Test

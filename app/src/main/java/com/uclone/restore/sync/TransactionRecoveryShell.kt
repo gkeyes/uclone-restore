@@ -4,11 +4,12 @@ import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.root.shellQuote
 
 internal object TransactionRecoveryShell {
-    fun build(transactionRequestId: String, settings: UCloneSettings): String {
+    fun build(transactionRequestId: String, settings: UCloneSettings, appPackage: String): String {
         require(SAFE_ID.matches(transactionRequestId))
         return """
             set -u
             ${WorkspacePathGuard.require(settings.rootDir)}
+            APP_PKG=${shellQuote(appPackage)}
             RECOVERY_TRANSACTION_ID=${shellQuote(transactionRequestId)}
             UCLONE_TXN_DIR="${'$'}ROOT/transactions/${'$'}RECOVERY_TRANSACTION_ID"
             TXN_JSON="${'$'}UCLONE_TXN_DIR/transaction.json"
@@ -105,6 +106,7 @@ internal object TransactionRecoveryShell {
               ENSURE_GATE_USER=${'$'}(uclone_gate_value "${'$'}ENSURE_GATE_FILE" userId)
               ENSURE_GATE_UID=${'$'}(uclone_gate_value "${'$'}ENSURE_GATE_FILE" uid)
               [ "${'$'}(uclone_gate_value "${'$'}ENSURE_GATE_FILE" state)" = "HELD" ] || return 1
+              uclone_pm_bridge_probe >/dev/null 2>&1 || return 1
               CURRENT_LINE=${'$'}(uclone_package_user_line "${'$'}ENSURE_GATE_USER")
               CURRENT_ENABLED=${'$'}(printf '%s\n' "${'$'}CURRENT_LINE" | sed -n 's/.* enabled=\([0-4]\).*/\1/p')
               if [ "${'$'}CURRENT_ENABLED" != "3" ]; then
@@ -145,9 +147,7 @@ internal object TransactionRecoveryShell {
               return 1
             }
             count_items() {
-              COUNT_VALUE=${'$'}(find "${'$'}1" -mindepth 1 -print 2>/dev/null | wc -l | tr -d ' ') || return 1
-              case "${'$'}COUNT_VALUE" in ''|*[!0-9]*) return 1 ;; esac
-              echo "${'$'}COUNT_VALUE"
+              uclone_count_tree "${'$'}1"
             }
             uclone_transaction_part_requires_recovery() {
               RECOVERY_PART="${'$'}1"
@@ -170,7 +170,7 @@ internal object TransactionRecoveryShell {
             }
             clear_target_contents() {
               validate_target_path "${'$'}1" || return 1
-              find "${'$'}1" -mindepth 1 -maxdepth 1 -exec rm -rf {} \; || return 1
+              uclone_clear_tree_contents "${'$'}1" || return 1
             }
             recovery_apply_security() {
               SECURITY_TARGET="${'$'}1"
@@ -185,8 +185,12 @@ internal object TransactionRecoveryShell {
                 OWNER_USER_ID=${'$'}((OWNER_UID / 100000))
                 if [ "${'$'}APP_ID" -ge 10000 ] && [ "${'$'}APP_ID" -le 19999 ]; then
                   CACHE_GID=${'$'}((OWNER_USER_ID * 100000 + 20000 + APP_ID - 10000))
-                  [ -d "${'$'}SECURITY_TARGET/cache" ] && chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SECURITY_TARGET/cache" >/dev/null 2>&1 || true
-                  [ -d "${'$'}SECURITY_TARGET/code_cache" ] && chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SECURITY_TARGET/code_cache" >/dev/null 2>&1 || true
+                  if [ -d "${'$'}SECURITY_TARGET/cache" ]; then
+                    chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SECURITY_TARGET/cache" >/dev/null 2>&1 || return 1
+                  fi
+                  if [ -d "${'$'}SECURITY_TARGET/code_cache" ]; then
+                    chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SECURITY_TARGET/code_cache" >/dev/null 2>&1 || return 1
+                  fi
                 fi
               fi
               restorecon -RF "${'$'}SECURITY_TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}SECURITY_TARGET" >/dev/null 2>&1 || return 1
@@ -200,7 +204,7 @@ internal object TransactionRecoveryShell {
               uclone_verify_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" >/dev/null || return 1
               PART_STATE=${'$'}(sed -n '1p' "${'$'}ROLLBACK/.state/${'$'}PART_NAME" | tr -d '\r')
               case "${'$'}PART_STATE" in
-                absent) rm -rf "${'$'}TARGET" || return 1; return 0 ;;
+                absent) uclone_remove_tree "${'$'}TARGET" || return 1; return 0 ;;
                 empty|data) ;;
                 *) return 1 ;;
               esac
@@ -209,7 +213,7 @@ internal object TransactionRecoveryShell {
               clear_target_contents "${'$'}TARGET" || return 1
               if [ "${'$'}PART_STATE" = "data" ]; then
                 [ -d "${'$'}ROLLBACK/${'$'}PART_NAME" ] || return 1
-                (cd "${'$'}ROLLBACK/${'$'}PART_NAME" && tar -cpf - .) | (cd "${'$'}TARGET" && tar -xpf -) || return 1
+                uclone_extract_target_tree "${'$'}ROLLBACK/${'$'}PART_NAME" "${'$'}TARGET" || return 1
               fi
               case "${'$'}KIND" in
                 app) TARGET_OWNER="${'$'}TARGET_UID:${'$'}TARGET_UID" ;;
@@ -273,7 +277,13 @@ internal object TransactionRecoveryShell {
             ROLLBACK_SIGNING_CERTIFICATE_SHA256=${'$'}(sed -n 's/.*"sourceSigningCertificateSha256":"\([0-9a-f,]*\)".*/\1/p' "${'$'}ROLLBACK_MANIFEST" | head -1)
             ROLLBACK_APK_DIGEST=${'$'}(sed -n 's/.*"sourceApkDigest":"\([0-9a-fA-F]*\)".*/\1/p' "${'$'}ROLLBACK_MANIFEST" | head -1)
             ROLLBACK_VERSION_CODE=${'$'}(sed -n 's/.*"sourceVersionCode":"\([0-9][0-9]*\)".*/\1/p' "${'$'}ROLLBACK_MANIFEST" | head -1)
-            case "${'$'}ROLLBACK_SCHEMA" in 3|4) ;; *)
+            ROLLBACK_TRANSACTION_REQUEST_ID=${'$'}(sed -n 's/.*"transactionRequestId":"\([A-Za-z0-9_.-]*\)".*/\1/p' "${'$'}ROLLBACK_MANIFEST" | head -1)
+            [ "${'$'}ROLLBACK_TRANSACTION_REQUEST_ID" = "${'$'}RECOVERY_TRANSACTION_ID" ] || {
+              uclone_transaction_recovery_required
+              echo "ERR_TRANSACTION_ROLLBACK_UNBOUND:${'$'}ROLLBACK" >&2
+              exit 91
+            }
+            case "${'$'}ROLLBACK_SCHEMA" in 3|4|$CURRENT_MANIFEST_SCHEMA) ;; *)
               uclone_transaction_recovery_required
               echo "ERR_TRANSACTION_MANIFEST_IDENTITY" >&2
               exit 91
@@ -285,7 +295,7 @@ internal object TransactionRecoveryShell {
             }
             CURRENT_APK_DIGEST=${'$'}(uclone_package_code_digest "${'$'}UCLONE_TXN_TARGET_USER" "${'$'}PKG") || { uclone_transaction_recovery_required; exit 91; }
             CURRENT_VERSION_CODE=${'$'}(uclone_package_version_code "${'$'}PKG") || { uclone_transaction_recovery_required; exit 91; }
-            if [ "${'$'}ROLLBACK_SCHEMA" = "4" ] && [ "${'$'}ROLLBACK_SIGNING_CERTIFICATE_SHA256" != "${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256" ]; then
+            if { [ "${'$'}ROLLBACK_SCHEMA" = "4" ] || [ "${'$'}ROLLBACK_SCHEMA" = "$CURRENT_MANIFEST_SCHEMA" ]; } && [ "${'$'}ROLLBACK_SIGNING_CERTIFICATE_SHA256" != "${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256" ]; then
               uclone_transaction_recovery_required
               echo "ERR_TRANSACTION_SIGNATURE_MISMATCH" >&2
               exit 91
@@ -316,7 +326,7 @@ internal object TransactionRecoveryShell {
             fi
             if uclone_transaction_part_requires_recovery permissions; then
               [ -d "${'$'}ROLLBACK/permissions" ] || { uclone_transaction_recovery_required; echo "ERR_TRANSACTION_PERMISSION_ROLLBACK_MISSING" >&2; exit 91; }
-              uclone_restore_permission_state "${'$'}ROLLBACK/permissions" "${'$'}UCLONE_TXN_TARGET_USER" EXACT || { uclone_transaction_recovery_required; exit 91; }
+              uclone_restore_permission_state "${'$'}ROLLBACK/permissions" "${'$'}UCLONE_TXN_TARGET_USER" EXACT "${'$'}UCLONE_TXN_TARGET_USER" || { uclone_transaction_recovery_required; exit 91; }
             fi
             uclone_restore_switch_marker || { uclone_transaction_recovery_required; exit 91; }
             sync

@@ -92,14 +92,14 @@ internal object BackupIntegrityShell {
               ;;
             data)
               [ -d "${'$'}MEASURE_PAYLOAD" ] || return 1
-              UCLONE_META_ITEMS=${'$'}(find "${'$'}MEASURE_PAYLOAD" -mindepth 1 -print 2>/dev/null | wc -l | tr -d ' ') || return 1
+              UCLONE_META_ITEMS=${'$'}(find "${'$'}MEASURE_PAYLOAD" -xdev -mindepth 1 -print 2>/dev/null | wc -l | tr -d ' ') || return 1
               case "${'$'}UCLONE_META_ITEMS" in ''|*[!0-9]*) return 1 ;; esac
               [ "${'$'}UCLONE_META_ITEMS" -gt 0 ] || return 1
-              UCLONE_META_BYTES=${'$'}(find "${'$'}MEASURE_PAYLOAD" -type f -exec stat -c '%s' {} + 2>/dev/null | awk '{ total += ${'$'}1 } END { printf "%.0f\n", total + 0 }') || return 1
+              UCLONE_META_BYTES=${'$'}(find "${'$'}MEASURE_PAYLOAD" -xdev -type f -exec stat -c '%s' {} + 2>/dev/null | awk '{ total += ${'$'}1 } END { printf "%.0f\n", total + 0 }') || return 1
               case "${'$'}UCLONE_META_BYTES" in ''|*[!0-9]*) return 1 ;; esac
               UCLONE_META_DIGEST=${'$'}(
                 cd "${'$'}MEASURE_PAYLOAD" &&
-                LC_ALL=C find . -mindepth 1 -exec stat -c '%N|%F|%s|%Y|%a' {} + 2>/dev/null |
+                LC_ALL=C find . -xdev -mindepth 1 -exec stat -c '%N|%F|%s|%Y|%a' {} + 2>/dev/null |
                   LC_ALL=C sort |
                   uclone_sha256_stream |
                   awk '{print ${'$'}1}'

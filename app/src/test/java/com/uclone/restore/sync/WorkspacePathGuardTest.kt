@@ -15,6 +15,12 @@ class WorkspacePathGuardTest {
         assertContains(script, "rollback/${'$'}UCLONE_GLOB_STAR/${'$'}UCLONE_GLOB_STAR")
         assertContains(script, "clone_rollback/${'$'}UCLONE_GLOB_STAR/${'$'}UCLONE_GLOB_STAR")
         assertContains(script, "transactions/${'$'}UCLONE_GLOB_STAR/gates/${'$'}UCLONE_GLOB_STAR/gate.state")
+        assertContains(script, "ERR_UNTRUSTED_WORKSPACE_OWNER")
+        assertContains(script, "ERR_UNTRUSTED_WORKSPACE_MODE")
+        assertContains(script, "ERR_WORKSPACE_WHITESPACE")
+        assertContains(script, "uclone_assert_single_filesystem")
+        assertContains(script, "[0-7][0145][0145]")
+        assertContains(script, "uclone_guard_workspace_directory")
     }
 
     @Test

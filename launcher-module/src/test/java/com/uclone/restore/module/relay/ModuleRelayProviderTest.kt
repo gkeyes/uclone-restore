@@ -58,11 +58,17 @@ class ModuleRelayProviderTest {
         assertEquals(ModuleConstants.UCLONE_SERVICE, shadow.savedIntent.component?.className)
         assertEquals("uclone-action:$REQUEST_ID", shadow.savedIntent.dataString)
         assertEquals(REQUEST_ID, shadow.savedIntent.getStringExtra(ModuleRelayContract.UCLONE_EXTRA_REQUEST_ID))
+        assertEquals(
+            0,
+            shadow.savedIntent.getIntExtra(ModuleRelayContract.UCLONE_EXTRA_TARGET_USER_ID, -1),
+            "The provider must bind the accepted user0 launcher identity to the UClone request",
+        )
 
         pendingIntent.send()
         val startedService = shadowOf(context).nextStartedService
         assertEquals(ModuleConstants.UCLONE_SERVICE, startedService.component?.className)
         assertEquals(REQUEST_ID, startedService.getStringExtra(ModuleRelayContract.UCLONE_EXTRA_REQUEST_ID))
+        assertEquals(0, startedService.getIntExtra(ModuleRelayContract.UCLONE_EXTRA_TARGET_USER_ID, -1))
     }
 
     private companion object {

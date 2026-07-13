@@ -36,14 +36,45 @@ class SyncEngineTest {
         assertTrue("SWITCH_ROOT=" in shell.commands.single())
         assertTrue("ROLLBACK_ROOT=" in shell.commands.single())
         assertTrue("CLONE_ROLLBACK_ROOT=" in shell.commands.single())
+        assertFalse("EXPECTED_SIGNING_CERTIFICATE=" in shell.commands.single())
         assertEquals(1_700_000_000_000, index.snapshots.getValue("com.example.app").updatedAt)
         assertEquals(2048L, index.snapshots.getValue("com.example.app").sizeKb)
         assertEquals("rollback-2", index.switchMarkers["com.example.app"])
+        assertEquals(setOf("com.unknown.app"), index.unknownSwitchPackages)
+        assertEquals(AppDataState.Clone("rollback-2"), index.dataState("com.example.app"))
+        assertEquals(AppDataState.Unknown, index.dataState("com.unknown.app"))
         assertEquals(listOf("rollback-1", "rollback-2"), index.rollbackIds("com.example.app"))
         assertEquals("rollback-2", index.restoreBackups.single().rollbackId)
         assertTrue(index.restoreBackups.single().isActiveSwitchBackup)
         assertEquals("latest", index.cloneRollbackBackups.single().rollbackId)
         assertTrue(index.cloneRollbackBackups.single().isCloneRollback)
+    }
+
+    @Test
+    fun loadWorkspaceIndex_marksMismatchedMarkerSignatureUnknown() = runBlocking {
+        val shell = WorkspaceIndexShell(
+            stdout = "SWITCH\tcom.example.app\trollback-2\t${"1".repeat(64)}",
+        )
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+            signingIdentityProvider = TestSigningIdentityProvider,
+        )
+
+        val index = engine.loadWorkspaceIndex(UCloneSettings(rootDir = "/data/adb/uclone"))
+
+        assertEquals(AppDataState.Unknown, index.dataState("com.example.app"))
+        assertFalse("com.example.app" in index.switchMarkers)
+    }
+
+    @Test
+    fun workspaceIndexParser_marksUnsignedSwitchMarkerUnknown() {
+        val index = WorkspaceIndexParser.parse("SWITCH\tcom.example.app\trollback-2")
+
+        assertEquals(AppDataState.Unknown, index.dataState("com.example.app"))
+        assertFalse("com.example.app" in index.switchMarkers)
     }
 
     @Test
@@ -64,6 +95,105 @@ class SyncEngineTest {
 
         assertTrue(error is IllegalStateException)
         assertTrue("workspace scan failed" in error?.message.orEmpty())
+    }
+
+    @Test
+    fun appDataState_readsOnlyTheRequestedPackageMarker() = runBlocking {
+        val shell = AppDataStateShell("APP_DATA_STATE\tCLONE\trollback-2")
+        val requestedPackages = mutableListOf<String>()
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+            signingIdentityProvider = PackageSigningIdentityProvider { packageName ->
+                requestedPackages += packageName
+                "0".repeat(64)
+            },
+        )
+
+        val state = engine.appDataState("com.example.app", UCloneSettings(rootDir = "/data/adb/uclone"))
+
+        assertEquals(AppDataState.Clone("rollback-2"), state)
+        assertEquals(1, shell.commands.size)
+        assertEquals(listOf("com.example.app"), requestedPackages)
+        val command = shell.commands.single()
+        assertTrue("UCLONE_WORKSPACE_EXPECTED='/data/adb/uclone'" in command)
+        assertTrue("PKG='com.example.app'" in command)
+        assertTrue("switches/${'$'}PKG/active" in command)
+        assertTrue("rollback/${'$'}PKG/${'$'}MARKER_ID/manifest.json" in command)
+        assertTrue("MANIFEST_PACKAGE=" in command)
+        assertTrue("MANIFEST_STATE=" in command)
+        assertTrue("MANIFEST_SOURCE_USER=" in command)
+        assertTrue("MANIFEST_TARGET_USER=" in command)
+        assertTrue("MAIN_USER=0" in command)
+        assertTrue("MANIFEST_PACKAGE\" = \"${'$'}PKG" in command)
+        assertTrue("MANIFEST_STATE\" = \"main" in command)
+        assertFalse("SNAPSHOT_ROOT=" in command)
+        assertFalse("CLONE_ROLLBACK_ROOT=" in command)
+    }
+
+    @Test
+    fun appDataState_failsClosedWhenTargetSignatureCannotBeRead() = runBlocking {
+        val shell = AppDataStateShell("APP_DATA_STATE\tMAIN")
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+            signingIdentityProvider = PackageSigningIdentityProvider { error("not installed") },
+        )
+
+        val state = engine.appDataState("com.example.app", UCloneSettings())
+
+        assertEquals(AppDataState.Unknown, state)
+        assertTrue(shell.commands.isEmpty())
+    }
+
+    @Test
+    fun appDataState_mapsMissingMarkerToMain() = runBlocking {
+        val state = syncEngine(AppDataStateShell("APP_DATA_STATE\tMAIN"))
+            .appDataState("com.example.app", UCloneSettings())
+
+        assertEquals(AppDataState.Main, state)
+    }
+
+    @Test
+    fun appDataState_mapsExplicitSentinelToUnknown() = runBlocking {
+        val shell = AppDataStateShell("APP_DATA_STATE\tUNKNOWN")
+
+        val state = syncEngine(shell).appDataState("com.example.app", UCloneSettings())
+
+        assertEquals(AppDataState.Unknown, state)
+        assertTrue("UNKNOWN_SWITCH_MARKER='$UNKNOWN_SWITCH_MARKER'" in shell.commands.single())
+    }
+
+    @Test
+    fun appDataState_failsClosedForEmptyBrokenOrUnsafeMarker() = runBlocking {
+        listOf(
+            "APP_DATA_STATE\tUNKNOWN",
+            "APP_DATA_STATE\tUNKNOWN\tBROKEN_REFERENCE",
+            "APP_DATA_STATE\tCLONE\t../unsafe",
+            "",
+        ).forEach { output ->
+            val state = syncEngine(AppDataStateShell(output))
+                .appDataState("com.example.app", UCloneSettings())
+
+            assertEquals(AppDataState.Unknown, state, output)
+        }
+    }
+
+    @Test
+    fun appDataState_rejectsUnsafePackageBeforeStartingRootShell() = runBlocking {
+        val shell = AppDataStateShell("APP_DATA_STATE\tMAIN")
+        val engine = syncEngine(shell)
+
+        val error = runCatching {
+            engine.appDataState("../../data", UCloneSettings())
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(shell.commands.isEmpty())
     }
 
     @Test
@@ -380,24 +510,46 @@ class SyncEngineTest {
         }
     }
 
-    private class WorkspaceIndexShell : RootShellExecutor {
+    private class WorkspaceIndexShell(
+        private val stdout: String = listOf(
+            "SNAPSHOT\tcom.example.app\t1700000000\t2048",
+            "MAIN_ROLLBACK\tcom.example.app\trollback-1\t1699999900\t1024\tolder",
+            "MAIN_ROLLBACK\tcom.example.app\trollback-2\t1700000100\t4096\tnewer",
+            "SWITCH\tcom.example.app\trollback-2\t${"0".repeat(64)}",
+            "UNKNOWN\tcom.unknown.app",
+            "CLONE_ROLLBACK\tcom.example.app\tlatest\t1700000200\t8192\tclone backup",
+        ).joinToString("\n"),
+    ) : RootShellExecutor {
         val commands = mutableListOf<String>()
 
         override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult {
             commands += command
             return ShellResult(
                 exitCode = 0,
-                stdout = listOf(
-                    "SNAPSHOT\tcom.example.app\t1700000000\t2048",
-                    "MAIN_ROLLBACK\tcom.example.app\trollback-1\t1699999900\t1024\tolder",
-                    "MAIN_ROLLBACK\tcom.example.app\trollback-2\t1700000100\t4096\tnewer",
-                    "SWITCH\tcom.example.app\trollback-2",
-                    "CLONE_ROLLBACK\tcom.example.app\tlatest\t1700000200\t8192\tclone backup",
-                ).joinToString("\n"),
+                stdout = stdout,
                 stderr = "",
             )
         }
     }
+
+    private class AppDataStateShell(
+        private val stdout: String,
+    ) : RootShellExecutor {
+        val commands = mutableListOf<String>()
+
+        override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult {
+            commands += command
+            return ShellResult(exitCode = 0, stdout = stdout, stderr = "")
+        }
+    }
+
+    private fun syncEngine(shell: RootShellExecutor) = SyncEngine(
+        shell = shell,
+        environmentChecker = RootEnvironmentChecker(shell),
+        logStore = TaskLogStore(shell),
+        appPackage = "com.uclone.restore",
+        signingIdentityProvider = TestSigningIdentityProvider,
+    )
 
     private class MetricsRootShell : RootShellExecutor {
         override suspend fun exec(command: String, timeoutSeconds: Long): ShellResult = when {

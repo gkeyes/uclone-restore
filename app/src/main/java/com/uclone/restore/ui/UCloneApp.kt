@@ -70,8 +70,13 @@ fun UCloneApp(
         LaunchedEffect(launcherShortcutRequest) {
             launcherShortcutRequest?.let { request ->
                 previousTopLevelDestination = Destination.HOME
-                destination = Destination.HOME
-                viewModel.handleLauncherFavoriteShortcut(request.packageName)
+                if (request.openDetailsOnly) {
+                    viewModel.selectPackage(request.packageName)
+                    destination = Destination.DETAIL
+                } else {
+                    destination = Destination.HOME
+                    viewModel.handleLauncherFavoriteShortcut(request.packageName)
+                }
                 onLauncherShortcutHandled()
             }
         }

@@ -63,6 +63,59 @@ class TaskResultMessagesTest {
     }
 
     @Test
+    fun successMessageReportsSkippedSourcePermissionSynchronization() {
+        val output = """
+            RESTORED:/data/user/0/com.example.app ITEMS=10
+            WARN_SOURCE_PERMISSION_CAPTURE_SKIPPED:10
+        """.trimIndent()
+
+        assertEquals(
+            "数据处理已完成，但源 App 的权限/AppOps 未同步",
+            TaskResultMessages.successMessage(output),
+        )
+    }
+
+    @Test
+    fun successMessageExplainsThatRestoredDataStateRemainsUnknown() {
+        val output = """
+            RESTORE_SUMMARY: restoredParts=3 restoredItems=10 backupParts=3
+            WARN_DATA_STATE_REMAINS_UNKNOWN:/data/adb/uclone/rollback/com.example.app/legacy
+        """.trimIndent()
+
+        assertEquals(
+            "数据已恢复，但无法建立可安全切换或还原的主分状态；当前状态保持未知，请在详情中核对",
+            TaskResultMessages.successMessage(output),
+        )
+    }
+
+    @Test
+    fun successMessageKeepsUnknownStateAndSkippedPermissionsVisibleTogether() {
+        val output = """
+            WARN_DATA_STATE_REMAINS_UNKNOWN:/data/adb/uclone/rollback/com.example.app/legacy
+            WARN_SOURCE_PERMISSION_CAPTURE_SKIPPED:10
+        """.trimIndent()
+
+        assertEquals(
+            "数据已恢复，但主分状态保持未知，且源 App 的权限/AppOps 未同步；请进入详情核对",
+            TaskResultMessages.successMessage(output),
+        )
+    }
+
+    @Test
+    fun actionableWarningsKeepCloneStopFailureVisible() {
+        val output = """
+            WARN_DATA_STATE_REMAINS_UNKNOWN:/data/adb/uclone/rollback/com.example.app/legacy
+            WARN_SOURCE_PERMISSION_CAPTURE_SKIPPED:10
+            WARN_STOP_CLONE_PENDING:RUNNING_UNLOCKED
+        """.trimIndent()
+
+        assertEquals(
+            "数据已恢复，但主分状态保持未知，且源 App 的权限/AppOps 未同步；请进入详情核对；分身自动关闭失败，分身可能仍在运行",
+            TaskResultMessages.successMessage(output),
+        )
+    }
+
+    @Test
     fun successMessageKeepsPlainCompletionWithoutPermissionWarnings() {
         val output = """
             STDOUT:
@@ -129,6 +182,20 @@ class TaskResultMessagesTest {
 
         assertEquals(
             "App 已安装到 user0，但部分权限/AppOps 未能迁移",
+            TaskResultMessages.successMessage(output),
+        )
+    }
+
+    @Test
+    fun installPermissionRestoreFailureDoesNotReportMigrationCompleted() {
+        val output = """
+            INSTALL_VERIFIED:user=10 package:com.example.app uid:1012345
+            WARN_INSTALL_PERMISSIONS_RESTORE_FAILED:user=10
+            INSTALL_PERMISSIONS_DONE targetUser=10 grants=0 appops=0
+        """.trimIndent()
+
+        assertEquals(
+            "App 已安装到 user10，但部分权限/AppOps 未能迁移",
             TaskResultMessages.successMessage(output),
         )
     }

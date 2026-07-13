@@ -2,12 +2,12 @@
 
 Android root tool for moving app data between the Xiaomi/HyperOS main user and clone user.
 
-Current release line: `0.3.0`
+Current release line: `0.3.1`
 
-- Main app: `0.3.0`
-- Launcher module: `0.3.0`
+- Main app: `0.3.1`
+- Launcher module: `0.3.1`
 
-On Android 15 and newer, background runtime for `dataSync` foreground services is time-limited. Starting with `0.3.0`, explicit user actions coming from the launcher module or launcher shortcuts use the declared `specialUse` foreground-service type, so a cold UClone process is not rejected before its progress notification appears after the `dataSync` budget has been exhausted. Tasks submitted from the visible main app continue to use `dataSync`. Both the main app and launcher module must be upgraded from `0.2.0` for this fix to take effect.
+On Android 15 and newer, background runtime for `dataSync` foreground services is time-limited. On Android 14 and newer, UClone uses its declared `specialUse` foreground-service type for external task execution, so launcher actions and cold main-app starts are not rejected before a progress notification appears after the `dataSync` budget has been exhausted. Both the main app and launcher module must be upgraded from `0.2.0` for this fix to take effect.
 - Tested target: rooted Xiaomi/HyperOS multi-user environment, usually `user0` + `user10`
 
 ## What It Does

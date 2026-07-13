@@ -8,7 +8,6 @@ import com.uclone.restore.root.shellQuote
 object ShellScripts {
     private val androidPackageNamePattern = Regex("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z][A-Za-z0-9_]*)+")
     private val rollbackIdPattern = Regex("[A-Za-z0-9_.-]+")
-    private const val WORKSPACE_TAR_EXTRACT = "tar -xopf -"
     private enum class RestoreSourceKind {
         ACTIVE,
         ROLLBACK,
@@ -34,19 +33,41 @@ object ShellScripts {
         "permissions".takeIf { settings.includePermissions },
     ).joinToString(",")
 
+    private fun sourcePermissionCaptureScript(
+        directory: String,
+        user: String,
+        mode: PermissionRestoreMode,
+    ): String {
+        val capture = "uclone_capture_permission_state \"$directory\" \"$user\" \"${mode.name}\""
+        return if (mode == PermissionRestoreMode.EXACT) {
+            "$capture || { echo \"ERR_SOURCE_PERMISSION_CAPTURE:$user\" >&2; exit 54; }\nCAPTURED_PERMISSIONS=1\nPERMISSION_CAPTURE_STATE=valid"
+        } else {
+            """
+                if $capture; then
+                  CAPTURED_PERMISSIONS=1
+                  PERMISSION_CAPTURE_STATE=valid
+                else
+                  uclone_remove_tree "$directory" || exit 54
+                  PERMISSION_CAPTURE_STATE=skipped
+                  echo "WARN_SOURCE_PERMISSION_CAPTURE_SKIPPED:$user"
+                fi
+            """.trimIndent()
+        }
+    }
+
     internal fun backupReuseValidationScript(): String = """
         uclone_backup_is_valid() {
           VALIDATE_BACKUP="${'$'}1"
           [ -f "${'$'}VALIDATE_BACKUP/manifest.json" ] && [ ! -L "${'$'}VALIDATE_BACKUP/manifest.json" ] || return 1
           VALIDATE_SCHEMA=${'$'}(sed -n 's/.*"schemaVersion":\([0-9][0-9]*\).*/\1/p' "${'$'}VALIDATE_BACKUP/manifest.json" | head -1)
-          case "${'$'}VALIDATE_SCHEMA" in 2|3|4) ;; *) return 1 ;; esac
+          case "${'$'}VALIDATE_SCHEMA" in 2|3|4|5) ;; *) return 1 ;; esac
           for VALIDATE_PART in ce de external media obb; do
             [ -f "${'$'}VALIDATE_BACKUP/.state/${'$'}VALIDATE_PART" ] || return 1
             VALIDATE_STATE=${'$'}(sed -n '1p' "${'$'}VALIDATE_BACKUP/.state/${'$'}VALIDATE_PART" | tr -d '\r')
             case "${'$'}VALIDATE_STATE" in
               data)
                 [ -d "${'$'}VALIDATE_BACKUP/${'$'}VALIDATE_PART" ] || return 1
-                find "${'$'}VALIDATE_BACKUP/${'$'}VALIDATE_PART" -mindepth 1 -print -quit 2>/dev/null | grep -q . || return 1
+                find "${'$'}VALIDATE_BACKUP/${'$'}VALIDATE_PART" -xdev -mindepth 1 -print -quit 2>/dev/null | grep -q . || return 1
                 ;;
               absent|empty)
                 [ ! -e "${'$'}VALIDATE_BACKUP/${'$'}VALIDATE_PART" ] || return 1
@@ -55,6 +76,46 @@ object ShellScripts {
             esac
             uclone_verify_part_metadata "${'$'}VALIDATE_BACKUP" "${'$'}VALIDATE_PART" >/dev/null 2>&1 || return 1
           done
+          VALIDATE_PERMISSION_CAPTURE_STATE=${'$'}(sed -n 's/.*"permissionCaptureState":"\([a-z]*\)".*/\1/p' "${'$'}VALIDATE_BACKUP/manifest.json" | head -1)
+          case "${'$'}VALIDATE_PERMISSION_CAPTURE_STATE" in
+            valid)
+              uclone_permission_capture_valid "${'$'}VALIDATE_BACKUP/permissions" || return 1
+              ;;
+            excluded|skipped)
+              [ ! -e "${'$'}VALIDATE_BACKUP/permissions" ] || return 1
+              ;;
+            '')
+              [ "${'$'}VALIDATE_SCHEMA" -lt 5 ] || return 1
+              ;;
+            *) return 1 ;;
+          esac
+          return 0
+        }
+        uclone_backup_matches_identity() {
+          IDENTITY_BACKUP="${'$'}1"
+          IDENTITY_EXPECTED_PACKAGE="${'$'}2"
+          IDENTITY_EXPECTED_SOURCE_USER="${'$'}3"
+          IDENTITY_EXPECTED_TARGET_USER="${'$'}4"
+          IDENTITY_EXPECTED_STATE="${'$'}5"
+          IDENTITY_EXPECTED_KIND="${'$'}6"
+          uclone_backup_is_valid "${'$'}IDENTITY_BACKUP" || return 1
+          IDENTITY_SCHEMA=${'$'}(sed -n 's/.*"schemaVersion":\([0-9][0-9]*\).*/\1/p' "${'$'}IDENTITY_BACKUP/manifest.json" | head -1)
+          [ "${'$'}IDENTITY_SCHEMA" = "$CURRENT_MANIFEST_SCHEMA" ] || return 1
+          IDENTITY_PACKAGE=${'$'}(sed -n 's/.*"packageName":"\([^"]*\)".*/\1/p' "${'$'}IDENTITY_BACKUP/manifest.json" | head -1)
+          IDENTITY_STATE=${'$'}(sed -n 's/.*"stateKind":"\([^"]*\)".*/\1/p' "${'$'}IDENTITY_BACKUP/manifest.json" | head -1)
+          IDENTITY_KIND=${'$'}(sed -n 's/.*"backupKind":"\([^"]*\)".*/\1/p' "${'$'}IDENTITY_BACKUP/manifest.json" | head -1)
+          IDENTITY_SIGNING_CERTIFICATE=${'$'}(sed -n 's/.*"sourceSigningCertificateSha256":"\([0-9a-f,]*\)".*/\1/p' "${'$'}IDENTITY_BACKUP/manifest.json" | head -1)
+          IDENTITY_SOURCE_USER=${'$'}(${manifestUserIdReadCommand("sourceUser", "\"${'$'}IDENTITY_BACKUP/manifest.json\"")})
+          IDENTITY_TARGET_USER=${'$'}(${manifestUserIdReadCommand("targetUser", "\"${'$'}IDENTITY_BACKUP/manifest.json\"")})
+          [ "${'$'}IDENTITY_PACKAGE" = "${'$'}IDENTITY_EXPECTED_PACKAGE" ] || return 1
+          [ "${'$'}IDENTITY_SOURCE_USER" = "${'$'}IDENTITY_EXPECTED_SOURCE_USER" ] || return 1
+          [ "${'$'}IDENTITY_TARGET_USER" = "${'$'}IDENTITY_EXPECTED_TARGET_USER" ] || return 1
+          [ "${'$'}IDENTITY_STATE" = "${'$'}IDENTITY_EXPECTED_STATE" ] || return 1
+          [ "${'$'}IDENTITY_KIND" = "${'$'}IDENTITY_EXPECTED_KIND" ] || return 1
+          [ "${'$'}IDENTITY_SIGNING_CERTIFICATE" = "${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256" ] || return 1
+          if [ -d "${'$'}IDENTITY_BACKUP/permissions" ]; then
+            uclone_permission_capture_valid_for_user "${'$'}IDENTITY_BACKUP/permissions" "${'$'}IDENTITY_EXPECTED_SOURCE_USER" || return 1
+          fi
           return 0
         }
     """.trimIndent()
@@ -62,9 +123,7 @@ object ShellScripts {
     private fun snapshotPartCaptureFunctions(excludeCache: Boolean): String = """
         count_items() {
           COUNT_PATH="${'$'}1"
-          COUNT_VALUE=${'$'}(find "${'$'}COUNT_PATH" -mindepth 1 -print 2>/dev/null | wc -l | tr -d ' ') || return 1
-          case "${'$'}COUNT_VALUE" in ''|*[!0-9]*) return 1 ;; esac
-          echo "${'$'}COUNT_VALUE"
+          uclone_count_tree "${'$'}COUNT_PATH"
         }
         write_part_state() {
           STATE_ROOT="${'$'}1"
@@ -84,18 +143,18 @@ object ShellScripts {
           DST="${'$'}2"
           SRC_ITEMS="${'$'}3"
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
-          rm -rf "${'$'}DST.tmp"
+          uclone_remove_tree "${'$'}DST.tmp" || exit 12
           mkdir -p "${'$'}DST.tmp" || exit 12
-          (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST.tmp" && $WORKSPACE_TAR_EXTRACT) || exit 13
-          rm -rf "${'$'}DST"
+          uclone_extract_workspace_tree "${'$'}SRC" "${'$'}DST.tmp" || exit 13
+          uclone_remove_tree "${'$'}DST" || exit 14
           mv "${'$'}DST.tmp" "${'$'}DST" || exit 14
-          ${if (excludeCache) "rm -rf \"${'$'}DST/cache\" \"${'$'}DST/code_cache\" 2>/dev/null || true" else ":"}
+          ${if (excludeCache) "uclone_remove_tree \"${'$'}DST/cache\" 2>/dev/null || true\nuclone_remove_tree \"${'$'}DST/code_cache\" 2>/dev/null || true" else ":"}
           DST_ITEMS=${'$'}(count_items "${'$'}DST") || { echo "ERR_COPY_SCAN:${'$'}DST" >&2; exit 17; }
           if [ "${'$'}DST_ITEMS" -le 0 ]; then
-            rm -rf "${'$'}DST"
+            uclone_remove_tree "${'$'}DST" || exit 17
             return 2
           fi
-          PART_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
+          PART_SIZE_KB=${'$'}(uclone_tree_kb "${'$'}DST")
           case "${'$'}PART_SIZE_KB" in ''|*[!0-9]*) echo "ERR_COPY_SIZE:${'$'}DST" >&2; exit 17 ;; esac
           COPIED_PARTS=${'$'}((COPIED_PARTS + 1))
           COPIED_ITEMS=${'$'}((COPIED_ITEMS + DST_ITEMS))
@@ -212,7 +271,7 @@ object ShellScripts {
         }
         uclone_record_temp_path() {
           [ -d "${'$'}1" ] || return 0
-          UCLONE_TEMP_KB=${'$'}(du -sk "${'$'}1" 2>/dev/null | awk '{print ${'$'}1}')
+          UCLONE_TEMP_KB=${'$'}(uclone_tree_kb "${'$'}1" 2>/dev/null || true)
           case "${'$'}UCLONE_TEMP_KB" in ''|*[!0-9]*) return 0 ;; esac
           UCLONE_TEMP_BYTES=${'$'}(awk -v KB="${'$'}UCLONE_TEMP_KB" 'BEGIN { printf "%.0f\n", KB * 1024 }')
           case "${'$'}UCLONE_TEMP_BYTES" in ''|*[!0-9]*) return 0 ;; esac
@@ -237,7 +296,7 @@ object ShellScripts {
         }
         uclone_dir_kb() {
           [ -d "${'$'}1" ] || { echo 0; return 0; }
-          VALUE_KB=${'$'}(du -sk "${'$'}1" 2>/dev/null | awk '{print ${'$'}1}')
+          VALUE_KB=${'$'}(uclone_tree_kb "${'$'}1" 2>/dev/null || true)
           case "${'$'}VALUE_KB" in ''|*[!0-9]*) echo 0 ;; *) echo "${'$'}VALUE_KB" ;; esac
         }
         uclone_add_dir_kb() {
@@ -276,6 +335,75 @@ object ShellScripts {
         }
     """.trimIndent()
 
+    private fun cloneStateFunction(amCommand: String, sleepCommand: String): String = """
+        CLONE_STATE_AM_COMMAND=${shellQuote(amCommand)}
+        CLONE_STATE_SLEEP_COMMAND=${shellQuote(sleepCommand)}
+        clone_state_client_running() {
+          kill -0 "${'$'}CLONE_STATE_PID" 2>/dev/null || return 1
+          CLONE_STATE_CLIENT_STATE=${'$'}(awk '{ sub(/^[^)]*[)] /, ""); print ${'$'}1 }' "/proc/${'$'}CLONE_STATE_PID/stat" 2>/dev/null || true)
+          [ "${'$'}CLONE_STATE_CLIENT_STATE" != "Z" ]
+        }
+        clone_state() {
+          CLONE_STATE_QUERY_USER="${'$'}{1:-${'$'}{CLONE_USER:-}}"
+          case "${'$'}CLONE_STATE_QUERY_USER" in ''|*[!0-9]*)
+            echo "CLONE_STATE_QUERY_UNAVAILABLE:invalid_user"
+            return 0
+            ;;
+          esac
+          CLONE_STATE_TEMP_ROOT="${'$'}{UCLONE_STATE_TEMP_ROOT:-${'$'}{ROOT:-${'$'}{TMPDIR:-/data/local/tmp}}}"
+          CLONE_STATE_TEMP_DIR="${'$'}CLONE_STATE_TEMP_ROOT/tmp"
+          /system/bin/mkdir -p "${'$'}CLONE_STATE_TEMP_DIR" 2>/dev/null || {
+            echo "CLONE_STATE_QUERY_UNAVAILABLE:temp_dir"
+            return 0
+          }
+          CLONE_STATE_TOKEN="${'$'}{UCLONE_REQUEST_ID:-state}"
+          case "${'$'}CLONE_STATE_TOKEN" in *[!A-Za-z0-9_.-]*) CLONE_STATE_TOKEN=state ;; esac
+          CLONE_STATE_LOG="${'$'}CLONE_STATE_TEMP_DIR/state_${'$'}{CLONE_STATE_TOKEN}_${'$'}${'$'}.log"
+          rm -f "${'$'}CLONE_STATE_LOG"
+          "${'$'}CLONE_STATE_AM_COMMAND" get-started-user-state "${'$'}CLONE_STATE_QUERY_USER" > "${'$'}CLONE_STATE_LOG" 2>&1 &
+          CLONE_STATE_PID=${'$'}!
+          CLONE_STATE_WAIT=0
+          CLONE_STATE_TIMED_OUT=0
+          while clone_state_client_running && [ "${'$'}CLONE_STATE_WAIT" -lt 10 ]; do
+            "${'$'}CLONE_STATE_SLEEP_COMMAND" 0.05
+            CLONE_STATE_WAIT=${'$'}((CLONE_STATE_WAIT + 1))
+          done
+          if clone_state_client_running; then
+            CLONE_STATE_TIMED_OUT=1
+            kill "${'$'}CLONE_STATE_PID" 2>/dev/null || true
+            CLONE_STATE_TERMINATE_WAIT=0
+            while clone_state_client_running && [ "${'$'}CLONE_STATE_TERMINATE_WAIT" -lt 4 ]; do
+              "${'$'}CLONE_STATE_SLEEP_COMMAND" 0.05
+              CLONE_STATE_TERMINATE_WAIT=${'$'}((CLONE_STATE_TERMINATE_WAIT + 1))
+            done
+            if clone_state_client_running; then
+              kill -9 "${'$'}CLONE_STATE_PID" 2>/dev/null || true
+            fi
+          fi
+          if clone_state_client_running; then
+            rm -f "${'$'}CLONE_STATE_LOG"
+            echo "CLONE_STATE_QUERY_TIMEOUT"
+            return 0
+          fi
+          CLONE_STATE_EXIT=0
+          wait "${'$'}CLONE_STATE_PID" 2>/dev/null || CLONE_STATE_EXIT=${'$'}?
+          CLONE_STATE_OUTPUT=${'$'}(cat "${'$'}CLONE_STATE_LOG" 2>/dev/null || true)
+          rm -f "${'$'}CLONE_STATE_LOG"
+          if [ "${'$'}CLONE_STATE_TIMED_OUT" = "1" ]; then
+            echo "CLONE_STATE_QUERY_TIMEOUT"
+            return 0
+          fi
+          case "${'$'}CLONE_STATE_OUTPUT" in
+            *RUNNING*|*"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*)
+              printf '%s\n' "${'$'}CLONE_STATE_OUTPUT"
+              ;;
+            *)
+            echo "CLONE_STATE_QUERY_EMPTY:exit=${'$'}CLONE_STATE_EXIT"
+              ;;
+          esac
+        }
+    """.trimIndent()
+
     private fun ensureCloneCeReadyScript(
         settings: UCloneSettings,
         required: Boolean,
@@ -294,9 +422,7 @@ object ShellScripts {
             STOP_CLONE_AFTER_TASK=${if (stopAfterTask) "1" else "0"}
             CLONE_STARTED_BY_TASK=0
             CLONE_STOPPED_AFTER_TASK=0
-            clone_state() {
-              /system/bin/am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
-            }
+            ${cloneStateFunction("/system/bin/am", "sleep")}
             wait_for_clone_state() {
               WAIT_LABEL="${'$'}1"
               WAIT_LIMIT="${'$'}2"
@@ -305,6 +431,7 @@ object ShellScripts {
                 WAIT_STATE=${'$'}(clone_state)
                 echo "${'$'}{WAIT_LABEL}_${'$'}{WAIT_INDEX}=${'$'}WAIT_STATE"
                 case "${'$'}WAIT_STATE" in
+                  *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*) return 2 ;;
                   *RUNNING_UNLOCKED*) return 0 ;;
                 esac
                 sleep 0.25
@@ -331,6 +458,10 @@ object ShellScripts {
             STATE_BEFORE_UNLOCK=${'$'}(clone_state)
             echo "STATE_BEFORE_UNLOCK=${'$'}STATE_BEFORE_UNLOCK"
             case "${'$'}STATE_BEFORE_UNLOCK" in
+              *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_UNLOCK" >&2
+                exit 86
+                ;;
               *RUNNING_UNLOCKED*)
                 echo "ENSURE_CLONE_UNLOCK_RESULT=READY_ALREADY"
                 ;;
@@ -349,13 +480,17 @@ object ShellScripts {
                         markStartedByTask = true,
                         failureExitCode = 80,
                     )}
-                    STATE_AFTER_START=${'$'}(clone_state)
+                    STATE_AFTER_START=${'$'}START_WAIT_STATE
                     echo "STATE_AFTER_START=${'$'}STATE_AFTER_START"
                     ;;
                 esac
                 STATE_BEFORE_VERIFY=${'$'}(clone_state)
                 echo "STATE_BEFORE_VERIFY=${'$'}STATE_BEFORE_VERIFY"
                 case "${'$'}STATE_BEFORE_VERIFY" in
+                  *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                    echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_VERIFY" >&2
+                    exit 86
+                    ;;
                   *RUNNING_UNLOCKED*)
                     echo "ENSURE_CLONE_UNLOCK_RESULT=READY_AFTER_START"
                     ;;
@@ -382,13 +517,22 @@ object ShellScripts {
                     esac
                     echo "VERIFY_RESULT=${'$'}VERIFY_RESULT"
                     [ "${'$'}VERIFY_RESULT" = "SUCCESS" ] || { echo "ERR_CLONE_PIN_VERIFY_FAILED:${'$'}VERIFY_RESULT" >&2; exit 84; }
-                    wait_for_clone_state "WAIT_AFTER_VERIFY" 120 || {
-                      STATE_AFTER_VERIFY_WAIT=${'$'}(clone_state)
-                      echo "STATE_AFTER_VERIFY_WAIT=${'$'}STATE_AFTER_VERIFY_WAIT"
-                      echo "ERR_CLONE_UNLOCK_TIMEOUT:${'$'}STATE_AFTER_VERIFY_WAIT" >&2
-                      exit 85
-                    }
-                    echo "STATE_AFTER_VERIFY=${'$'}(clone_state)"
+                    WAIT_AFTER_VERIFY_RESULT=0
+                    wait_for_clone_state "WAIT_AFTER_VERIFY" 120 || WAIT_AFTER_VERIFY_RESULT=${'$'}?
+                    case "${'$'}WAIT_AFTER_VERIFY_RESULT" in
+                      0) ;;
+                      2)
+                        echo "STATE_AFTER_VERIFY_WAIT=${'$'}WAIT_STATE"
+                        echo "ERR_CLONE_STATE_QUERY:${'$'}WAIT_STATE" >&2
+                        exit 86
+                        ;;
+                      *)
+                        echo "STATE_AFTER_VERIFY_WAIT=${'$'}WAIT_STATE"
+                        echo "ERR_CLONE_UNLOCK_TIMEOUT:${'$'}WAIT_STATE" >&2
+                        exit 85
+                        ;;
+                    esac
+                    echo "STATE_AFTER_VERIFY=${'$'}WAIT_STATE"
                     echo "ENSURE_CLONE_UNLOCK_RESULT=READY_AFTER_VERIFY"
                     ;;
                 esac
@@ -416,6 +560,10 @@ object ShellScripts {
             START_STATE_BEFORE_REQUEST=${'$'}(clone_state)
             echo "START_STATE_BEFORE_REQUEST=${'$'}START_STATE_BEFORE_REQUEST"
             case "${'$'}START_STATE_BEFORE_REQUEST" in
+              *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                echo "ERR_CLONE_STATE_QUERY:${'$'}START_STATE_BEFORE_REQUEST" >&2
+                exit $failureExitCode
+                ;;
               *RUNNING*)
                 START_CLONE_READY=1
                 echo "START_CLONE_CONFIRMED=${'$'}START_STATE_BEFORE_REQUEST"
@@ -442,6 +590,10 @@ object ShellScripts {
                   START_WAIT_STATE=${'$'}(clone_state)
                   echo "WAIT_AFTER_START_${'$'}START_WAIT_INDEX=${'$'}START_WAIT_STATE"
                   case "${'$'}START_WAIT_STATE" in
+                    *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                      echo "ERR_CLONE_STATE_QUERY:${'$'}START_WAIT_STATE" >&2
+                      exit $failureExitCode
+                      ;;
                     *RUNNING*)
                       ${if (markStartedByTask) "CLONE_STARTED_BY_TASK=1" else ":"}
                       START_CLONE_READY=1
@@ -454,6 +606,7 @@ object ShellScripts {
                   START_WAIT_INDEX=${'$'}((START_WAIT_INDEX + 1))
                 done
                 START_CLIENT_TERMINATED=0
+                START_CLIENT_DETACHED=0
                 if start_user_client_running; then
                   kill "${'$'}START_USER_PID" 2>/dev/null || true
                   START_KILL_WAIT=0
@@ -466,11 +619,16 @@ object ShellScripts {
                   fi
                   START_CLIENT_TERMINATED=1
                 fi
-                wait "${'$'}START_USER_PID" 2>/dev/null || START_USER_EXIT=${'$'}?
+                if start_user_client_running; then
+                  START_CLIENT_DETACHED=1
+                else
+                  wait "${'$'}START_USER_PID" 2>/dev/null || START_USER_EXIT=${'$'}?
+                fi
                 START_USER_OUTPUT=${'$'}(cat "${'$'}START_USER_LOG" 2>/dev/null || true)
                 rm -f "${'$'}START_USER_LOG"
                 echo "START_USER_EXIT=${'$'}START_USER_EXIT"
                 echo "START_USER_CLIENT_TERMINATED=${'$'}START_CLIENT_TERMINATED"
+                echo "START_USER_CLIENT_DETACHED=${'$'}START_CLIENT_DETACHED"
                 echo "START_USER_OUTPUT=${'$'}START_USER_OUTPUT"
                 ;;
             esac
@@ -539,6 +697,10 @@ object ShellScripts {
             STOP_STATE_BEFORE_REQUEST=${'$'}(clone_state)
             echo "STATE_BEFORE_STOP=${'$'}STOP_STATE_BEFORE_REQUEST"
             case "${'$'}STOP_STATE_BEFORE_REQUEST" in
+              *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                echo "ERR_CLONE_STATE_QUERY:${'$'}STOP_STATE_BEFORE_REQUEST" >&2
+                exit 88
+                ;;
               *"User is not started"*|*"not started"*|*SHUTDOWN*)
                 STOP_CLONE_CONFIRMED=1
                 echo "STOP_CLONE_CONFIRMED=1"
@@ -562,6 +724,11 @@ object ShellScripts {
                   STOP_WAIT_STATE=${'$'}(clone_state)
                   echo "WAIT_AFTER_STOP_${'$'}STOP_WAIT_INDEX=${'$'}STOP_WAIT_STATE"
                   case "${'$'}STOP_WAIT_STATE" in
+                    *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                      STOP_USER_EXIT=88
+                      echo "ERR_CLONE_STATE_QUERY:${'$'}STOP_WAIT_STATE" >&2
+                      break
+                      ;;
                     *"User is not started"*|*"not started"*|*SHUTDOWN*)
                       STOP_CLONE_CONFIRMED=1
                       echo "STOP_CLONE_CONFIRMED=1"
@@ -615,7 +782,7 @@ object ShellScripts {
 
     fun capture(packageName: String, rule: AppRule, settings: UCloneSettings, appPackage: String): String = """
         set -u
-        ROOT=${shellQuote(settings.rootDir)}
+        ${WorkspacePathGuard.require(settings.rootDir)}
         PKG=${shellQuote(packageName)}
         APP_PKG=${shellQuote(appPackage)}
         CONFIG_SRC_USER=${settings.cloneUserId}
@@ -627,7 +794,11 @@ object ShellScripts {
         uclone_stage_begin PRECHECK
         [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
         mkdir -p "${'$'}ROOT/snapshots" "${'$'}ROOT/rollback" "${'$'}ROOT/logs" "${'$'}ROOT/tmp" "${'$'}ROOT/config" "${'$'}BASE/history" || exit 10
-        rm -rf "${'$'}TMP" "${'$'}TMP".try_*
+        uclone_remove_tree "${'$'}TMP" || exit 10
+        for UCLONE_OLD_TRY in "${'$'}TMP".try_*; do
+          [ -e "${'$'}UCLONE_OLD_TRY" ] || continue
+          uclone_remove_tree "${'$'}UCLONE_OLD_TRY" || exit 10
+        done
         ${TransactionSafetyShell.functions()}
         uclone_transaction_init CAPTURE_SNAPSHOT "${'$'}CONFIG_SRC_USER" ${settings.mainUserId} ${shellQuote(selectedParts(rule))} || exit 77
         uclone_transaction_stage PRECHECKED || exit 77
@@ -656,16 +827,21 @@ object ShellScripts {
         try_user() {
           TRY_USER="${'$'}1"
           TRY_TMP="${'$'}TMP.try_${'$'}TRY_USER"
-          rm -rf "${'$'}TRY_TMP"
+          uclone_remove_tree "${'$'}TRY_TMP" || exit 11
           mkdir -p "${'$'}TRY_TMP" || exit 11
-          STATE=${'$'}(am get-started-user-state "${'$'}TRY_USER" 2>/dev/null || true)
+          STATE=${'$'}(clone_state)
           echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
           case "${'$'}STATE" in
+            *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+              echo "ERR_CLONE_STATE_QUERY:${'$'}STATE" >&2
+              uclone_remove_tree "${'$'}TRY_TMP" || exit 11
+              exit 86
+              ;;
             *RUNNING_UNLOCKED*) ;;
             *)
               if [ "${'$'}CAPTURE_REQUIRE_CE" = "1" ]; then
                 echo "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" >&2
-                rm -rf "${'$'}TRY_TMP"
+                uclone_remove_tree "${'$'}TRY_TMP" || exit 11
                 return 1
               fi
               echo "WARN_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE"
@@ -675,7 +851,7 @@ object ShellScripts {
             echo "PACKAGE_LISTED:${'$'}TRY_USER"
           else
             echo "ERR_PACKAGE_NOT_LISTED:${'$'}TRY_USER" >&2
-            rm -rf "${'$'}TRY_TMP"
+            uclone_remove_tree "${'$'}TRY_TMP" || exit 11
             return 1
           fi
           TRY_UID=${'$'}(cmd package list packages -U --user "${'$'}TRY_USER" | awk -v p="package:${'$'}PKG" '${'$'}1==p { sub("uid:","",${'$'}2); print ${'$'}2; exit }')
@@ -693,16 +869,17 @@ object ShellScripts {
           COPIED_ITEMS=0
           CAPTURED_PARTS=0
           CAPTURED_PERMISSIONS=0
+          PERMISSION_CAPTURE_STATE=excluded
           ${if (rule.includeCe) "capture_part \"${'$'}TRY_TMP\" ce \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" ce"}
           ${if (rule.includeDe) "capture_part \"${'$'}TRY_TMP\" de \"${'$'}TRY_TMP/de\" \"/data/user_de/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}TRY_USER/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" de"}
           ${if (rule.includeExternal) "capture_part \"${'$'}TRY_TMP\" external \"${'$'}TRY_TMP/external\" \"/data/media/${'$'}TRY_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/data/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" external"}
           ${if (rule.includeMedia) "capture_part \"${'$'}TRY_TMP\" media \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" media"}
           ${if (rule.includeObb) "capture_part \"${'$'}TRY_TMP\" obb \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" obb"}
-          ${if (rule.includePermissions) "uclone_capture_permission_state \"${'$'}TRY_TMP/permissions\" \"${'$'}TRY_USER\" \"${settings.permissionRestoreMode.name}\" || { echo \"ERR_SOURCE_PERMISSION_CAPTURE:${'$'}TRY_USER\" >&2; exit 54; }\nCAPTURED_PERMISSIONS=1" else ":"}
+          ${if (rule.includePermissions) sourcePermissionCaptureScript("${'$'}TRY_TMP/permissions", "${'$'}TRY_USER", settings.permissionRestoreMode) else ":"}
           CE_CAPTURE_STATE=${'$'}(sed -n '1p' "${'$'}TRY_TMP/.state/ce" 2>/dev/null || true)
           if [ "${'$'}CAPTURE_REQUIRE_CE" = "1" ] && [ "${'$'}CE_CAPTURE_STATE" != "data" ] && [ "${'$'}CE_CAPTURE_STATE" != "empty" ]; then
             echo "ERR_CAPTURE_CE_MISSING:${'$'}TRY_USER" >&2
-            rm -rf "${'$'}TRY_TMP"
+            uclone_remove_tree "${'$'}TRY_TMP" || exit 11
             return 1
           fi
           if [ "${'$'}CAPTURED_PARTS" -gt 0 ] || [ "${'$'}CAPTURED_PERMISSIONS" = "1" ]; then
@@ -712,7 +889,7 @@ object ShellScripts {
               return 1
             fi
             SOURCE_GATE_DIR=""
-            rm -rf "${'$'}TMP"
+            uclone_remove_tree "${'$'}TMP" || exit 14
             mv "${'$'}TRY_TMP" "${'$'}TMP" || exit 14
             DETECTED_USER="${'$'}TRY_USER"
             DETECTED_STATE="${'$'}STATE"
@@ -727,7 +904,7 @@ object ShellScripts {
             return 1
           fi
           SOURCE_GATE_DIR=""
-          rm -rf "${'$'}TRY_TMP"
+          uclone_remove_tree "${'$'}TRY_TMP" || exit 11
           return 1
         }
         DETECTED_USER=""
@@ -742,16 +919,19 @@ object ShellScripts {
           fi
         done
         [ -n "${'$'}DETECTED_USER" ] || { echo "ERR_NOTHING_COPIED: no non-empty selected source paths for candidates:${'$'}CANDIDATE_USERS package:${'$'}PKG" >&2; exit 44; }
-        SIZE_KB=${'$'}(du -sk "${'$'}TMP" 2>/dev/null | awk '{print ${'$'}1}')
+        SIZE_KB=${'$'}(uclone_tree_kb "${'$'}TMP") || exit 18
         SOURCE_VERSION_NAME_ESC=${'$'}(uclone_json_escape "${'$'}SOURCE_VERSION_NAME") || exit 18
         SOURCE_APP_ID=${'$'}((SOURCE_UID % 100000))
-        printf '%s\n' "{\"schemaVersion\":4,\"integrityMode\":\"FAST_METADATA\",\"packageName\":\"${packageName}\",\"sourceVersionCode\":\"${'$'}SOURCE_VERSION_CODE\",\"sourceVersionName\":\"${'$'}SOURCE_VERSION_NAME_ESC\",\"sourceSigningCertificateSha256\":\"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\",\"sourceApkDigest\":\"${'$'}SOURCE_APK_DIGEST\",\"sourceUid\":${'$'}SOURCE_UID,\"sourceAppId\":${'$'}SOURCE_APP_ID,\"stateKind\":\"clone\",\"configuredSourceUser\":${settings.cloneUserId},\"sourceUser\":\"${'$'}DETECTED_USER\",\"sourceUserState\":\"${'$'}DETECTED_STATE\",\"targetUser\":${settings.mainUserId},\"createdAt\":\"${'$'}TS\",\"includeCe\":${rule.includeCe},\"includeDe\":${rule.includeDe},\"includeExternal\":${rule.includeExternal},\"includeMedia\":${rule.includeMedia},\"includeObb\":${rule.includeObb},\"includePermissions\":${rule.includePermissions},\"includeAppWebView\":${rule.includeAppWebView},\"excludeCache\":${rule.excludeCache},\"snapshotSizeKb\":\"${'$'}SIZE_KB\",\"copiedParts\":\"${'$'}COPIED_PARTS\",\"copiedItems\":\"${'$'}COPIED_ITEMS\"}" > "${'$'}TMP/manifest.json" || exit 18
+        printf '%s\n' "{\"schemaVersion\":$CURRENT_MANIFEST_SCHEMA,\"integrityMode\":\"FAST_METADATA\",\"packageName\":\"${packageName}\",\"sourceVersionCode\":\"${'$'}SOURCE_VERSION_CODE\",\"sourceVersionName\":\"${'$'}SOURCE_VERSION_NAME_ESC\",\"sourceSigningCertificateSha256\":\"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\",\"sourceApkDigest\":\"${'$'}SOURCE_APK_DIGEST\",\"sourceUid\":${'$'}SOURCE_UID,\"sourceAppId\":${'$'}SOURCE_APP_ID,\"stateKind\":\"clone\",\"backupKind\":\"active_snapshot\",\"configuredSourceUser\":${settings.cloneUserId},\"sourceUser\":\"${'$'}DETECTED_USER\",\"sourceUserState\":\"${'$'}DETECTED_STATE\",\"targetUser\":\"${settings.mainUserId}\",\"createdAt\":\"${'$'}TS\",\"includeCe\":${rule.includeCe},\"includeDe\":${rule.includeDe},\"includeExternal\":${rule.includeExternal},\"includeMedia\":${rule.includeMedia},\"includeObb\":${rule.includeObb},\"includePermissions\":${rule.includePermissions},\"permissionCaptureState\":\"${'$'}PERMISSION_CAPTURE_STATE\",\"includeAppWebView\":${rule.includeAppWebView},\"excludeCache\":${rule.excludeCache},\"snapshotSizeKb\":\"${'$'}SIZE_KB\",\"copiedParts\":\"${'$'}COPIED_PARTS\",\"copiedItems\":\"${'$'}COPIED_ITEMS\"}" > "${'$'}TMP/manifest.json" || exit 18
         uclone_record_temp_path "${'$'}TMP"
         uclone_stage_end
         uclone_stage_begin COMMIT
         if [ -d "${'$'}BASE/active" ]; then mv "${'$'}BASE/active" "${'$'}BASE/history/${'$'}TS" || exit 15; fi
         mv "${'$'}TMP" "${'$'}BASE/active" || exit 16
-        chmod 700 "${'$'}BASE" "${'$'}BASE/active" "${'$'}BASE/history" >/dev/null 2>&1 || true
+        chmod 700 "${'$'}BASE" "${'$'}BASE/active" "${'$'}BASE/history" >/dev/null 2>&1 || {
+          echo "ERR_SNAPSHOT_WORKSPACE_MODE:${'$'}BASE" >&2
+          exit 17
+        }
         uclone_transaction_complete || exit 77
         uclone_transaction_cleanup_complete || exit 77
         uclone_stage_end
@@ -816,7 +996,7 @@ object ShellScripts {
         appPackage: String,
     ): String = """
         set -u
-        ROOT=${shellQuote(settings.rootDir)}
+        ${WorkspacePathGuard.require(settings.rootDir)}
         PKG=${shellQuote(packageName)}
         APP_PKG=${shellQuote(appPackage)}
         SRC_USER=${settings.mainUserId}
@@ -841,17 +1021,17 @@ object ShellScripts {
           fi
           [ -n "${'$'}{PUSH_TEMP:-}" ] || return 0
           case "${'$'}PUSH_TEMP" in
-            "${'$'}ROOT"/tmp/push_"${'$'}PKG"_"${'$'}TS") rm -rf "${'$'}PUSH_TEMP" 2>/dev/null || true ;;
+            "${'$'}ROOT"/tmp/push_"${'$'}PKG"_"${'$'}TS") uclone_remove_tree "${'$'}PUSH_TEMP" 2>/dev/null || true ;;
           esac
           [ -n "${'$'}{ROLLBACK_TMP:-}" ] || return 0
           case "${'$'}ROLLBACK_TMP" in
-            "${'$'}ROOT"/clone_rollback/"${'$'}PKG"/latest.tmp_"${'$'}TS") rm -rf "${'$'}ROLLBACK_TMP" 2>/dev/null || true ;;
+            "${'$'}ROOT"/clone_rollback/"${'$'}PKG"/latest.tmp_"${'$'}TS") uclone_remove_tree "${'$'}ROLLBACK_TMP" 2>/dev/null || true ;;
           esac
           [ -n "${'$'}{TRANSACTION_UNDO:-}" ] || return 0
           case "${'$'}TRANSACTION_UNDO" in
             "${'$'}ROOT"/tmp/undo_clone_"${'$'}PKG"_"${'$'}TS")
               if [ "${'$'}{TARGET_MUTATED:-0}" != "1" ] || [ "${'$'}{TRANSACTION_COMMITTED:-0}" = "1" ] || [ "${'$'}{TRANSACTION_ROLLED_BACK:-0}" = "1" ]; then
-                rm -rf "${'$'}TRANSACTION_UNDO" 2>/dev/null || true
+                uclone_remove_tree "${'$'}TRANSACTION_UNDO" 2>/dev/null || true
               else
                 echo "TRANSACTION_UNDO_RETAINED=${'$'}TRANSACTION_UNDO"
               fi
@@ -864,7 +1044,8 @@ object ShellScripts {
           mv "${'$'}ROLLBACK_PREVIOUS" "${'$'}ROLLBACK_LATEST" || exit 54
           echo "CLONE_ROLLBACK_RECOVERED=${'$'}ROLLBACK_LATEST"
         fi
-        rm -rf "${'$'}PUSH_TEMP" "${'$'}ROLLBACK_TMP"
+        uclone_remove_tree "${'$'}PUSH_TEMP" || exit 10
+        uclone_remove_tree "${'$'}ROLLBACK_TMP" || exit 10
         CLONE_ROLLBACK_REUSED=0
         ${BackupIntegrityShell.functions()}
         ${TransactionSafetyShell.functions()}
@@ -873,12 +1054,9 @@ object ShellScripts {
         uclone_transaction_stage PRECHECKED || exit 77
         ${backupReuseValidationScript()}
         ${if (settings.reuseExistingPassiveBackups) """
-        if uclone_backup_is_valid "${'$'}ROLLBACK_LATEST"; then
-          CLONE_ROLLBACK_STATE=${'$'}(sed -n 's/.*"stateKind":"\([^"]*\)".*/\1/p' "${'$'}ROLLBACK_LATEST/manifest.json" | head -1)
-          if [ "${'$'}CLONE_ROLLBACK_STATE" = "clone" ]; then
-            CLONE_ROLLBACK_REUSED=1
-            echo "CLONE_ROLLBACK_REUSED=${'$'}ROLLBACK_LATEST"
-          fi
+        if uclone_backup_matches_identity "${'$'}ROLLBACK_LATEST" "${'$'}PKG" "${'$'}DST_USER" "${'$'}DST_USER" clone clone_rollback; then
+          CLONE_ROLLBACK_REUSED=1
+          echo "CLONE_ROLLBACK_REUSED=${'$'}ROLLBACK_LATEST"
         fi
         """.trimIndent() else ":"}
         if [ "${'$'}CLONE_ROLLBACK_REUSED" = "1" ]; then
@@ -965,13 +1143,13 @@ object ShellScripts {
             echo "SKIP_BACKUP_EMPTY:${'$'}SRC"
             return 0
           fi
-          rm -rf "${'$'}DST"
+          uclone_remove_tree "${'$'}DST" || exit 54
           mkdir -p "${'$'}DST" || exit 54
-          (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && $WORKSPACE_TAR_EXTRACT) || exit 55
+          uclone_extract_workspace_tree "${'$'}SRC" "${'$'}DST" || exit 55
           BACKUP_ITEMS=${'$'}(count_items "${'$'}DST")
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
           UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + BACKUP_ITEMS))
-          BACKUP_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
+          BACKUP_SIZE_KB=${'$'}(uclone_tree_kb "${'$'}DST") || exit 63
           uclone_add_written_kb "${'$'}BACKUP_SIZE_KB"
           uclone_record_temp_path "${'$'}DST"
           [ "${'$'}BACKUP_ITEMS" -gt 0 ] || { echo "ERR_BACKUP_EMPTY:${'$'}SRC" >&2; exit 63; }
@@ -993,12 +1171,7 @@ object ShellScripts {
           ls -Zd "${'$'}CONTEXT_TARGET" 2>/dev/null | awk '{print ${'$'}1; exit}'
         }
         target_owner_for() {
-          TARGET="${'$'}1"
           OWNER_KIND="${'$'}2"
-          EXISTING_OWNER=${'$'}(stat -c '%u:%g' "${'$'}TARGET" 2>/dev/null || true)
-          case "${'$'}EXISTING_OWNER" in
-            *:*) echo "${'$'}EXISTING_OWNER"; return 0 ;;
-          esac
           case "${'$'}OWNER_KIND" in
             app) echo "${'$'}DST_UID:${'$'}DST_UID" ;;
             media) echo "${'$'}DST_UID:1078" ;;
@@ -1031,8 +1204,18 @@ object ShellScripts {
                 OWNER_USER_ID=${'$'}((OWNER_UID / 100000))
                 if [ "${'$'}APP_ID" -ge 10000 ] && [ "${'$'}APP_ID" -le 19999 ]; then
                   CACHE_GID=${'$'}((OWNER_USER_ID * 100000 + 20000 + APP_ID - 10000))
-                  [ -d "${'$'}SEC_TARGET/cache" ] && chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SEC_TARGET/cache" >/dev/null 2>&1 || true
-                  [ -d "${'$'}SEC_TARGET/code_cache" ] && chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SEC_TARGET/code_cache" >/dev/null 2>&1 || true
+                  if [ -d "${'$'}SEC_TARGET/cache" ]; then
+                    chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SEC_TARGET/cache" >/dev/null 2>&1 || {
+                      echo "ERR_CACHE_GID_RESTORE:${'$'}SEC_TARGET/cache" >&2
+                      exit 59
+                    }
+                  fi
+                  if [ -d "${'$'}SEC_TARGET/code_cache" ]; then
+                    chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SEC_TARGET/code_cache" >/dev/null 2>&1 || {
+                      echo "ERR_CACHE_GID_RESTORE:${'$'}SEC_TARGET/code_cache" >&2
+                      exit 59
+                    }
+                  fi
                 fi
                 ;;
               media:*|obb:*) ;;
@@ -1050,7 +1233,7 @@ object ShellScripts {
           CLEAR_TARGET="${'$'}1"
           validate_target_path "${'$'}CLEAR_TARGET"
           [ -d "${'$'}CLEAR_TARGET" ] || { echo "ERR_TARGET_MISSING:${'$'}CLEAR_TARGET" >&2; exit 67; }
-          find "${'$'}CLEAR_TARGET" -mindepth 1 -maxdepth 1 -exec rm -rf {} \; || exit 68
+          uclone_clear_tree_contents "${'$'}CLEAR_TARGET" || exit 68
         }
         restore_part() {
           uclone_cancel_checkpoint "RESTORE_PART_${'$'}4" || exit 93
@@ -1076,7 +1259,7 @@ object ShellScripts {
               [ ! -e "${'$'}SNAP" ] || { echo "ERR_PUSH_STATE_PAYLOAD_CONFLICT:${'$'}PART_NAME:absent" >&2; exit 64; }
               uclone_transaction_target_mutating "${'$'}PART_NAME" || exit 77
               TARGET_MUTATED=1
-              rm -rf "${'$'}TARGET" || exit 68
+              uclone_remove_tree "${'$'}TARGET" || exit 68
               RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
               echo "PUSHED_ABSENT:${'$'}TARGET"
               return 0
@@ -1095,6 +1278,8 @@ object ShellScripts {
           esac
           TARGET_OWNER=${'$'}(target_owner_for "${'$'}TARGET" "${'$'}OWNER_KIND")
           TARGET_MODE=${'$'}(target_mode_for "${'$'}TARGET" "${'$'}OWNER_KIND")
+          uclone_transaction_target_mutating "${'$'}PART_NAME" || exit 77
+          TARGET_MUTATED=1
           mkdir -p "${'$'}TARGET" || exit 56
           TARGET_CONTEXT=${'$'}(read_target_context "${'$'}TARGET")
           case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
@@ -1103,11 +1288,9 @@ object ShellScripts {
             TARGET_CONTEXT=${'$'}(read_target_context "${'$'}TARGET")
             case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
           fi
-          uclone_transaction_target_mutating "${'$'}PART_NAME" || exit 77
-          TARGET_MUTATED=1
           clear_target_contents "${'$'}TARGET"
           if [ "${'$'}PART_STATE" = "data" ]; then
-            (cd "${'$'}SNAP" && tar -cpf - .) | (cd "${'$'}TARGET" && tar -xpf -) || exit 58
+            uclone_extract_target_tree "${'$'}SNAP" "${'$'}TARGET" || exit 58
           fi
           apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT" "${'$'}TARGET_MODE" "${'$'}OWNER_KIND"
           TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET")
@@ -1120,15 +1303,15 @@ object ShellScripts {
           RESTORED_ITEMS=${'$'}((RESTORED_ITEMS + TARGET_ITEMS))
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SNAP_ITEMS))
           UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + TARGET_ITEMS))
-          TARGET_SIZE_KB=${'$'}(du -sk "${'$'}TARGET" 2>/dev/null | awk '{print ${'$'}1}')
+          TARGET_SIZE_KB=${'$'}(uclone_tree_kb "${'$'}TARGET") || exit 65
           uclone_add_written_kb "${'$'}TARGET_SIZE_KB"
           echo "PUSHED:${'$'}TARGET ITEMS=${'$'}TARGET_ITEMS OWNER=${'$'}TARGET_OWNER CONTEXT=${'$'}TARGET_CONTEXT"
         }
         restore_permission_state_strict() {
-          uclone_restore_permission_state "${'$'}1" "${'$'}DST_USER" "${settings.permissionRestoreMode.name}"
+          uclone_restore_permission_state "${'$'}1" "${'$'}DST_USER" "${settings.permissionRestoreMode.name}" "${'$'}SRC_USER"
         }
         restore_transaction_permission_state() {
-          uclone_restore_permission_state "${'$'}1" "${'$'}DST_USER" EXACT
+          uclone_restore_permission_state "${'$'}1" "${'$'}DST_USER" EXACT "${'$'}DST_USER"
         }
         restore_permission_state() {
           PERMISSION_SOURCE="${'$'}1"
@@ -1156,12 +1339,13 @@ object ShellScripts {
         uclone_gate_acquire source "${'$'}SRC_USER" "${'$'}SRC_UID" || { echo "ERR_SOURCE_GATE_ACQUIRE:${'$'}SRC_USER:${'$'}PKG" >&2; exit 77; }
         SOURCE_GATE_DIR="${'$'}UCLONE_GATE_DIR"
         mkdir -p "${'$'}PUSH_TEMP" || exit 11
-        rm -rf "${'$'}ROLLBACK"
+        uclone_remove_tree "${'$'}ROLLBACK" || exit 11
         mkdir -p "${'$'}ROLLBACK" || exit 11
         COPIED_PARTS=0
         COPIED_ITEMS=0
         CAPTURED_PARTS=0
         CAPTURED_PERMISSIONS=0
+        PERMISSION_CAPTURE_STATE=excluded
         BACKUP_PARTS=0
         RESTORED_PARTS=0
         RESTORED_ITEMS=0
@@ -1170,7 +1354,7 @@ object ShellScripts {
         ${if (rule.includeExternal) "capture_part \"${'$'}PUSH_TEMP\" external \"${'$'}PUSH_TEMP/external\" \"/data/media/${'$'}SRC_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/data/${'$'}PKG\"" else "capture_excluded_part \"${'$'}PUSH_TEMP\" external"}
         ${if (rule.includeMedia) "capture_part \"${'$'}PUSH_TEMP\" media \"${'$'}PUSH_TEMP/media\" \"/data/media/${'$'}SRC_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/media/${'$'}PKG\"" else "capture_excluded_part \"${'$'}PUSH_TEMP\" media"}
         ${if (rule.includeObb) "capture_part \"${'$'}PUSH_TEMP\" obb \"${'$'}PUSH_TEMP/obb\" \"/data/media/${'$'}SRC_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/obb/${'$'}PKG\"" else "capture_excluded_part \"${'$'}PUSH_TEMP\" obb"}
-        ${if (rule.includePermissions) "uclone_capture_permission_state \"${'$'}PUSH_TEMP/permissions\" \"${'$'}SRC_USER\" \"${settings.permissionRestoreMode.name}\" || { echo \"ERR_SOURCE_PERMISSION_CAPTURE:${'$'}SRC_USER\" >&2; exit 54; }\nCAPTURED_PERMISSIONS=1" else ":"}
+        ${if (rule.includePermissions) sourcePermissionCaptureScript("${'$'}PUSH_TEMP/permissions", "${'$'}SRC_USER", settings.permissionRestoreMode) else ":"}
         PUSH_CE_STATE=${'$'}(sed -n '1p' "${'$'}PUSH_TEMP/.state/ce" 2>/dev/null || true)
         if [ "${'$'}PUSH_REQUIRE_CE" = "1" ] && [ "${'$'}PUSH_CE_STATE" != "data" ] && [ "${'$'}PUSH_CE_STATE" != "empty" ]; then
           echo "ERR_PUSH_CE_MISSING:${'$'}SRC_USER" >&2
@@ -1199,12 +1383,12 @@ object ShellScripts {
         backup_dir "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG" "${'$'}ROLLBACK/media" "media"
         backup_dir "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG" "${'$'}ROLLBACK/obb" "obb"
         ${if (rule.includePermissions) "uclone_capture_permission_state \"${'$'}ROLLBACK/permissions\" \"${'$'}DST_USER\" EXACT || { echo \"ERR_TRANSACTION_PERMISSION_CAPTURE:${'$'}DST_USER\" >&2; exit 54; }" else ":"}
-        ROLLBACK_SIZE_KB=${'$'}(du -sk "${'$'}ROLLBACK" 2>/dev/null | awk '{print ${'$'}1}')
+        ROLLBACK_SIZE_KB=${'$'}(uclone_tree_kb "${'$'}ROLLBACK") || exit 63
         if [ "${'$'}CLONE_ROLLBACK_REUSED" = "1" ]; then
-          printf '%s\n' "{\"schemaVersion\":4,\"integrityMode\":\"FAST_METADATA\",\"packageName\":\"${'$'}PKG\",\"sourceVersionCode\":\"${'$'}PACKAGE_VERSION_CODE\",\"sourceVersionName\":\"${'$'}PACKAGE_VERSION_NAME_ESC\",\"sourceSigningCertificateSha256\":\"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\",\"sourceApkDigest\":\"${'$'}TARGET_APK_DIGEST\",\"sourceUid\":${'$'}DST_UID,\"sourceAppId\":${'$'}TARGET_APP_ID,\"createdAt\":\"${'$'}TS\",\"stateKind\":\"clone\",\"sourceUser\":\"${'$'}DST_USER\",\"targetUser\":\"${'$'}DST_USER\",\"backupKind\":\"transaction_undo\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
+          printf '%s\n' "{\"schemaVersion\":$CURRENT_MANIFEST_SCHEMA,\"integrityMode\":\"FAST_METADATA\",\"packageName\":\"${'$'}PKG\",\"sourceVersionCode\":\"${'$'}PACKAGE_VERSION_CODE\",\"sourceVersionName\":\"${'$'}PACKAGE_VERSION_NAME_ESC\",\"sourceSigningCertificateSha256\":\"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\",\"sourceApkDigest\":\"${'$'}TARGET_APK_DIGEST\",\"sourceUid\":${'$'}DST_UID,\"sourceAppId\":${'$'}TARGET_APP_ID,\"transactionRequestId\":\"${'$'}UCLONE_REQUEST_ID\",\"createdAt\":\"${'$'}TS\",\"stateKind\":\"clone\",\"sourceUser\":\"${'$'}DST_USER\",\"targetUser\":\"${'$'}DST_USER\",\"backupKind\":\"transaction_undo\",\"permissionCaptureState\":\"${if (rule.includePermissions) "valid" else "excluded"}\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
           echo "TRANSACTION_UNDO_CREATED=${'$'}ROLLBACK state=clone"
         else
-          printf '%s\n' "{\"schemaVersion\":4,\"integrityMode\":\"FAST_METADATA\",\"packageName\":\"${'$'}PKG\",\"sourceVersionCode\":\"${'$'}PACKAGE_VERSION_CODE\",\"sourceVersionName\":\"${'$'}PACKAGE_VERSION_NAME_ESC\",\"sourceSigningCertificateSha256\":\"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\",\"sourceApkDigest\":\"${'$'}TARGET_APK_DIGEST\",\"sourceUid\":${'$'}DST_UID,\"sourceAppId\":${'$'}TARGET_APP_ID,\"rollbackId\":\"latest\",\"createdAt\":\"${'$'}TS\",\"reason\":\"推送到分身前生成\",\"stateKind\":\"clone\",\"sourceUser\":\"${'$'}DST_USER\",\"targetUser\":\"${'$'}DST_USER\",\"backupKind\":\"clone_rollback\",\"retention\":\"latest_only\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
+          printf '%s\n' "{\"schemaVersion\":$CURRENT_MANIFEST_SCHEMA,\"integrityMode\":\"FAST_METADATA\",\"packageName\":\"${'$'}PKG\",\"sourceVersionCode\":\"${'$'}PACKAGE_VERSION_CODE\",\"sourceVersionName\":\"${'$'}PACKAGE_VERSION_NAME_ESC\",\"sourceSigningCertificateSha256\":\"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\",\"sourceApkDigest\":\"${'$'}TARGET_APK_DIGEST\",\"sourceUid\":${'$'}DST_UID,\"sourceAppId\":${'$'}TARGET_APP_ID,\"transactionRequestId\":\"${'$'}UCLONE_REQUEST_ID\",\"rollbackId\":\"latest\",\"createdAt\":\"${'$'}TS\",\"reason\":\"推送到分身前生成\",\"stateKind\":\"clone\",\"sourceUser\":\"${'$'}DST_USER\",\"targetUser\":\"${'$'}DST_USER\",\"backupKind\":\"clone_rollback\",\"retention\":\"latest_only\",\"permissionCaptureState\":\"${if (rule.includePermissions) "valid" else "excluded"}\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
         fi
         sync
         echo "CLONE_ROLLBACK_PREPARED=${'$'}ROLLBACK backupParts=${'$'}BACKUP_PARTS"
@@ -1238,7 +1422,7 @@ object ShellScripts {
         sync
         if [ "${'$'}CLONE_ROLLBACK_REUSED" = "0" ]; then
         if [ -d "${'$'}ROLLBACK_PREVIOUS" ] && [ -d "${'$'}ROLLBACK_LATEST" ]; then
-          rm -rf "${'$'}ROLLBACK_PREVIOUS" || exit 54
+          uclone_remove_tree "${'$'}ROLLBACK_PREVIOUS" || exit 54
         fi
         if [ -d "${'$'}ROLLBACK_LATEST" ]; then
           mv "${'$'}ROLLBACK_LATEST" "${'$'}ROLLBACK_PREVIOUS" || exit 54
@@ -1265,10 +1449,10 @@ object ShellScripts {
         TARGET_GATE_DIR=""
         uclone_transaction_complete || exit 77
         if [ -n "${'$'}TRANSACTION_UNDO" ]; then
-          rm -rf "${'$'}TRANSACTION_UNDO" >/dev/null 2>&1 || echo "WARN_TRANSACTION_UNDO_CLEANUP_FAILED:${'$'}TRANSACTION_UNDO"
+          uclone_remove_tree "${'$'}TRANSACTION_UNDO" >/dev/null 2>&1 || echo "WARN_TRANSACTION_UNDO_CLEANUP_FAILED:${'$'}TRANSACTION_UNDO"
           TRANSACTION_UNDO=""
         fi
-        rm -rf "${'$'}ROLLBACK_PREVIOUS" >/dev/null 2>&1 || echo "WARN_CLONE_ROLLBACK_PREVIOUS_CLEANUP_FAILED:${'$'}ROLLBACK_PREVIOUS"
+        uclone_remove_tree "${'$'}ROLLBACK_PREVIOUS" >/dev/null 2>&1 || echo "WARN_CLONE_ROLLBACK_PREVIOUS_CLEANUP_FAILED:${'$'}ROLLBACK_PREVIOUS"
         uclone_transaction_cleanup_complete || exit 77
         UCLONE_TARGET_READY_AT=${'$'}(uclone_now_ms)
         UCLONE_TARGET_DOWNTIME_MS=${'$'}(uclone_elapsed_ms "${'$'}UCLONE_TARGET_READY_AT" "${'$'}UCLONE_TARGET_STOPPED_AT")
@@ -1280,16 +1464,18 @@ object ShellScripts {
     fun probeCloneCe(settings: UCloneSettings): String = """
         set -u
         CLONE_USER=${settings.cloneUserId}
+        UCLONE_STATE_TEMP_ROOT=/data/local/tmp
+        ${cloneStateFunction("/system/bin/am", "sleep")}
         echo "PROBE_CLONE_USER=${'$'}CLONE_USER"
         echo "ROOT_ID=${'$'}(id 2>&1)"
         state_of_clone() {
-          am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
+          clone_state "${'$'}CLONE_USER"
         }
         probe_base_path() {
           LABEL="${'$'}1"
           PATH_VALUE="${'$'}2"
           if [ -d "${'$'}PATH_VALUE" ]; then
-            ITEMS=${'$'}(find "${'$'}PATH_VALUE" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+            ITEMS=${'$'}(find "${'$'}PATH_VALUE" -xdev -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
             echo "${'$'}LABEL=READABLE items=${'$'}ITEMS path=${'$'}PATH_VALUE"
           else
             echo "${'$'}LABEL=MISSING path=${'$'}PATH_VALUE"
@@ -1322,6 +1508,21 @@ object ShellScripts {
         esac
     """.trimIndent()
 
+    internal fun boundedUserStateProbe(
+        userId: Int,
+        amCommand: String = "/system/bin/am",
+        sleepCommand: String = "sleep",
+    ): String {
+        require(userId >= 0)
+        return """
+            set -u
+            CLONE_USER=$userId
+            UCLONE_STATE_TEMP_ROOT=/data/local/tmp
+            ${cloneStateFunction(amCommand, sleepCommand)}
+            clone_state "${'$'}CLONE_USER"
+        """.trimIndent()
+    }
+
     fun unlockCloneWithCredential(settings: UCloneSettings): String = """
         set -u
         echo "UNLOCK_CLONE_USER=${settings.cloneUserId}"
@@ -1341,14 +1542,15 @@ object ShellScripts {
     ): String = """
         set -u
         CLONE_USER=${settings.cloneUserId}
-        AM_COMMAND=${shellQuote(amCommand)}
-        clone_state() {
-          "${'$'}AM_COMMAND" get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
-        }
+        ${cloneStateFunction(amCommand, sleepCommand)}
         echo "EXPLICIT_START_CLONE_USER=${'$'}CLONE_USER"
         STATE_BEFORE_START=${'$'}(clone_state)
         echo "STATE_BEFORE_START=${'$'}STATE_BEFORE_START"
         case "${'$'}STATE_BEFORE_START" in
+          *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+            echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_START" >&2
+            exit 88
+            ;;
           *RUNNING*) echo "START_CLONE_ALREADY_STARTED=${'$'}STATE_BEFORE_START"; exit 0 ;;
         esac
         ${startCloneUserRequestScript(
@@ -1371,14 +1573,15 @@ object ShellScripts {
         return """
         set -u
         CLONE_USER=${settings.cloneUserId}
-        AM_COMMAND=${shellQuote(amCommand)}
-        clone_state() {
-          "${'$'}AM_COMMAND" get-started-user-state "${'$'}CLONE_USER" 2>&1 || true
-        }
+        ${cloneStateFunction(amCommand, sleepCommand)}
         echo "EXPLICIT_STOP_CLONE_USER=${'$'}CLONE_USER"
         STATE_BEFORE_STOP=${'$'}(clone_state)
         echo "STATE_BEFORE_STOP=${'$'}STATE_BEFORE_STOP"
         case "${'$'}STATE_BEFORE_STOP" in
+          *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+            echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_STOP" >&2
+            exit 88
+            ;;
           *"User is not started"*|*"not started"*|*SHUTDOWN*) echo "STOP_CLONE_ALREADY_STOPPED=1"; exit 0 ;;
         esac
         ${stopCloneUserRequestScript(
@@ -1405,6 +1608,8 @@ object ShellScripts {
         set -u
         MAIN_USER=${settings.mainUserId}
         CLONE_USER=${settings.cloneUserId}
+        UCLONE_STATE_TEMP_ROOT=/data/local/tmp
+        ${cloneStateFunction("/system/bin/am", "sleep")}
         APP_PKG=${shellQuote(appPackage)}
         ROOT_DIR=${shellQuote(settings.rootDir)}
         echo "DEBUG_CLONE_SYSTEM_BEGIN"
@@ -1421,7 +1626,7 @@ object ShellScripts {
         echo "KSU_PATH=${'$'}(command -v ksud 2>/dev/null || command -v ksu 2>/dev/null || echo MISSING)"
 
         user_state() {
-          /system/bin/am get-started-user-state "${'$'}1" 2>&1 || true
+          clone_state "${'$'}1"
         }
         probe_path() {
           LABEL="${'$'}1"
@@ -1431,11 +1636,11 @@ object ShellScripts {
             echo "PATH_${'$'}{LABEL}_EXISTS=1"
             ls -ldnZ "${'$'}PATH_VALUE" 2>&1 | sed "s/^/PATH_${'$'}{LABEL}_LS_Z: /" || ls -ldn "${'$'}PATH_VALUE" 2>&1 | sed "s/^/PATH_${'$'}{LABEL}_LS: /" || true
             if [ -d "${'$'}PATH_VALUE" ]; then
-              ITEMS=${'$'}(find "${'$'}PATH_VALUE" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
-              SIZE_KB=${'$'}(du -sk "${'$'}PATH_VALUE" 2>/dev/null | awk '{print ${'$'}1}')
+              ITEMS=${'$'}(find "${'$'}PATH_VALUE" -xdev -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+              SIZE_KB=${'$'}(du -skx "${'$'}PATH_VALUE" 2>/dev/null | awk '{print ${'$'}1}')
               echo "PATH_${'$'}{LABEL}_ITEMS=${'$'}ITEMS"
               echo "PATH_${'$'}{LABEL}_SIZE_KB=${'$'}SIZE_KB"
-              find "${'$'}PATH_VALUE" -mindepth 1 -maxdepth 2 2>/dev/null | sed -n '1,12p' | sed "s/^/PATH_${'$'}{LABEL}_SAMPLE: /"
+              find "${'$'}PATH_VALUE" -xdev -mindepth 1 -maxdepth 2 2>/dev/null | sed -n '1,12p' | sed "s/^/PATH_${'$'}{LABEL}_SAMPLE: /"
             fi
           else
             echo "PATH_${'$'}{LABEL}_EXISTS=0"
@@ -1497,13 +1702,13 @@ object ShellScripts {
         probe_path "ROLLBACK_ROOT" "${'$'}ROOT_DIR/rollback"
         probe_path "SWITCH_MARKER_ROOT" "${'$'}ROOT_DIR/switches"
         if [ -d "${'$'}ROOT_DIR/snapshots" ]; then
-          find "${'$'}ROOT_DIR/snapshots" -mindepth 3 -maxdepth 4 -name manifest.json 2>/dev/null | sed -n '1,8p' | while IFS= read -r MANIFEST; do
+          find "${'$'}ROOT_DIR/snapshots" -xdev -mindepth 3 -maxdepth 4 -name manifest.json 2>/dev/null | sed -n '1,8p' | while IFS= read -r MANIFEST; do
             echo "V02_SNAPSHOT_MANIFEST=${'$'}MANIFEST"
             sed -n '1p' "${'$'}MANIFEST" 2>/dev/null | sed 's/^/V02_SNAPSHOT_MANIFEST_JSON: /'
           done
         fi
         if [ -d "${'$'}ROOT_DIR/rollback" ]; then
-          find "${'$'}ROOT_DIR/rollback" -mindepth 3 -maxdepth 3 -name manifest.json 2>/dev/null | sed -n '1,8p' | while IFS= read -r MANIFEST; do
+          find "${'$'}ROOT_DIR/rollback" -xdev -mindepth 3 -maxdepth 3 -name manifest.json 2>/dev/null | sed -n '1,8p' | while IFS= read -r MANIFEST; do
             echo "V02_ROLLBACK_MANIFEST=${'$'}MANIFEST"
             sed -n '1p' "${'$'}MANIFEST" 2>/dev/null | sed 's/^/V02_ROLLBACK_MANIFEST_JSON: /'
           done
@@ -1542,11 +1747,13 @@ object ShellScripts {
 
     fun auditRestoreConsistency(packageName: String, settings: UCloneSettings, appPackage: String): String = """
         set -u
-        ROOT=${shellQuote(settings.rootDir)}
+        ${WorkspacePathGuard.require(settings.rootDir)}
         PKG=${shellQuote(packageName)}
         APP_PKG=${shellQuote(appPackage)}
         TARGET_USER=${settings.mainUserId}
         CLONE_USER=${settings.cloneUserId}
+        UCLONE_STATE_TEMP_ROOT=/data/local/tmp
+        ${cloneStateFunction("/system/bin/am", "sleep")}
         ${uniqueStampScript()}
         TS=${'$'}(uclone_unique_stamp) || { echo "ERR_UNIQUE_STAMP" >&2; exit 10; }
         OUT="${'$'}ROOT/audit/${'$'}PKG/${'$'}TS"
@@ -1564,13 +1771,17 @@ object ShellScripts {
             echo "EXIT:${'$'}?"
           } > "${'$'}OUT/${'$'}NAME"
         }
+        capture_user_states() {
+          echo "target=${'$'}(clone_state "${'$'}TARGET_USER")"
+          echo "clone=${'$'}(clone_state "${'$'}CLONE_USER")"
+        }
         capture_tree() {
           NAME="${'$'}1"
           PATH_VALUE="${'$'}2"
           {
             echo "PATH:${'$'}PATH_VALUE"
             if [ -d "${'$'}PATH_VALUE" ]; then
-              find "${'$'}PATH_VALUE" -maxdepth 4 2>/dev/null | while IFS= read -r ITEM; do
+              find "${'$'}PATH_VALUE" -xdev -maxdepth 4 2>/dev/null | while IFS= read -r ITEM; do
                 ls -ldnZ "${'$'}ITEM" 2>/dev/null || ls -ldn "${'$'}ITEM" 2>/dev/null || true
               done
             else
@@ -1593,7 +1804,7 @@ object ShellScripts {
         printf '%s\n' "{\"packageName\":\"${'$'}PKG\",\"appPackage\":\"${'$'}APP_PKG\",\"targetUser\":\"${'$'}TARGET_USER\",\"cloneUser\":\"${'$'}CLONE_USER\",\"createdAt\":\"${'$'}TS\"}" > "${'$'}OUT/manifest.json"
         id > "${'$'}OUT/root_id.txt" 2>&1 || true
         run_capture "uid.txt" sh -c "cmd package list packages -U --user ${'$'}TARGET_USER | grep -F \"package:${'$'}PKG\" || true"
-        run_capture "user_state.txt" sh -c "am get-started-user-state ${'$'}TARGET_USER; am get-started-user-state ${'$'}CLONE_USER"
+        run_capture "user_state.txt" capture_user_states
         run_capture "package_dump.txt" sh -c "dumpsys package \"${'$'}PKG\" || true"
         run_capture "cmd_package_dump.txt" sh -c "cmd package dump \"${'$'}PKG\" || true"
         run_capture "appops_pkg.txt" sh -c "cmd appops get --user ${'$'}TARGET_USER \"${'$'}PKG\" || true"
@@ -1616,7 +1827,7 @@ object ShellScripts {
         [ -d "/data/user/${'$'}TARGET_USER/${'$'}PKG" ] && CE_PRESENT=1 || true
         DE_PRESENT=0
         [ -d "/data/user_de/${'$'}TARGET_USER/${'$'}PKG" ] && DE_PRESENT=1 || true
-        CLONE_STATE=${'$'}(am get-started-user-state "${'$'}CLONE_USER" 2>&1 || true)
+        CLONE_STATE=${'$'}(clone_state "${'$'}CLONE_USER")
         STATUS="PASS_COLLECTION"
         [ "${'$'}PACKAGE_PRESENT" = "1" ] || STATUS="FAIL_PACKAGE_MISSING"
         {
@@ -1732,9 +1943,11 @@ object ShellScripts {
         requireSafePackageName(packageName)
         return """
         set -u
-        ROOT=${shellQuote(settings.rootDir)}
+        ${WorkspacePathGuard.require(settings.rootDir)}
         PKG=${shellQuote(packageName)}
         APP_PKG=${shellQuote(appPackage)}
+        UNKNOWN_SWITCH_MARKER=${shellQuote(UNKNOWN_SWITCH_MARKER)}
+        SWITCH_DIR="${'$'}ROOT/switches/${'$'}PKG"
         SWITCH_MARKER="${'$'}ROOT/switches/${'$'}PKG/active"
         [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
         [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "ERR_BAD_ROOT:${'$'}ROOT" >&2; exit 71; }
@@ -1742,19 +1955,22 @@ object ShellScripts {
           "${'$'}ROOT"/switches/"${'$'}PKG"/active) ;;
           *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER" >&2; exit 72 ;;
         esac
-        if [ -f "${'$'}SWITCH_MARKER" ]; then
-          rm -f "${'$'}SWITCH_MARKER" || exit 73
-          sync
-          echo "SWITCH_STATE_RESET=${'$'}SWITCH_MARKER"
-        else
-          echo "SWITCH_STATE_ALREADY_CLEAR=${'$'}SWITCH_MARKER"
-        fi
+        mkdir -p "${'$'}SWITCH_DIR" || exit 73
+        chmod 700 "${'$'}SWITCH_DIR" || exit 73
+        MARKER_TMP="${'$'}SWITCH_MARKER.tmp_${'$'}${'$'}"
+        trap 'rm -f "${'$'}MARKER_TMP"' EXIT
+        printf '%s\n' "${'$'}UNKNOWN_SWITCH_MARKER" > "${'$'}MARKER_TMP" || exit 73
+        chmod 600 "${'$'}MARKER_TMP" || exit 73
+        mv -f "${'$'}MARKER_TMP" "${'$'}SWITCH_MARKER" || exit 73
+        sync
+        trap - EXIT
+        echo "SWITCH_STATE_RESET=unknown MARKER=${'$'}SWITCH_MARKER"
         """.trimIndent()
     }
 
     fun deleteSnapshot(packageName: String, settings: UCloneSettings, appPackage: String): String = """
         set -u
-        ROOT=${shellQuote(settings.rootDir)}
+        ${WorkspacePathGuard.require(settings.rootDir)}
         PKG=${shellQuote(packageName)}
         APP_PKG=${shellQuote(appPackage)}
         ACTIVE="${'$'}ROOT/snapshots/${'$'}PKG/active"
@@ -1765,9 +1981,9 @@ object ShellScripts {
           *) echo "ERR_BAD_DELETE_TARGET:${'$'}ACTIVE" >&2; exit 72 ;;
         esac
         [ -d "${'$'}ACTIVE" ] || { echo "ERR_SNAPSHOT_MISSING:${'$'}ACTIVE" >&2; exit 73; }
-        SIZE_KB=${'$'}(du -sk "${'$'}ACTIVE" 2>/dev/null | awk '{print ${'$'}1}')
-        ITEMS=${'$'}(find "${'$'}ACTIVE" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
-        rm -rf "${'$'}ACTIVE" || exit 74
+        SIZE_KB=${'$'}(uclone_tree_kb "${'$'}ACTIVE") || exit 74
+        ITEMS=${'$'}(uclone_count_tree "${'$'}ACTIVE") || exit 74
+        uclone_remove_tree "${'$'}ACTIVE" || exit 74
         [ ! -e "${'$'}ACTIVE" ] || { echo "ERR_DELETE_FAILED:${'$'}ACTIVE" >&2; exit 75; }
         echo "DELETED_SNAPSHOT=${'$'}ACTIVE SIZE_KB=${'$'}SIZE_KB ITEMS=${'$'}ITEMS"
     """.trimIndent()
@@ -1781,7 +1997,7 @@ object ShellScripts {
         requireSafeRollbackId(rollbackId)
         return """
         set -u
-        ROOT=${shellQuote(settings.rootDir)}
+        ${WorkspacePathGuard.require(settings.rootDir)}
         PKG=${shellQuote(packageName)}
         ROLLBACK_ID=${shellQuote(rollbackId)}
         APP_PKG=${shellQuote(appPackage)}
@@ -1808,20 +2024,17 @@ object ShellScripts {
           *) echo "ERR_BAD_ROLLBACK_PARENT:${'$'}ROLLBACK_PARENT" >&2; exit 72 ;;
         esac
         [ -d "${'$'}TARGET" ] || { echo "ERR_ROLLBACK_MISSING:${'$'}TARGET" >&2; exit 74; }
-        SIZE_KB=${'$'}(du -sk "${'$'}TARGET" 2>/dev/null | awk '{print ${'$'}1}')
-        ITEMS=${'$'}(find "${'$'}TARGET" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
-        rm -rf "${'$'}TARGET" || exit 75
-        [ ! -e "${'$'}TARGET" ] || { echo "ERR_DELETE_FAILED:${'$'}TARGET" >&2; exit 75; }
         if [ -f "${'$'}SWITCH_MARKER" ]; then
           MARKER_ROLLBACK_ID=${'$'}(sed -n '1p' "${'$'}SWITCH_MARKER" | tr -d '\r')
           if [ "${'$'}MARKER_ROLLBACK_ID" = "${'$'}ROLLBACK_ID" ]; then
-            case "${'$'}SWITCH_MARKER" in
-              "${'$'}ROOT"/switches/"${'$'}PKG"/active) rm -f "${'$'}SWITCH_MARKER" || exit 76 ;;
-              *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER" >&2; exit 76 ;;
-            esac
-            echo "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER"
+            echo "ERR_ACTIVE_RETURN_POINT_DELETE:${'$'}TARGET" >&2
+            exit 76
           fi
         fi
+        SIZE_KB=${'$'}(uclone_tree_kb "${'$'}TARGET") || exit 75
+        ITEMS=${'$'}(uclone_count_tree "${'$'}TARGET") || exit 75
+        uclone_remove_tree "${'$'}TARGET" || exit 75
+        [ ! -e "${'$'}TARGET" ] || { echo "ERR_DELETE_FAILED:${'$'}TARGET" >&2; exit 75; }
         echo "DELETED_RESTORE_BACKUP=${'$'}TARGET SIZE_KB=${'$'}SIZE_KB ITEMS=${'$'}ITEMS"
     """.trimIndent()
     }
@@ -1835,7 +2048,7 @@ object ShellScripts {
         requireSafeRollbackId(rollbackId)
         return """
         set -u
-        ROOT=${shellQuote(settings.rootDir)}
+        ${WorkspacePathGuard.require(settings.rootDir)}
         PKG=${shellQuote(packageName)}
         ROLLBACK_ID=${shellQuote(rollbackId)}
         APP_PKG=${shellQuote(appPackage)}
@@ -1848,9 +2061,9 @@ object ShellScripts {
           *) echo "ERR_BAD_ROLLBACK_TARGET:${'$'}TARGET" >&2; exit 72 ;;
         esac
         [ -d "${'$'}TARGET" ] || { echo "ERR_ROLLBACK_MISSING:${'$'}TARGET" >&2; exit 74; }
-        SIZE_KB=${'$'}(du -sk "${'$'}TARGET" 2>/dev/null | awk '{print ${'$'}1}')
-        ITEMS=${'$'}(find "${'$'}TARGET" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
-        rm -rf "${'$'}TARGET" || exit 75
+        SIZE_KB=${'$'}(uclone_tree_kb "${'$'}TARGET") || exit 75
+        ITEMS=${'$'}(uclone_count_tree "${'$'}TARGET") || exit 75
+        uclone_remove_tree "${'$'}TARGET" || exit 75
         echo "DELETED_CLONE_ROLLBACK=${'$'}TARGET SIZE_KB=${'$'}SIZE_KB ITEMS=${'$'}ITEMS"
         """.trimIndent()
     }
@@ -1867,10 +2080,24 @@ object ShellScripts {
             "${'$'}ROOT"/snapshots|"${'$'}ROOT"/rollback|"${'$'}ROOT"/clone_rollback|"${'$'}ROOT"/switches|"${'$'}ROOT"/logs|"${'$'}ROOT"/tmp|"${'$'}ROOT"/audit|"${'$'}ROOT"/transactions|"${'$'}ROOT"/config/workspace_owner_root_v1|"${'$'}ROOT"/locks/orphaned) ;;
             *) echo "ERR_UNSAFE_RESET_TARGET:${'$'}TARGET" >&2; exit 73 ;;
           esac
-          [ -e "${'$'}TARGET" ] || continue
-          SIZE_KB=${'$'}(du -sk "${'$'}TARGET" 2>/dev/null | awk '{print ${'$'}1}')
+          [ -e "${'$'}TARGET" ] || [ -L "${'$'}TARGET" ] || continue
+          case "${'$'}NAME" in
+            config/workspace_owner_root_v1)
+              SIZE_KB=0
+              ;;
+            *)
+              SIZE_KB=${'$'}(uclone_tree_kb "${'$'}TARGET") || { echo "ERR_RESET_SIZE_FAILED:${'$'}TARGET" >&2; exit 74; }
+              ;;
+          esac
           case "${'$'}SIZE_KB" in ''|*[!0-9]*) SIZE_KB=0 ;; esac
-          rm -rf "${'$'}TARGET" || { echo "ERR_RESET_DELETE_FAILED:${'$'}TARGET" >&2; exit 74; }
+          case "${'$'}NAME" in
+            config/workspace_owner_root_v1)
+              uclone_remove_file "${'$'}TARGET" || { echo "ERR_RESET_DELETE_FAILED:${'$'}TARGET" >&2; exit 74; }
+              ;;
+            *)
+              uclone_remove_tree "${'$'}TARGET" || { echo "ERR_RESET_DELETE_FAILED:${'$'}TARGET" >&2; exit 74; }
+              ;;
+          esac
           DELETED_TARGETS=${'$'}((DELETED_TARGETS + 1))
           NEXT_DELETED_SIZE_KB=${'$'}(awk -v TOTAL="${'$'}DELETED_SIZE_KB" -v SIZE_KB="${'$'}SIZE_KB" 'BEGIN { printf "%.0f\n", TOTAL + SIZE_KB }')
           case "${'$'}NEXT_DELETED_SIZE_KB" in ''|*[!0-9]*) NEXT_DELETED_SIZE_KB="${'$'}DELETED_SIZE_KB" ;; esac
@@ -1893,12 +2120,19 @@ object ShellScripts {
           fi
           [ -n "${'$'}{SWITCH_TEMP:-}" ] || return 0
           case "${'$'}SWITCH_TEMP" in
-            "${'$'}ROOT"/tmp/switch_"${'$'}PKG"_"${'$'}TS") rm -rf "${'$'}SWITCH_TEMP" "${'$'}SWITCH_TEMP".try_* 2>/dev/null || true ;;
+            "${'$'}ROOT"/tmp/switch_"${'$'}PKG"_"${'$'}TS")
+              uclone_remove_tree "${'$'}SWITCH_TEMP" 2>/dev/null || true
+              for UCLONE_OLD_TRY in "${'$'}SWITCH_TEMP".try_*; do [ -e "${'$'}UCLONE_OLD_TRY" ] && uclone_remove_tree "${'$'}UCLONE_OLD_TRY" 2>/dev/null || true; done
+              ;;
           esac
         }
         trap cleanup_switch_temp EXIT
         mkdir -p "${'$'}ROOT/tmp" || exit 10
-        rm -rf "${'$'}SWITCH_TEMP" "${'$'}SWITCH_TEMP".try_*
+        uclone_remove_tree "${'$'}SWITCH_TEMP" || exit 10
+        for UCLONE_OLD_TRY in "${'$'}SWITCH_TEMP".try_*; do
+          [ -e "${'$'}UCLONE_OLD_TRY" ] || continue
+          uclone_remove_tree "${'$'}UCLONE_OLD_TRY" || exit 10
+        done
         SWITCH_REQUIRE_CE=${if (rule.includeCe) "1" else "0"}
         ${ensureCloneCeReadyScript(settings, rule.includeCe, settings.autoUnlockClone, settings.stopCloneAfterTask)}
         CANDIDATE_USERS="${settings.cloneUserId}"
@@ -1915,15 +2149,20 @@ object ShellScripts {
         try_user() {
           TRY_USER="${'$'}1"
           TRY_TMP="${'$'}SWITCH_TEMP.try_${'$'}TRY_USER"
-          rm -rf "${'$'}TRY_TMP"
+          uclone_remove_tree "${'$'}TRY_TMP" || exit 11
           mkdir -p "${'$'}TRY_TMP" || exit 11
-          STATE=${'$'}(am get-started-user-state "${'$'}TRY_USER" 2>/dev/null || true)
+          STATE=${'$'}(clone_state)
           echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
           case "${'$'}STATE" in
+            *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+              echo "ERR_CLONE_STATE_QUERY:${'$'}STATE" >&2
+              uclone_remove_tree "${'$'}TRY_TMP" || exit 11
+              exit 86
+              ;;
             *RUNNING_UNLOCKED*) ;;
             *)
               echo "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" >&2
-              rm -rf "${'$'}TRY_TMP"
+              uclone_remove_tree "${'$'}TRY_TMP" || exit 11
               return 1
               ;;
           esac
@@ -1931,7 +2170,7 @@ object ShellScripts {
             echo "PACKAGE_LISTED:${'$'}TRY_USER"
           else
             echo "ERR_PACKAGE_NOT_LISTED:${'$'}TRY_USER" >&2
-            rm -rf "${'$'}TRY_TMP"
+            uclone_remove_tree "${'$'}TRY_TMP" || exit 11
             return 1
           fi
           TRY_UID=${'$'}(cmd package list packages -U --user "${'$'}TRY_USER" | awk -v p="package:${'$'}PKG" '${'$'}1==p { sub("uid:","",${'$'}2); print ${'$'}2; exit }')
@@ -1946,16 +2185,17 @@ object ShellScripts {
           COPIED_ITEMS=0
           CAPTURED_PARTS=0
           CAPTURED_PERMISSIONS=0
+          PERMISSION_CAPTURE_STATE=excluded
           ${if (rule.includeCe) "capture_part \"${'$'}TRY_TMP\" ce \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" ce"}
           ${if (rule.includeDe) "capture_part \"${'$'}TRY_TMP\" de \"${'$'}TRY_TMP/de\" \"/data/user_de/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}TRY_USER/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" de"}
           ${if (rule.includeExternal) "capture_part \"${'$'}TRY_TMP\" external \"${'$'}TRY_TMP/external\" \"/data/media/${'$'}TRY_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/data/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" external"}
           ${if (rule.includeMedia) "capture_part \"${'$'}TRY_TMP\" media \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" media"}
           ${if (rule.includeObb) "capture_part \"${'$'}TRY_TMP\" obb \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" obb"}
-          ${if (rule.includePermissions) "uclone_capture_permission_state \"${'$'}TRY_TMP/permissions\" \"${'$'}TRY_USER\" \"${settings.permissionRestoreMode.name}\" || { echo \"ERR_SOURCE_PERMISSION_CAPTURE:${'$'}TRY_USER\" >&2; exit 54; }\nCAPTURED_PERMISSIONS=1" else ":"}
+          ${if (rule.includePermissions) sourcePermissionCaptureScript("${'$'}TRY_TMP/permissions", "${'$'}TRY_USER", settings.permissionRestoreMode) else ":"}
           SWITCH_CE_STATE=${'$'}(sed -n '1p' "${'$'}TRY_TMP/.state/ce" 2>/dev/null || true)
           if [ "${'$'}SWITCH_REQUIRE_CE" = "1" ] && [ "${'$'}SWITCH_CE_STATE" != "data" ] && [ "${'$'}SWITCH_CE_STATE" != "empty" ]; then
             echo "ERR_SWITCH_CE_MISSING:${'$'}TRY_USER" >&2
-            rm -rf "${'$'}TRY_TMP"
+            uclone_remove_tree "${'$'}TRY_TMP" || exit 11
             return 1
           fi
           if [ "${'$'}CAPTURED_PARTS" -gt 0 ] || [ "${'$'}CAPTURED_PERMISSIONS" = "1" ]; then
@@ -1965,7 +2205,7 @@ object ShellScripts {
               return 1
             fi
             SOURCE_GATE_DIR=""
-            rm -rf "${'$'}SWITCH_TEMP"
+            uclone_remove_tree "${'$'}SWITCH_TEMP" || exit 14
             mv "${'$'}TRY_TMP" "${'$'}SWITCH_TEMP" || exit 14
             DETECTED_USER="${'$'}TRY_USER"
             DETECTED_STATE="${'$'}STATE"
@@ -1976,7 +2216,7 @@ object ShellScripts {
             return 1
           fi
           SOURCE_GATE_DIR=""
-          rm -rf "${'$'}TRY_TMP"
+          uclone_remove_tree "${'$'}TRY_TMP" || exit 11
           return 1
         }
         DETECTED_USER=""
@@ -2021,11 +2261,17 @@ object ShellScripts {
             RestoreSourceKind.SWITCH_TEMP -> "switch_temp"
             RestoreSourceKind.CLONE_ROLLBACK -> "clone_rollback"
         }
-        val transactionSourceUser = if (sourceKind == RestoreSourceKind.SWITCH_TEMP) settings.cloneUserId else -1
+        val transactionSourceUser = when (sourceKind) {
+            RestoreSourceKind.ACTIVE,
+            RestoreSourceKind.SWITCH_TEMP,
+            RestoreSourceKind.CLONE_ROLLBACK,
+            -> settings.cloneUserId
+            RestoreSourceKind.ROLLBACK -> targetUserId
+        }
         sourceRollbackId?.let(::requireSafeRollbackId)
         return """
             set -u
-            ROOT=${shellQuote(settings.rootDir)}
+            ${WorkspacePathGuard.require(settings.rootDir)}
             PKG=${shellQuote(packageName)}
             APP_PKG=${shellQuote(appPackage)}
             DST_USER=$targetUserId
@@ -2049,13 +2295,42 @@ object ShellScripts {
             [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
             [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "ERR_BAD_ROOT:${'$'}ROOT" >&2; exit 71; }
             CURRENT_SWITCH_MARKER="${'$'}ROOT/switches/${'$'}PKG/active"
+            UNKNOWN_SWITCH_MARKER=${shellQuote(UNKNOWN_SWITCH_MARKER)}
             CURRENT_STATE_KIND="clone"
             CURRENT_MAIN_ROLLBACK_ID=""
             if [ "${'$'}DST_USER" = "${settings.mainUserId}" ]; then
               CURRENT_STATE_KIND="main"
               if [ -f "${'$'}CURRENT_SWITCH_MARKER" ]; then
-                CURRENT_STATE_KIND="clone"
                 CURRENT_MAIN_ROLLBACK_ID=${'$'}(sed -n '1p' "${'$'}CURRENT_SWITCH_MARKER" | tr -d '\r')
+                CURRENT_STATE_KIND="unknown"
+                case "${'$'}CURRENT_MAIN_ROLLBACK_ID" in
+                  ""|"."|".."|*[!A-Za-z0-9_.-]*) ;;
+                  "${'$'}UNKNOWN_SWITCH_MARKER") ;;
+                  *)
+                    CURRENT_MARKER_MANIFEST="${'$'}ROOT/rollback/${'$'}PKG/${'$'}CURRENT_MAIN_ROLLBACK_ID/manifest.json"
+                    if uclone_require_canonical_backup_file "${'$'}CURRENT_MARKER_MANIFEST"; then
+                      CURRENT_MARKER_SCHEMA=${'$'}(sed -n 's/.*"schemaVersion":\([0-9][0-9]*\).*/\1/p' "${'$'}CURRENT_MARKER_MANIFEST" | head -1)
+                      CURRENT_MARKER_PACKAGE=${'$'}(sed -n 's/.*"packageName":"\([^"]*\)".*/\1/p' "${'$'}CURRENT_MARKER_MANIFEST" | head -1)
+                      CURRENT_MARKER_STATE=${'$'}(sed -n 's/.*"stateKind":"\([^"]*\)".*/\1/p' "${'$'}CURRENT_MARKER_MANIFEST" | head -1)
+                      CURRENT_MARKER_KIND=${'$'}(sed -n 's/.*"backupKind":"\([^"]*\)".*/\1/p' "${'$'}CURRENT_MARKER_MANIFEST" | head -1)
+                      CURRENT_MARKER_SIGNING_CERTIFICATE=${'$'}(sed -n 's/.*"sourceSigningCertificateSha256":"\([0-9a-f,]*\)".*/\1/p' "${'$'}CURRENT_MARKER_MANIFEST" | head -1)
+                      CURRENT_MARKER_SOURCE_USER=${'$'}(${manifestUserIdReadCommand("sourceUser", "\"${'$'}CURRENT_MARKER_MANIFEST\"")})
+                      CURRENT_MARKER_TARGET_USER=${'$'}(${manifestUserIdReadCommand("targetUser", "\"${'$'}CURRENT_MARKER_MANIFEST\"")})
+                      if [ "${'$'}CURRENT_MARKER_SCHEMA" = "$CURRENT_MANIFEST_SCHEMA" ] &&
+                        [ "${'$'}CURRENT_MARKER_PACKAGE" = "${'$'}PKG" ] &&
+                        [ "${'$'}CURRENT_MARKER_STATE" = "main" ] &&
+                        [ "${'$'}CURRENT_MARKER_KIND" = "rollback" ] &&
+                        [ "${'$'}CURRENT_MARKER_SIGNING_CERTIFICATE" = "${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256" ] &&
+                        [ "${'$'}CURRENT_MARKER_SOURCE_USER" = "${settings.mainUserId}" ] &&
+                        [ "${'$'}CURRENT_MARKER_TARGET_USER" = "${settings.mainUserId}" ]; then
+                        CURRENT_STATE_KIND="clone"
+                      fi
+                    fi
+                    ;;
+                esac
+                if [ "${'$'}CURRENT_STATE_KIND" != "clone" ]; then
+                  CURRENT_MAIN_ROLLBACK_ID=""
+                fi
               fi
             fi
             validate_rollback_id() {
@@ -2097,15 +2372,14 @@ object ShellScripts {
               [ "${'$'}ACTIVE_MANIFEST_PACKAGE" = "${'$'}PKG" ] || { echo "ERR_SNAPSHOT_PACKAGE_MISMATCH:expected=${'$'}PKG:actual=${'$'}ACTIVE_MANIFEST_PACKAGE" >&2; exit 64; }
             fi
             ACTIVE_SCHEMA_VERSION=${'$'}(sed -n 's/.*"schemaVersion":\([0-9][0-9]*\).*/\1/p' "${'$'}ACTIVE/manifest.json" 2>/dev/null | head -1)
+            ACTIVE_SOURCE_USER=${'$'}(${manifestUserIdReadCommand("sourceUser", "\"${'$'}ACTIVE/manifest.json\"")})
+            ACTIVE_TARGET_USER=${'$'}(${manifestUserIdReadCommand("targetUser", "\"${'$'}ACTIVE/manifest.json\"")})
             ACTIVE_INTEGRITY_REQUIRED=0
-            if [ "${'$'}ACTIVE_SCHEMA_VERSION" = "2" ] || [ "${'$'}ACTIVE_SCHEMA_VERSION" = "3" ] || [ "${'$'}ACTIVE_SCHEMA_VERSION" = "4" ] || [ -d "${'$'}ACTIVE/.meta" ]; then
+            if [ "${'$'}ACTIVE_SCHEMA_VERSION" = "2" ] || [ "${'$'}ACTIVE_SCHEMA_VERSION" = "3" ] || [ "${'$'}ACTIVE_SCHEMA_VERSION" = "4" ] || [ "${'$'}ACTIVE_SCHEMA_VERSION" = "$CURRENT_MANIFEST_SCHEMA" ] || [ -d "${'$'}ACTIVE/.meta" ]; then
               ACTIVE_INTEGRITY_REQUIRED=1
             fi
             case "${'$'}SOURCE_STATE_KIND" in main|clone) ;; *) SOURCE_STATE_KIND="unknown" ;; esac
             echo "RESTORE_SOURCE_STATE=${'$'}SOURCE_STATE_KIND CURRENT_STATE=${'$'}CURRENT_STATE_KIND"
-            ${if (syncSwitchMarkerToSource) """
-            [ "${'$'}SOURCE_STATE_KIND" != "unknown" ] || { echo "ERR_BACKUP_STATE_UNKNOWN:${'$'}ACTIVE" >&2; exit 74; }
-            """.trimIndent() else ":"}
             [ "${'$'}ACTIVE" != "${'$'}ROLLBACK" ] || { echo "ERR_ROLLBACK_SOURCE_CONFLICT:${'$'}ACTIVE" >&2; exit 61; }
             UID_VALUE=${'$'}(cmd package list packages -U --user "${'$'}DST_USER" | awk -v p="package:${'$'}PKG" '${'$'}1==p { sub("uid:","",${'$'}2); print ${'$'}2; exit }')
             [ -n "${'$'}UID_VALUE" ] || { echo "ERR_TARGET_UID_MISSING" >&2; exit 52; }
@@ -2127,7 +2401,47 @@ object ShellScripts {
               ACTIVE_APK_DIGEST=${'$'}(sed -n 's/.*"sourceApkDigest":"\([0-9a-fA-F]*\)".*/\1/p' "${'$'}ACTIVE/manifest.json" | head -1)
               ACTIVE_SIGNING_CERTIFICATE_SHA256=${'$'}(sed -n 's/.*"sourceSigningCertificateSha256":"\([0-9a-f,]*\)".*/\1/p' "${'$'}ACTIVE/manifest.json" | head -1)
               ACTIVE_VERSION_CODE=${'$'}(sed -n 's/.*"sourceVersionCode":"\([0-9][0-9]*\)".*/\1/p' "${'$'}ACTIVE/manifest.json" | head -1)
-              if [ "${'$'}ACTIVE_SCHEMA_VERSION" = "4" ]; then
+              ACTIVE_BACKUP_KIND=${'$'}(sed -n 's/.*"backupKind":"\([^"]*\)".*/\1/p' "${'$'}ACTIVE/manifest.json" | head -1)
+              if [ "${'$'}ACTIVE_SCHEMA_VERSION" = "$CURRENT_MANIFEST_SCHEMA" ]; then
+                case "${'$'}SOURCE_KIND" in
+                  active) ACTIVE_EXPECTED_BACKUP_KIND=active_snapshot ;;
+                  rollback) ACTIVE_EXPECTED_BACKUP_KIND=rollback ;;
+                  clone_rollback) ACTIVE_EXPECTED_BACKUP_KIND=clone_rollback ;;
+                  *) echo "ERR_SNAPSHOT_BACKUP_KIND_SOURCE:${'$'}SOURCE_KIND" >&2; exit 64 ;;
+                esac
+                [ "${'$'}ACTIVE_BACKUP_KIND" = "${'$'}ACTIVE_EXPECTED_BACKUP_KIND" ] || {
+                  echo "ERR_SNAPSHOT_BACKUP_KIND_MISMATCH:expected=${'$'}ACTIVE_EXPECTED_BACKUP_KIND:actual=${'$'}ACTIVE_BACKUP_KIND" >&2
+                  exit 64
+                }
+                [ "${'$'}ACTIVE_SOURCE_USER" = "$transactionSourceUser" ] || {
+                  echo "ERR_SNAPSHOT_SOURCE_USER_MISMATCH:expected=$transactionSourceUser:actual=${'$'}ACTIVE_SOURCE_USER" >&2
+                  exit 64
+                }
+                [ "${'$'}ACTIVE_TARGET_USER" = "${'$'}DST_USER" ] || {
+                  echo "ERR_SNAPSHOT_TARGET_USER_MISMATCH:expected=${'$'}DST_USER:actual=${'$'}ACTIVE_TARGET_USER" >&2
+                  exit 64
+                }
+                [ -n "${'$'}ACTIVE_SIGNING_CERTIFICATE_SHA256" ] && [ "${'$'}ACTIVE_SIGNING_CERTIFICATE_SHA256" = "${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256" ] || {
+                  echo "ERR_SNAPSHOT_SIGNATURE_MISMATCH:expected=${'$'}ACTIVE_SIGNING_CERTIFICATE_SHA256:actual=${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256" >&2
+                  exit 64
+                }
+                if [ "${'$'}ACTIVE_VERSION_CODE" != "${'$'}TARGET_VERSION_CODE" ]; then
+                  if [ "${'$'}UCLONE_ALLOW_VERSION_MISMATCH" = "1" ]; then
+                    echo "WARN_VERSION_MISMATCH_ALLOWED:expected=${'$'}ACTIVE_VERSION_CODE:actual=${'$'}TARGET_VERSION_CODE"
+                  else
+                    echo "ERR_SNAPSHOT_VERSION_CONFIRMATION_REQUIRED:expected=${'$'}ACTIVE_VERSION_CODE:actual=${'$'}TARGET_VERSION_CODE" >&2
+                    exit 64
+                  fi
+                fi
+              elif [ "${'$'}ACTIVE_SCHEMA_VERSION" = "4" ]; then
+                [ "${'$'}ACTIVE_SOURCE_USER" = "$transactionSourceUser" ] || {
+                  echo "ERR_SNAPSHOT_SOURCE_USER_MISMATCH:expected=$transactionSourceUser:actual=${'$'}ACTIVE_SOURCE_USER" >&2
+                  exit 64
+                }
+                [ "${'$'}ACTIVE_TARGET_USER" = "${'$'}DST_USER" ] || {
+                  echo "ERR_SNAPSHOT_TARGET_USER_MISMATCH:expected=${'$'}DST_USER:actual=${'$'}ACTIVE_TARGET_USER" >&2
+                  exit 64
+                }
                 [ -n "${'$'}ACTIVE_SIGNING_CERTIFICATE_SHA256" ] && [ "${'$'}ACTIVE_SIGNING_CERTIFICATE_SHA256" = "${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256" ] || {
                   echo "ERR_SNAPSHOT_SIGNATURE_MISMATCH:expected=${'$'}ACTIVE_SIGNING_CERTIFICATE_SHA256:actual=${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256" >&2
                   exit 64
@@ -2168,7 +2482,7 @@ object ShellScripts {
             fi
             mkdir -p "${'$'}ROOT/$rollbackRootName/${'$'}PKG" "${'$'}ROOT/tmp" || exit 53
             count_items() {
-              find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '
+              uclone_count_tree "${'$'}1"
             }
             ROLLBACK_REUSED=0
             ${backupReuseValidationScript()}
@@ -2177,9 +2491,7 @@ object ShellScripts {
             for REUSE_CANDIDATE in "${'$'}ROOT/rollback/${'$'}PKG"/*; do
               [ -d "${'$'}REUSE_CANDIDATE" ] || continue
               [ "${'$'}REUSE_CANDIDATE" != "${'$'}ACTIVE" ] || continue
-              uclone_backup_is_valid "${'$'}REUSE_CANDIDATE" || continue
-              REUSE_STATE=${'$'}(sed -n 's/.*"stateKind":"\([^"]*\)".*/\1/p' "${'$'}REUSE_CANDIDATE/manifest.json" | head -1)
-              [ "${'$'}REUSE_STATE" = "${'$'}CURRENT_STATE_KIND" ] || continue
+              uclone_backup_matches_identity "${'$'}REUSE_CANDIDATE" "${'$'}PKG" "${'$'}DST_USER" "${'$'}DST_USER" "${'$'}CURRENT_STATE_KIND" rollback || continue
               REUSE_TS=${'$'}(stat -c %Y "${'$'}REUSE_CANDIDATE" 2>/dev/null || echo 0)
               if [ "${'$'}REUSE_TS" -ge "${'$'}REUSE_NEWEST_TS" ]; then
                 PERSISTENT_ROLLBACK="${'$'}REUSE_CANDIDATE"
@@ -2214,12 +2526,12 @@ object ShellScripts {
             PERSISTENT_ROLLBACK_FINALIZED="${'$'}ROLLBACK_REUSED"
             cleanup_restore_prepared() {
               case "${'$'}{PREPARED_ROOT:-}" in
-                "${'$'}ROOT"/tmp/prepared_"${'$'}PKG"_"${'$'}TS") rm -rf "${'$'}PREPARED_ROOT" 2>/dev/null || true ;;
+                "${'$'}ROOT"/tmp/prepared_"${'$'}PKG"_"${'$'}TS") uclone_remove_tree "${'$'}PREPARED_ROOT" 2>/dev/null || true ;;
               esac
             }
             cleanup_transaction_undo() {
               case "${'$'}{TRANSACTION_UNDO:-}" in
-                "${'$'}ROOT"/tmp/undo_"${'$'}PKG"_"${'$'}TS") rm -rf "${'$'}TRANSACTION_UNDO" 2>/dev/null || true ;;
+                "${'$'}ROOT"/tmp/undo_"${'$'}PKG"_"${'$'}TS") uclone_remove_tree "${'$'}TRANSACTION_UNDO" 2>/dev/null || true ;;
               esac
             }
             cleanup_restore_before_transaction() {
@@ -2230,7 +2542,7 @@ object ShellScripts {
               if [ "${'$'}{PERSISTENT_ROLLBACK_FINALIZED:-0}" != "1" ]; then
                 ROLLBACK_SAFE_PREFIX="${'$'}ROOT/$rollbackRootName/${'$'}PKG/"
                 case "${'$'}PERSISTENT_ROLLBACK" in
-                  "${'$'}ROLLBACK_SAFE_PREFIX"*) rm -rf "${'$'}PERSISTENT_ROLLBACK" 2>/dev/null || true ;;
+                  "${'$'}ROLLBACK_SAFE_PREFIX"*) uclone_remove_tree "${'$'}PERSISTENT_ROLLBACK" 2>/dev/null || true ;;
                 esac
               fi
               if command -v cleanup_on_exit >/dev/null 2>&1; then
@@ -2240,7 +2552,7 @@ object ShellScripts {
               fi
             }
             trap cleanup_restore_before_transaction EXIT
-            rm -rf "${'$'}PREPARED_ROOT"
+            uclone_remove_tree "${'$'}PREPARED_ROOT" || exit 56
             mkdir -p "${'$'}PREPARED_ROOT" || exit 56
             mkdir -p "${'$'}PREPARED_ROOT/.state" || exit 56
             PREPARED_PARTS=0
@@ -2291,7 +2603,7 @@ object ShellScripts {
               [ "${'$'}PREPARE_ITEMS" -gt 0 ] || { echo "ERR_EMPTY_SNAPSHOT_PART:${'$'}PREPARE_SRC" >&2; exit 64; }
               PREPARE_DST="${'$'}PREPARED_ROOT/${'$'}PREPARE_NAME"
               mkdir -p "${'$'}PREPARE_DST" || exit 56
-              (cd "${'$'}PREPARE_SRC" && tar -cpf - .) | (cd "${'$'}PREPARE_DST" && $WORKSPACE_TAR_EXTRACT) || exit 57
+              uclone_extract_workspace_tree "${'$'}PREPARE_SRC" "${'$'}PREPARE_DST" || exit 57
               PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARE_DST")
               [ "${'$'}PREPARED_ITEMS" -gt 0 ] || { echo "ERR_EXTRACT_EMPTY:${'$'}PREPARE_SRC" >&2; exit 69; }
               printf '%s\n' data > "${'$'}PREPARED_ROOT/.state/${'$'}PREPARE_NAME" || exit 56
@@ -2355,9 +2667,9 @@ object ShellScripts {
                 echo "SKIP_BACKUP_EMPTY:${'$'}SRC"
                 return 0
               fi
-              rm -rf "${'$'}DST"
+              uclone_remove_tree "${'$'}DST" || exit 54
               mkdir -p "${'$'}DST" || exit 54
-              (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && $WORKSPACE_TAR_EXTRACT) || exit 55
+              uclone_extract_workspace_tree "${'$'}SRC" "${'$'}DST" || exit 55
               BACKUP_ITEMS=${'$'}(count_items "${'$'}DST")
               [ "${'$'}BACKUP_ITEMS" -gt 0 ] || { echo "ERR_BACKUP_EMPTY:${'$'}SRC" >&2; exit 63; }
               printf '%s\n' "data" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
@@ -2365,7 +2677,7 @@ object ShellScripts {
               BACKUP_PARTS=${'$'}((BACKUP_PARTS + 1))
               UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
               UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + BACKUP_ITEMS))
-              BACKUP_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
+              BACKUP_SIZE_KB=${'$'}(uclone_tree_kb "${'$'}DST") || exit 63
               uclone_add_written_kb "${'$'}BACKUP_SIZE_KB"
               uclone_record_temp_path "${'$'}DST"
               echo "BACKUP:${'$'}SRC ITEMS=${'$'}BACKUP_ITEMS"
@@ -2385,14 +2697,13 @@ object ShellScripts {
               CLEAR_TARGET="${'$'}1"
               validate_target_path "${'$'}CLEAR_TARGET"
               [ -d "${'$'}CLEAR_TARGET" ] || { echo "ERR_TARGET_MISSING:${'$'}CLEAR_TARGET" >&2; exit 67; }
-              find "${'$'}CLEAR_TARGET" -mindepth 1 -maxdepth 1 -exec rm -rf {} \; || exit 68
+              uclone_clear_tree_contents "${'$'}CLEAR_TARGET" || exit 68
             }
             read_target_context() {
               CONTEXT_TARGET="${'$'}1"
               ls -Zd "${'$'}CONTEXT_TARGET" 2>/dev/null | awk '{print ${'$'}1; exit}'
             }
             target_owner_for() {
-              OWNER_TARGET="${'$'}1"
               OWNER_UID_ARG="${'$'}2"
               OWNER_KIND="${'$'}3"
               if [ -n "${'$'}OWNER_UID_ARG" ]; then
@@ -2404,11 +2715,7 @@ object ShellScripts {
                 media) echo "${'$'}UID_VALUE:1078"; return 0 ;;
                 obb) echo "${'$'}UID_VALUE:1079"; return 0 ;;
               esac
-              EXISTING_OWNER=${'$'}(stat -c '%u:%g' "${'$'}OWNER_TARGET" 2>/dev/null || true)
-              case "${'$'}EXISTING_OWNER" in
-                *:*) echo "${'$'}EXISTING_OWNER" ;;
-                *) echo "" ;;
-              esac
+              echo ""
             }
             target_mode_for() {
               MODE_TARGET="${'$'}1"
@@ -2435,8 +2742,18 @@ object ShellScripts {
                     OWNER_USER_ID=${'$'}((OWNER_UID / 100000))
                     if [ "${'$'}APP_ID" -ge 10000 ] && [ "${'$'}APP_ID" -le 19999 ]; then
                       CACHE_GID=${'$'}((OWNER_USER_ID * 100000 + 20000 + APP_ID - 10000))
-                      [ -d "${'$'}SEC_TARGET/cache" ] && chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SEC_TARGET/cache" >/dev/null 2>&1 || true
-                      [ -d "${'$'}SEC_TARGET/code_cache" ] && chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SEC_TARGET/code_cache" >/dev/null 2>&1 || true
+                      if [ -d "${'$'}SEC_TARGET/cache" ]; then
+                        chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SEC_TARGET/cache" >/dev/null 2>&1 || {
+                          echo "ERR_CACHE_GID_RESTORE:${'$'}SEC_TARGET/cache" >&2
+                          exit 59
+                        }
+                      fi
+                      if [ -d "${'$'}SEC_TARGET/code_cache" ]; then
+                        chown -hR "${'$'}OWNER_UID:${'$'}CACHE_GID" "${'$'}SEC_TARGET/code_cache" >/dev/null 2>&1 || {
+                          echo "ERR_CACHE_GID_RESTORE:${'$'}SEC_TARGET/code_cache" >&2
+                          exit 59
+                        }
+                      fi
                     fi
                     ;;
                   media:*|obb:*) ;;
@@ -2473,7 +2790,7 @@ object ShellScripts {
                 absent)
                   uclone_transaction_target_mutating "${'$'}PART_NAME" || exit 77
                   TARGET_MUTATED=1
-                  rm -rf "${'$'}TARGET" || exit 68
+                  uclone_remove_tree "${'$'}TARGET" || exit 68
                   RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
                   echo "RESTORED_ABSENT:${'$'}TARGET"
                   return 0
@@ -2493,6 +2810,8 @@ object ShellScripts {
               SNAP_ITEMS="${'$'}PREPARED_ITEMS"
               TARGET_OWNER=${'$'}(target_owner_for "${'$'}TARGET" "${'$'}OWNER_UID" "${'$'}OWNER_KIND")
               TARGET_MODE=${'$'}(target_mode_for "${'$'}TARGET" "${'$'}OWNER_KIND")
+              uclone_transaction_target_mutating "${'$'}PART_NAME" || exit 77
+              TARGET_MUTATED=1
               mkdir -p "${'$'}TARGET" || exit 56
               TARGET_CONTEXT=${'$'}(read_target_context "${'$'}TARGET")
               case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
@@ -2501,11 +2820,9 @@ object ShellScripts {
                 TARGET_CONTEXT=${'$'}(read_target_context "${'$'}TARGET")
                 case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
               fi
-              uclone_transaction_target_mutating "${'$'}PART_NAME" || exit 77
-              TARGET_MUTATED=1
               clear_target_contents "${'$'}TARGET"
               if [ "${'$'}PREPARED_STATE" = "data" ]; then
-                (cd "${'$'}PREPARED" && tar -cpf - .) | (cd "${'$'}TARGET" && tar -xpf -) || exit 58
+                uclone_extract_target_tree "${'$'}PREPARED" "${'$'}TARGET" || exit 58
               fi
               apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT" "${'$'}TARGET_MODE" "${'$'}OWNER_KIND"
               TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET")
@@ -2518,16 +2835,16 @@ object ShellScripts {
               RESTORED_ITEMS=${'$'}((RESTORED_ITEMS + TARGET_ITEMS))
               UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SNAP_ITEMS))
               UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + TARGET_ITEMS))
-              TARGET_SIZE_KB=${'$'}(du -sk "${'$'}TARGET" 2>/dev/null | awk '{print ${'$'}1}')
+              TARGET_SIZE_KB=${'$'}(uclone_tree_kb "${'$'}TARGET") || exit 65
               uclone_add_written_kb "${'$'}TARGET_SIZE_KB"
               uclone_record_temp_path "${'$'}TARGET"
               echo "RESTORED:${'$'}TARGET ITEMS=${'$'}TARGET_ITEMS OWNER=${'$'}TARGET_OWNER CONTEXT=${'$'}TARGET_CONTEXT"
             }
             restore_permission_state_strict() {
-              uclone_restore_permission_state "${'$'}1" "${'$'}DST_USER" "${settings.permissionRestoreMode.name}"
+              uclone_restore_permission_state "${'$'}1" "${'$'}DST_USER" "${settings.permissionRestoreMode.name}" "$transactionSourceUser"
             }
             restore_transaction_permission_state() {
-              uclone_restore_permission_state "${'$'}1" "${'$'}DST_USER" EXACT
+              uclone_restore_permission_state "${'$'}1" "${'$'}DST_USER" EXACT "${'$'}DST_USER"
             }
             restore_permission_state() {
               PERMISSION_SOURCE="${'$'}1"
@@ -2559,9 +2876,13 @@ object ShellScripts {
               fi
               [ -d "${'$'}ROLLBACK_PARENT" ] || return 0
               EXPECTED_CHILD_PREFIX="${'$'}ROOT/rollback/${'$'}PKG/"
-              find "${'$'}ROLLBACK_PARENT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while IFS= read -r OLD; do
+              find "${'$'}ROLLBACK_PARENT" -xdev -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while IFS= read -r OLD; do
                 OLD_ID=${'$'}(basename "${'$'}OLD")
                 [ "${'$'}OLD_ID" = "${'$'}ROLLBACK_ID" ] && continue
+                if [ -n "${'$'}SWITCH_ID_FOR_PRUNE" ] && [ "${'$'}OLD_ID" = "${'$'}SWITCH_ID_FOR_PRUNE" ]; then
+                  echo "KEPT_ROLLBACK_ACTIVE_RETURN_POINT=${'$'}OLD"
+                  continue
+                fi
                 OLD_STATE_KIND=""
                 if [ -f "${'$'}OLD/manifest.json" ]; then
                   OLD_STATE_KIND=${'$'}(sed -n 's/.*"stateKind":"\([^"]*\)".*/\1/p' "${'$'}OLD/manifest.json" | head -1)
@@ -2576,13 +2897,7 @@ object ShellScripts {
                 fi
                 case "${'$'}OLD" in
                   "${'$'}EXPECTED_CHILD_PREFIX"*)
-                    rm -rf "${'$'}OLD" && echo "PRUNED_ROLLBACK=${'$'}OLD" || echo "WARN_PRUNE_ROLLBACK_FAILED:${'$'}OLD"
-                    if [ -n "${'$'}SWITCH_ID_FOR_PRUNE" ] && [ "${'$'}OLD_ID" = "${'$'}SWITCH_ID_FOR_PRUNE" ]; then
-                      case "${'$'}SWITCH_MARKER_FOR_PRUNE" in
-                        "${'$'}ROOT"/switches/"${'$'}PKG"/active) rm -f "${'$'}SWITCH_MARKER_FOR_PRUNE" && echo "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER_FOR_PRUNE" || exit 70 ;;
-                        *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER_FOR_PRUNE" >&2; exit 70 ;;
-                      esac
-                    fi
+                    uclone_remove_tree "${'$'}OLD" && echo "PRUNED_ROLLBACK=${'$'}OLD" || echo "WARN_PRUNE_ROLLBACK_FAILED:${'$'}OLD"
                     ;;
                   *)
                     echo "WARN_SKIP_BAD_ROLLBACK_PATH:${'$'}OLD"
@@ -2591,11 +2906,10 @@ object ShellScripts {
               done || exit 70
               if [ -f "${'$'}SWITCH_MARKER_FOR_PRUNE" ]; then
                 SWITCH_ID_AFTER_PRUNE=${'$'}(sed -n '1p' "${'$'}SWITCH_MARKER_FOR_PRUNE" | tr -d '\r')
-                if [ ! -d "${'$'}ROLLBACK_PARENT/${'$'}SWITCH_ID_AFTER_PRUNE" ]; then
-                  case "${'$'}SWITCH_MARKER_FOR_PRUNE" in
-                    "${'$'}ROOT"/switches/"${'$'}PKG"/active) rm -f "${'$'}SWITCH_MARKER_FOR_PRUNE" && echo "SWITCH_MARKER_CLEARED=${'$'}SWITCH_MARKER_FOR_PRUNE" || exit 70 ;;
-                    *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER_FOR_PRUNE" >&2; exit 70 ;;
-                  esac
+                if [ "${'$'}SWITCH_ID_AFTER_PRUNE" = "${'$'}UNKNOWN_SWITCH_MARKER" ]; then
+                  echo "KEPT_SWITCH_MARKER_UNKNOWN=${'$'}SWITCH_MARKER_FOR_PRUNE"
+                elif [ ! -d "${'$'}ROLLBACK_PARENT/${'$'}SWITCH_ID_AFTER_PRUNE" ]; then
+                  echo "KEPT_SWITCH_MARKER_BROKEN=${'$'}SWITCH_MARKER_FOR_PRUNE id=${'$'}SWITCH_ID_AFTER_PRUNE"
                 fi
               fi
             }
@@ -2618,7 +2932,7 @@ object ShellScripts {
             if [ "${'$'}ROLLBACK_REUSED" = "1" ]; then
               TRANSACTION_UNDO="${'$'}ROOT/tmp/undo_${'$'}{PKG}_${'$'}TS"
               ROLLBACK="${'$'}TRANSACTION_UNDO"
-              rm -rf "${'$'}ROLLBACK"
+              uclone_remove_tree "${'$'}ROLLBACK" || exit 53
               mkdir -p "${'$'}ROLLBACK" || exit 53
             else
               ROLLBACK="${'$'}PERSISTENT_ROLLBACK"
@@ -2629,12 +2943,12 @@ object ShellScripts {
             backup_dir "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG" "${'$'}ROLLBACK/media" "media"
             backup_dir "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG" "${'$'}ROLLBACK/obb" "obb"
             ${if (settings.includePermissions) "backup_permission_state \"${'$'}ROLLBACK/permissions\" || { echo \"ERR_TRANSACTION_PERMISSION_CAPTURE:${'$'}DST_USER\" >&2; exit 54; }" else ":"}
-            ROLLBACK_SIZE_KB=${'$'}(du -sk "${'$'}ROLLBACK" 2>/dev/null | awk '{print ${'$'}1}')
+            ROLLBACK_SIZE_KB=${'$'}(uclone_tree_kb "${'$'}ROLLBACK") || exit 63
             if [ "${'$'}ROLLBACK_REUSED" = "1" ]; then
-              printf '%s\n' "{\"schemaVersion\":4,\"integrityMode\":\"FAST_METADATA\",\"packageName\":\"${'$'}PKG\",\"sourceVersionCode\":\"${'$'}TARGET_VERSION_CODE\",\"sourceVersionName\":\"${'$'}TARGET_VERSION_NAME_ESC\",\"sourceSigningCertificateSha256\":\"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\",\"sourceApkDigest\":\"${'$'}TARGET_APK_DIGEST\",\"sourceUid\":${'$'}UID_VALUE,\"sourceAppId\":${'$'}TARGET_APP_ID,\"createdAt\":\"${'$'}TS\",\"stateKind\":\"${'$'}CURRENT_STATE_KIND\",\"sourceUser\":\"${'$'}DST_USER\",\"targetUser\":\"${'$'}DST_USER\",\"backupKind\":\"transaction_undo\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
+              printf '%s\n' "{\"schemaVersion\":$CURRENT_MANIFEST_SCHEMA,\"integrityMode\":\"FAST_METADATA\",\"packageName\":\"${'$'}PKG\",\"sourceVersionCode\":\"${'$'}TARGET_VERSION_CODE\",\"sourceVersionName\":\"${'$'}TARGET_VERSION_NAME_ESC\",\"sourceSigningCertificateSha256\":\"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\",\"sourceApkDigest\":\"${'$'}TARGET_APK_DIGEST\",\"sourceUid\":${'$'}UID_VALUE,\"sourceAppId\":${'$'}TARGET_APP_ID,\"transactionRequestId\":\"${'$'}UCLONE_REQUEST_ID\",\"createdAt\":\"${'$'}TS\",\"stateKind\":\"${'$'}CURRENT_STATE_KIND\",\"sourceUser\":\"${'$'}DST_USER\",\"targetUser\":\"${'$'}DST_USER\",\"backupKind\":\"transaction_undo\",\"permissionCaptureState\":\"${if (settings.includePermissions) "valid" else "excluded"}\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
               echo "TRANSACTION_UNDO_CREATED=${'$'}ROLLBACK state=${'$'}CURRENT_STATE_KIND"
             else
-              printf '%s\n' "{\"schemaVersion\":4,\"integrityMode\":\"FAST_METADATA\",\"packageName\":\"${'$'}PKG\",\"sourceVersionCode\":\"${'$'}TARGET_VERSION_CODE\",\"sourceVersionName\":\"${'$'}TARGET_VERSION_NAME_ESC\",\"sourceSigningCertificateSha256\":\"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\",\"sourceApkDigest\":\"${'$'}TARGET_APK_DIGEST\",\"sourceUid\":${'$'}UID_VALUE,\"sourceAppId\":${'$'}TARGET_APP_ID,\"rollbackId\":\"${'$'}ROLLBACK_ID\",\"createdAt\":\"${'$'}TS\",\"reason\":\"$rollbackReason\",\"stateKind\":\"${'$'}CURRENT_STATE_KIND\",\"sourceUser\":\"${'$'}DST_USER\",\"targetUser\":\"${'$'}DST_USER\",\"backupKind\":\"$rollbackRootName\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
+              printf '%s\n' "{\"schemaVersion\":$CURRENT_MANIFEST_SCHEMA,\"integrityMode\":\"FAST_METADATA\",\"packageName\":\"${'$'}PKG\",\"sourceVersionCode\":\"${'$'}TARGET_VERSION_CODE\",\"sourceVersionName\":\"${'$'}TARGET_VERSION_NAME_ESC\",\"sourceSigningCertificateSha256\":\"${'$'}UCLONE_SIGNING_CERTIFICATE_SHA256\",\"sourceApkDigest\":\"${'$'}TARGET_APK_DIGEST\",\"sourceUid\":${'$'}UID_VALUE,\"sourceAppId\":${'$'}TARGET_APP_ID,\"transactionRequestId\":\"${'$'}UCLONE_REQUEST_ID\",\"rollbackId\":\"${'$'}ROLLBACK_ID\",\"createdAt\":\"${'$'}TS\",\"reason\":\"$rollbackReason\",\"stateKind\":\"${'$'}CURRENT_STATE_KIND\",\"sourceUser\":\"${'$'}DST_USER\",\"targetUser\":\"${'$'}DST_USER\",\"backupKind\":\"$rollbackRootName\",\"permissionCaptureState\":\"${if (settings.includePermissions) "valid" else "excluded"}\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
               echo "PASSIVE_BACKUP_STATE=${'$'}CURRENT_STATE_KIND"
               PERSISTENT_ROLLBACK_FINALIZED=1
               echo "PASSIVE_BACKUP_CREATED=${'$'}PERSISTENT_ROLLBACK state=${'$'}CURRENT_STATE_KIND"
@@ -2691,13 +3005,24 @@ object ShellScripts {
               clone)
                 MAIN_ROLLBACK_ID="${'$'}CURRENT_MAIN_ROLLBACK_ID"
                 if [ "${'$'}CURRENT_STATE_KIND" = "main" ]; then MAIN_ROLLBACK_ID="${'$'}ROLLBACK_ID"; fi
-                [ -n "${'$'}MAIN_ROLLBACK_ID" ] || { echo "ERR_MAIN_STATE_BACKUP_MISSING" >&2; exit 70; }
-                validate_rollback_id "${'$'}MAIN_ROLLBACK_ID"
-                [ -d "${'$'}ROOT/rollback/${'$'}PKG/${'$'}MAIN_ROLLBACK_ID" ] || { echo "ERR_MAIN_STATE_BACKUP_MISSING:${'$'}MAIN_ROLLBACK_ID" >&2; exit 70; }
-                write_switch_marker_atomic "${'$'}SWITCH_MARKER" "${'$'}MAIN_ROLLBACK_ID" || exit 70
-                echo "DATA_STATE_UPDATED=clone SWITCH_MARKER=${'$'}SWITCH_MARKER ROLLBACK_ID=${'$'}MAIN_ROLLBACK_ID"
+                if [ "${'$'}CURRENT_STATE_KIND" = "unknown" ] || [ -z "${'$'}MAIN_ROLLBACK_ID" ]; then
+                  write_switch_marker_atomic "${'$'}SWITCH_MARKER" "${'$'}UNKNOWN_SWITCH_MARKER" || exit 70
+                  echo "WARN_DATA_STATE_REMAINS_UNKNOWN:source=${'$'}ACTIVE reason=main_return_point_missing"
+                else
+                  validate_rollback_id "${'$'}MAIN_ROLLBACK_ID"
+                  if [ -d "${'$'}ROOT/rollback/${'$'}PKG/${'$'}MAIN_ROLLBACK_ID" ]; then
+                    write_switch_marker_atomic "${'$'}SWITCH_MARKER" "${'$'}MAIN_ROLLBACK_ID" || exit 70
+                    echo "DATA_STATE_UPDATED=clone SWITCH_MARKER=${'$'}SWITCH_MARKER ROLLBACK_ID=${'$'}MAIN_ROLLBACK_ID"
+                  else
+                    write_switch_marker_atomic "${'$'}SWITCH_MARKER" "${'$'}UNKNOWN_SWITCH_MARKER" || exit 70
+                    echo "WARN_DATA_STATE_REMAINS_UNKNOWN:source=${'$'}ACTIVE reason=main_return_point_missing"
+                  fi
+                fi
                 ;;
-              *) echo "WARN_DATA_STATE_UNKNOWN:${'$'}ACTIVE" ;;
+              *)
+                write_switch_marker_atomic "${'$'}SWITCH_MARKER" "${'$'}UNKNOWN_SWITCH_MARKER" || exit 70
+                echo "WARN_DATA_STATE_REMAINS_UNKNOWN:source=${'$'}ACTIVE reason=source_state_unknown"
+                ;;
             esac
             """.trimIndent() else ":"}
             sync

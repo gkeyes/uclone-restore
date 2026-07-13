@@ -71,9 +71,8 @@ All hook-side logic must be wrapped in `try/catch`. Missing classes, fields, met
 
 ### Android 15+ foreground-service type
 
-- Tasks submitted from the visible main app use `dataSync`.
-- Explicit user actions submitted by the launcher module or launcher shortcuts use the declared `specialUse` type on Android 14+.
-- This prevents a cold `ExternalActionService` from being rejected before its running notification appears after Android 15+ has exhausted the app's background `dataSync` time budget.
+- On Android 14+, `ExternalActionService` uses the declared `specialUse` type for every task source.
+- This prevents launcher actions and cold main-app starts from being rejected before their running notification appears after Android 15+ has exhausted the app's background `dataSync` time budget.
 - The service manifest must declare `FOREGROUND_SERVICE_SPECIAL_USE`, `dataSync|specialUse`, and `PROPERTY_SPECIAL_USE_FGS_SUBTYPE`.
 - A foreground-promotion failure must persist and broadcast a terminal `FAILED` result; the request must not remain at `SENT`.
 
@@ -134,6 +133,14 @@ Optional extras:
 ```text
 com.uclone.restore.extra.SOURCE = module
 ```
+
+Requests whose source is `module` or `launcher_module` must also carry:
+
+```text
+com.uclone.restore.extra.TARGET_USER_ID = <launcher icon user id>
+```
+
+The first launcher-hook version only supports ordinary `user0` icons. The provider rejects other launcher users, copies the accepted `user0` identity into the immutable PendingIntent, and UClone rejects the request unless that value equals its configured `mainUserId`. Protocol-v1 module tokens created before this field existed are interpreted as `user0` only, so they remain usable with the default `mainUserId=0` but are rejected for any nonzero main-user configuration. This prevents a `user0` icon from operating on a nonzero configured main user. Main-App requests and UClone's internal launcher shortcuts do not use this module-only binding.
 
 ## Query Interface
 
@@ -208,7 +215,7 @@ RESTORE_LATEST_CLONE_ROLLBACK
 
 Meanings:
 
-- `SWITCH_OR_RESTORE`: if a switch marker exists, restore main state; otherwise switch to clone state.
+- `SWITCH_OR_RESTORE`: if the marker resolves to a valid main-data return point, restore main state; if no marker exists, switch to clone state. A sentinel, malformed, or mismatched marker resolves to `UNKNOWN` and is rejected until the user resolves state in the main App.
 - `SWITCH_TO_CLONE`: force switch current main app data to latest clone state.
 - `RESTORE_MAIN`: restore using the current switch rollback marker.
 - `BACKUP_DEFAULT`: create the default active backup using current UClone settings.
@@ -312,6 +319,7 @@ val intent = Intent("com.uclone.restore.action.EXECUTE")
     .putExtra("com.uclone.restore.extra.PACKAGE_NAME", targetPackageName)
     .putExtra("com.uclone.restore.extra.REQUEST_ID", UUID.randomUUID().toString())
     .putExtra("com.uclone.restore.extra.SOURCE", "module")
+    .putExtra("com.uclone.restore.extra.TARGET_USER_ID", 0)
 
 // ModuleRelayProvider wraps this explicit intent with
 // PendingIntent.getForegroundService(..., FLAG_ONE_SHOT | FLAG_IMMUTABLE).

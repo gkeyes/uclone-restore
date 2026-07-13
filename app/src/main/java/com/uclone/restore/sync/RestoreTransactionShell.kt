@@ -27,7 +27,7 @@ internal object RestoreTransactionShell {
           RB_STATE=${'$'}(sed -n '1p' "${'$'}RB_STATE_FILE" | tr -d '\r')
           case "${'$'}RB_STATE" in
             absent)
-              rm -rf "${'$'}RB_TARGET" || return 1
+              uclone_remove_tree "${'$'}RB_TARGET" || return 1
               echo "AUTO_ROLLBACK_PART_ABSENT:${'$'}RB_TARGET"
               return 0
               ;;
@@ -54,7 +54,7 @@ internal object RestoreTransactionShell {
           esac
           clear_target_contents "${'$'}RB_TARGET"
           if [ "${'$'}RB_STATE" = "data" ]; then
-            (cd "${'$'}RB_SRC" && tar -cpf - .) | (cd "${'$'}RB_TARGET" && tar -xpf -) || return 1
+            uclone_extract_target_tree "${'$'}RB_SRC" "${'$'}RB_TARGET" || return 1
           fi
           apply_target_security "${'$'}RB_TARGET" "${'$'}RB_OWNER" "${'$'}RB_CONTEXT" "${'$'}RB_MODE" "${'$'}RB_KIND"
           echo "AUTO_ROLLBACK_PART:${'$'}RB_TARGET"

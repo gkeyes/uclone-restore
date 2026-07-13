@@ -7,12 +7,20 @@ internal object WorkspacePathGuard {
 
     fun require(rootDir: String): String = """
         UCLONE_WORKSPACE_EXPECTED=${shellQuote(rootDir)}
+        ${workspaceOwnershipGuard()}
+        ${FilesystemSafetyShell.functions()}
         case "${'$'}UCLONE_WORKSPACE_EXPECTED" in
           /*) ;;
           *) echo "ERR_WORKSPACE_NOT_ABSOLUTE:${'$'}UCLONE_WORKSPACE_EXPECTED" >&2; exit 75 ;;
         esac
         case "${'$'}UCLONE_WORKSPACE_EXPECTED" in
           /|/data|/data/adb) echo "ERR_UNSAFE_WORKSPACE_ROOT:${'$'}UCLONE_WORKSPACE_EXPECTED" >&2; exit 75 ;;
+        esac
+        case "${'$'}UCLONE_WORKSPACE_EXPECTED" in
+          *[[:space:]]*) echo "ERR_WORKSPACE_WHITESPACE:${'$'}UCLONE_WORKSPACE_EXPECTED" >&2; exit 75 ;;
+        esac
+        case "${'$'}UCLONE_WORKSPACE_EXPECTED" in
+          *[\\\\]*) echo "ERR_WORKSPACE_BACKSLASH:${'$'}UCLONE_WORKSPACE_EXPECTED" >&2; exit 75 ;;
         esac
         [ ! -L "${'$'}UCLONE_WORKSPACE_EXPECTED" ] || {
           echo "ERR_WORKSPACE_ROOT_SYMLINK:${'$'}UCLONE_WORKSPACE_EXPECTED" >&2
@@ -31,17 +39,27 @@ internal object WorkspacePathGuard {
           echo "ERR_WORKSPACE_NOT_CANONICAL:${'$'}UCLONE_WORKSPACE_EXPECTED:${'$'}UCLONE_WORKSPACE_REAL" >&2
           exit 75
         }
+        uclone_guard_workspace_directory "${'$'}UCLONE_WORKSPACE_REAL" || exit 75
+        uclone_assert_single_filesystem "${'$'}UCLONE_WORKSPACE_REAL" || exit 75
         UCLONE_CONFIG_DIR="${'$'}UCLONE_WORKSPACE_REAL/config"
         [ ! -L "${'$'}UCLONE_CONFIG_DIR" ] || {
           echo "ERR_WORKSPACE_SYMLINK:${'$'}UCLONE_CONFIG_DIR" >&2
           exit 75
         }
-        mkdir -p "${'$'}UCLONE_CONFIG_DIR" || exit 75
+        if [ "${'$'}UCLONE_WORKSPACE_REAL" = "$DEFAULT_ROOT" ]; then
+          mkdir -p "${'$'}UCLONE_CONFIG_DIR" || exit 75
+        else
+          [ -d "${'$'}UCLONE_CONFIG_DIR" ] || {
+            echo "ERR_UNTRUSTED_WORKSPACE:${'$'}UCLONE_WORKSPACE_REAL" >&2
+            exit 75
+          }
+        fi
         UCLONE_CONFIG_REAL=${'$'}(readlink -f "${'$'}UCLONE_CONFIG_DIR" 2>/dev/null || true)
         [ "${'$'}UCLONE_CONFIG_REAL" = "${'$'}UCLONE_WORKSPACE_REAL/config" ] || {
           echo "ERR_UNSAFE_WORKSPACE_TARGET:${'$'}UCLONE_CONFIG_DIR" >&2
           exit 75
         }
+        uclone_guard_workspace_directory "${'$'}UCLONE_CONFIG_DIR" || exit 75
         UCLONE_IDENTITY="${'$'}UCLONE_CONFIG_DIR/workspace.identity"
         [ ! -L "${'$'}UCLONE_IDENTITY" ] || {
           echo "ERR_WORKSPACE_IDENTITY_SYMLINK:${'$'}UCLONE_IDENTITY" >&2
@@ -80,6 +98,7 @@ internal object WorkspacePathGuard {
               echo "ERR_UNSAFE_WORKSPACE_TARGET:${'$'}UCLONE_MANAGED_PATH" >&2
               exit 75
             }
+            uclone_guard_workspace_directory "${'$'}UCLONE_MANAGED_PATH" || exit 75
           fi
         done
         ${structuralPathGuard()}
@@ -89,12 +108,20 @@ internal object WorkspacePathGuard {
 
     fun inspect(rootDir: String): String = """
         UCLONE_WORKSPACE_EXPECTED=${shellQuote(rootDir)}
+        ${workspaceOwnershipGuard()}
+        ${FilesystemSafetyShell.functions()}
         case "${'$'}UCLONE_WORKSPACE_EXPECTED" in
           /*) ;;
           *) echo "ERR_WORKSPACE_NOT_ABSOLUTE:${'$'}UCLONE_WORKSPACE_EXPECTED" >&2; exit 75 ;;
         esac
         case "${'$'}UCLONE_WORKSPACE_EXPECTED" in
           /|/data|/data/adb) echo "ERR_UNSAFE_WORKSPACE_ROOT:${'$'}UCLONE_WORKSPACE_EXPECTED" >&2; exit 75 ;;
+        esac
+        case "${'$'}UCLONE_WORKSPACE_EXPECTED" in
+          *[[:space:]]*) echo "ERR_WORKSPACE_WHITESPACE:${'$'}UCLONE_WORKSPACE_EXPECTED" >&2; exit 75 ;;
+        esac
+        case "${'$'}UCLONE_WORKSPACE_EXPECTED" in
+          *[\\\\]*) echo "ERR_WORKSPACE_BACKSLASH:${'$'}UCLONE_WORKSPACE_EXPECTED" >&2; exit 75 ;;
         esac
         [ ! -L "${'$'}UCLONE_WORKSPACE_EXPECTED" ] || {
           echo "ERR_WORKSPACE_ROOT_SYMLINK:${'$'}UCLONE_WORKSPACE_EXPECTED" >&2
@@ -118,6 +145,8 @@ internal object WorkspacePathGuard {
             echo "ERR_WORKSPACE_NOT_CANONICAL:${'$'}UCLONE_WORKSPACE_EXPECTED:${'$'}UCLONE_WORKSPACE_REAL" >&2
             exit 75
           }
+          uclone_guard_workspace_directory "${'$'}UCLONE_WORKSPACE_REAL" || exit 75
+          uclone_assert_single_filesystem "${'$'}UCLONE_WORKSPACE_REAL" || exit 75
           UCLONE_CONFIG_DIR="${'$'}UCLONE_WORKSPACE_REAL/config"
           UCLONE_IDENTITY="${'$'}UCLONE_CONFIG_DIR/workspace.identity"
           if [ -e "${'$'}UCLONE_CONFIG_DIR" ] || [ -L "${'$'}UCLONE_CONFIG_DIR" ]; then
@@ -130,6 +159,7 @@ internal object WorkspacePathGuard {
               echo "ERR_UNSAFE_WORKSPACE_TARGET:${'$'}UCLONE_CONFIG_DIR" >&2
               exit 75
             }
+            uclone_guard_workspace_directory "${'$'}UCLONE_CONFIG_DIR" || exit 75
           fi
           if [ "${'$'}UCLONE_WORKSPACE_REAL" != "$DEFAULT_ROOT" ] || [ -e "${'$'}UCLONE_IDENTITY" ] || [ -L "${'$'}UCLONE_IDENTITY" ]; then
             [ -f "${'$'}UCLONE_IDENTITY" ] && [ ! -L "${'$'}UCLONE_IDENTITY" ] || {
@@ -156,12 +186,36 @@ internal object WorkspacePathGuard {
                 echo "ERR_UNSAFE_WORKSPACE_TARGET:${'$'}UCLONE_MANAGED_PATH" >&2
                 exit 75
               }
+              uclone_guard_workspace_directory "${'$'}UCLONE_MANAGED_PATH" || exit 75
             fi
           done
           ${structuralPathGuard()}
         fi
         ROOT="${'$'}UCLONE_WORKSPACE_REAL"
         ROOT_REAL="${'$'}UCLONE_WORKSPACE_REAL"
+    """.trimIndent()
+
+    private fun workspaceOwnershipGuard(): String = """
+        uclone_guard_workspace_directory() {
+          UCLONE_GUARD_DIRECTORY="${'$'}1"
+          [ -d "${'$'}UCLONE_GUARD_DIRECTORY" ] && [ ! -L "${'$'}UCLONE_GUARD_DIRECTORY" ] || {
+            echo "ERR_UNTRUSTED_WORKSPACE_DIRECTORY:${'$'}UCLONE_GUARD_DIRECTORY" >&2
+            return 1
+          }
+          UCLONE_GUARD_OWNER=${'$'}(stat -c '%u' "${'$'}UCLONE_GUARD_DIRECTORY" 2>/dev/null || true)
+          UCLONE_GUARD_MODE=${'$'}(stat -c '%a' "${'$'}UCLONE_GUARD_DIRECTORY" 2>/dev/null || true)
+          [ "${'$'}UCLONE_GUARD_OWNER" = "0" ] || {
+            echo "ERR_UNTRUSTED_WORKSPACE_OWNER:${'$'}UCLONE_GUARD_DIRECTORY:${'$'}UCLONE_GUARD_OWNER" >&2
+            return 1
+          }
+          case "${'$'}UCLONE_GUARD_MODE" in
+            [0-7][0145][0145]|[0-7][0-7][0145][0145]) ;;
+            *)
+              echo "ERR_UNTRUSTED_WORKSPACE_MODE:${'$'}UCLONE_GUARD_DIRECTORY:${'$'}UCLONE_GUARD_MODE" >&2
+              return 1
+              ;;
+          esac
+        }
     """.trimIndent()
 
     private fun structuralPathGuard(): String = """

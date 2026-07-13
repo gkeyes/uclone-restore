@@ -59,6 +59,7 @@ internal object WorkspaceOwnershipScripts {
           [ ! -L "${'$'}WORKSPACE_TARGET" ] || { echo "ERR_WORKSPACE_SYMLINK:${'$'}WORKSPACE_TARGET" >&2; return 1; }
           TARGET_REAL=${'$'}(readlink -f "${'$'}WORKSPACE_TARGET" 2>/dev/null || true)
           [ "${'$'}TARGET_REAL" = "${'$'}ROOT_REAL/${'$'}NAME" ] || { echo "ERR_UNSAFE_WORKSPACE_TARGET:${'$'}WORKSPACE_TARGET" >&2; return 1; }
+          uclone_assert_single_filesystem "${'$'}WORKSPACE_TARGET" || return 1
         }
         workspace_owner_scan() {
           WORKSPACE_TOTAL=0
@@ -75,7 +76,7 @@ internal object WorkspaceOwnershipScripts {
               echo "ERR_WORKSPACE_SCAN:${'$'}WORKSPACE_TARGET:owner" >&2
               exit 76
             }
-            TARGET_SIZE_KB=${'$'}(du -sk "${'$'}WORKSPACE_TARGET" 2>/dev/null | awk '{print ${'$'}1}') || {
+            TARGET_SIZE_KB=${'$'}(uclone_tree_kb "${'$'}WORKSPACE_TARGET") || {
               echo "ERR_WORKSPACE_SCAN:${'$'}WORKSPACE_TARGET:size" >&2
               exit 76
             }

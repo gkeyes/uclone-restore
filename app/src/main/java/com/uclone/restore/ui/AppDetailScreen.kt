@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.RiskLevel
+import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.util.Formatters
 
 @Composable
@@ -192,7 +193,8 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 }
             }
         }
-        val switched = state.selectedSwitchRollbackId != null
+        val dataState = state.dataStateFor(app.packageName)
+        val primaryAction = dataState.detailPrimaryAction
         val bothUsersInstalled = app.user0Installed && app.user10Installed
         val dataActionsEnabled = !app.isSystemApp
         SectionCard("操作工具", glass = false) {
@@ -205,25 +207,54 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             }
             InfoRow(
                 "主系统当前数据",
-                if (switched) "来自分身系统 · 可还原" else "主系统原始状态 · 可切换",
+                when (dataState) {
+                    AppDataState.Main -> "主系统原始状态 · 可切换"
+                    is AppDataState.Clone -> "来自分身系统 · 可还原"
+                    AppDataState.Unknown -> "状态未知 · 切换/还原已停用"
+                },
             )
             ToolDivider()
             AppToolRow(
-                title = if (switched) "还原切换前的主系统状态" else "切换到分身当前登录状态",
-                description = if (switched) {
-                    if (state.settings.forceUpdateCloneDataBeforeMainRestore) {
+                title = when (primaryAction) {
+                    DetailPrimaryAction.SWITCH -> "切换到分身当前登录状态"
+                    DetailPrimaryAction.RESTORE -> "还原切换前的主系统状态"
+                    DetailPrimaryAction.DISABLED_UNKNOWN -> "当前数据来源需要确认"
+                },
+                description = when (primaryAction) {
+                    DetailPrimaryAction.SWITCH ->
+                        "读取 user${state.settings.cloneUserId} 当前最新数据；先确保主系统有长期返回点和本次任务临时回滚，再覆盖 user${state.settings.mainUserId}。"
+                    DetailPrimaryAction.RESTORE -> if (state.settings.forceUpdateCloneDataBeforeMainRestore) {
                         "先把 user${state.settings.mainUserId} 当前分身态数据同步回 user${state.settings.cloneUserId}，成功后再恢复切换前的主数据并结束切换状态。"
                     } else {
                         "使用本次切换前自动生成的 user${state.settings.mainUserId} 被动备份恢复主系统，并结束切换状态。"
                     }
-                } else {
-                    "读取 user${state.settings.cloneUserId} 当前最新数据；先确保主系统有长期返回点和本次任务临时回滚，再覆盖 user${state.settings.mainUserId}。"
+                    DetailPrimaryAction.DISABLED_UNKNOWN ->
+                        "UClone 不会猜测当前数据来源。恢复明确的主数据可回到 MAIN；恢复分数据时只有保留有效主数据返回点才能建立 CLONE，否则仍保持未知。"
                 },
-                actionLabel = if (switched) "还原" else "切换",
-                icon = if (switched) Icons.Outlined.Restore else Icons.Outlined.SwapHoriz,
-                primary = !switched,
-                enabled = dataActionsEnabled && (if (switched) app.user0Installed else bothUsersInstalled) && !state.busy,
-                onClick = { confirm = if (switched) ConfirmAction.RESTORE_SWITCH else ConfirmAction.SWITCH },
+                actionLabel = when (primaryAction) {
+                    DetailPrimaryAction.SWITCH -> "切换"
+                    DetailPrimaryAction.RESTORE -> "还原"
+                    DetailPrimaryAction.DISABLED_UNKNOWN -> "已停用"
+                },
+                icon = when (primaryAction) {
+                    DetailPrimaryAction.SWITCH -> Icons.Outlined.SwapHoriz
+                    DetailPrimaryAction.RESTORE -> Icons.Outlined.Restore
+                    DetailPrimaryAction.DISABLED_UNKNOWN -> Icons.AutoMirrored.Outlined.FactCheck
+                },
+                primary = primaryAction == DetailPrimaryAction.SWITCH,
+                warning = primaryAction == DetailPrimaryAction.DISABLED_UNKNOWN,
+                enabled = dataActionsEnabled && !state.busy && when (primaryAction) {
+                    DetailPrimaryAction.SWITCH -> bothUsersInstalled
+                    DetailPrimaryAction.RESTORE -> app.user0Installed
+                    DetailPrimaryAction.DISABLED_UNKNOWN -> false
+                },
+                onClick = {
+                    confirm = when (primaryAction) {
+                        DetailPrimaryAction.SWITCH -> ConfirmAction.SWITCH
+                        DetailPrimaryAction.RESTORE -> ConfirmAction.RESTORE_SWITCH
+                        DetailPrimaryAction.DISABLED_UNKNOWN -> null
+                    }
+                },
             )
             ToolDivider()
             AppToolRow(
@@ -261,18 +292,16 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 enabled = app.user0Installed && !state.busy,
                 onClick = { confirm = ConfirmAction.AUDIT },
             )
-            if (switched) {
-                ToolDivider()
-                AppToolRow(
-                    title = "重置切换状态",
-                    description = "只清除首页的“还原”标记；不恢复、不删除任何 App 数据或备份。",
-                    actionLabel = "重置",
-                    icon = Icons.Outlined.RestartAlt,
-                    warning = true,
-                    enabled = !state.busy,
-                    onClick = { confirm = ConfirmAction.RESET_SWITCH },
-                )
-            }
+            ToolDivider()
+            AppToolRow(
+                title = "将数据状态设为未知",
+                description = "只重置 UClone 的状态判断，不修改 App 数据或备份。恢复明确的主数据可回到主状态；恢复分数据还需保留有效主数据返回点。",
+                actionLabel = "设为未知",
+                icon = Icons.Outlined.RestartAlt,
+                warning = true,
+                enabled = !state.busy,
+                onClick = { confirm = ConfirmAction.RESET_SWITCH },
+            )
             if (app.lastSnapshotAt != null) {
                 ToolDivider()
                 AppToolRow(
@@ -301,11 +330,16 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             onConfirm = { allowVersionMismatch, allowLegacyIdentity ->
                 confirm = null
                 when (action) {
-                    ConfirmAction.SWITCH -> viewModel.switchToCloneStateSelected()
-                    ConfirmAction.RESTORE_SWITCH -> viewModel.restoreSwitchMainStateSelected(
-                        allowVersionMismatch,
-                        allowLegacyIdentity,
-                    )
+                    ConfirmAction.SWITCH -> if (state.selectedDataState?.detailPrimaryAction == DetailPrimaryAction.SWITCH) {
+                        viewModel.switchToCloneStateSelected()
+                    }
+                    ConfirmAction.RESTORE_SWITCH ->
+                        if (state.selectedDataState?.detailPrimaryAction == DetailPrimaryAction.RESTORE) {
+                            viewModel.restoreSwitchMainStateSelected(
+                                allowVersionMismatch,
+                                allowLegacyIdentity,
+                            )
+                        }
                     ConfirmAction.CAPTURE -> viewModel.captureSelected()
                     ConfirmAction.RESTORE -> viewModel.restoreSelected(allowVersionMismatch, allowLegacyIdentity)
                     ConfirmAction.LATEST -> viewModel.restoreLatestSelected()
@@ -473,7 +507,7 @@ private fun ConfirmDialog(
         ConfirmAction.RESTORE -> "用 active 主动备份恢复主系统"
         ConfirmAction.LATEST -> "读取分身最新数据并恢复主系统"
         ConfirmAction.AUDIT -> "生成恢复一致性审计"
-        ConfirmAction.RESET_SWITCH -> "重置切换状态"
+        ConfirmAction.RESET_SWITCH -> "将数据状态设为未知"
         ConfirmAction.DELETE -> "删除 active 主动备份"
         ConfirmAction.INSTALL_ONLY -> "仅安装到另一用户"
         ConfirmAction.INSTALL_PERMISSIONS -> "安装并迁移权限/AppOps"
@@ -490,7 +524,7 @@ private fun ConfirmDialog(
         ConfirmAction.RESTORE -> "会读取已保存的 active 主动备份并覆盖主系统 user$mainUserId；不会读取分身 user$cloneUserId 当前数据。"
         ConfirmAction.LATEST -> "会先读取分身 user$cloneUserId 最新数据更新 active，再用 active 覆盖主系统 user$mainUserId。"
         ConfirmAction.AUDIT -> "会只读采集文件树、UID、SELinux、权限和 AppOps 证据，写入审计目录；不会恢复、不会删除，也不会执行 restorecon。"
-        ConfirmAction.RESET_SWITCH -> "只清除该 App 的切换状态标记，让首页操作恢复为“切换”。不会恢复或删除任何 App 数据、主动备份和被动备份。"
+        ConfirmAction.RESET_SWITCH -> "只把 UClone 记录的数据状态改为“未知”，不会恢复、覆盖或删除任何 App 数据和备份。恢复明确的主数据可回到 MAIN；恢复分数据只有在存在有效主数据返回点时才能建立 CLONE，否则仍保持未知。"
         ConfirmAction.DELETE -> "只删除当前 App 的 active 主动快照。history、被动备份、App 安装和 App 数据不会被删除。删除后无法直接恢复该 active 快照。"
         ConfirmAction.INSTALL_ONLY -> "会使用系统现有 APK，从 user$installSourceUserId 安装到 user$installTargetUserId。不会复制 /data/app，不迁移权限或数据，也不会启动或解锁分身。"
         ConfirmAction.INSTALL_PERMISSIONS -> "会先安装到 user$installTargetUserId，再从 user$installSourceUserId 迁移可支持的运行时权限和 AppOps。不会复制 App 数据，也不会触发 CE 解锁。"
@@ -538,7 +572,7 @@ private fun ConfirmDialog(
             IosDialogButton(
                 text = when (action) {
                     ConfirmAction.DELETE -> "删除"
-                    ConfirmAction.RESET_SWITCH -> "重置"
+                    ConfirmAction.RESET_SWITCH -> "设为未知"
                     ConfirmAction.INSTALL_ONLY,
                     ConfirmAction.INSTALL_PERMISSIONS,
                     -> "安装"

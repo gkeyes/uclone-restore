@@ -20,6 +20,8 @@ object SettingsValidation {
             !normalized.rootDir.startsWith('/') -> "工作目录必须是绝对路径"
             normalized.rootDir in FORBIDDEN_ROOT_DIRS -> "工作目录范围过大，禁止使用 ${normalized.rootDir}"
             normalized.rootDir.any(Char::isISOControl) -> "工作目录不能包含控制字符"
+            normalized.rootDir.any(Char::isWhitespace) -> "工作目录不能包含空白字符"
+            normalized.rootDir.contains('\\') -> "工作目录不能包含反斜杠"
             normalized.rootDir.split('/').any { it == "." || it == ".." } -> "工作目录不能包含 . 或 .. 路径段"
             else -> null
         }

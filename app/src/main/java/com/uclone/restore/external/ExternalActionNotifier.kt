@@ -69,22 +69,10 @@ class ExternalActionNotifier(private val context: Context) {
         message: String,
     ) {
         ensureChannels()
-        val success = status == ExternalActionContract.STATUS_SUCCESS ||
-            status == ExternalActionContract.STATUS_SUCCESS_WITH_WARNINGS
-        val rejected = status == ExternalActionContract.STATUS_REJECTED ||
-            status == ExternalActionContract.STATUS_BUSY ||
-            status == ExternalActionContract.STATUS_ALREADY_RUNNING ||
-            status == ExternalActionContract.STATUS_STILL_RUNNING
-        val stateText = when {
-            status == ExternalActionContract.STATUS_SUCCESS_WITH_WARNINGS -> "完成（有提示）"
-            success -> "成功"
-            rejected -> "未执行"
-            else -> "失败"
-        }
         val notification = builder(RESULT_CHANNEL_ID, operation)
-            .setContentText("${displayName(packageName)}：$stateText · $message")
+            .setContentText("${displayName(packageName)}：${externalActionNotificationStateText(status)} · $message")
             .setAutoCancel(true)
-            .setPriority(if (success) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
+            .setPriority(externalActionNotificationPriority(status))
             .build()
         manager.notify(notificationId, notification)
     }
@@ -171,4 +159,24 @@ class ExternalActionNotifier(private val context: Context) {
         const val RESULT_NOTIFICATION_ID = 41012
         const val REJECTED_NOTIFICATION_ID = 41013
     }
+}
+
+internal fun externalActionNotificationStateText(status: String): String = when (status) {
+    ExternalActionContract.STATUS_SUCCESS_WITH_WARNINGS -> "完成（有提示）"
+    ExternalActionContract.STATUS_SUCCESS -> "成功"
+    ExternalActionContract.STATUS_STILL_RUNNING -> "仍在运行"
+    ExternalActionContract.STATUS_ALREADY_RUNNING -> "已在运行"
+    ExternalActionContract.STATUS_REJECTED,
+    ExternalActionContract.STATUS_BUSY,
+    -> "未执行"
+    else -> "失败"
+}
+
+internal fun externalActionNotificationPriority(status: String): Int = when (status) {
+    ExternalActionContract.STATUS_SUCCESS,
+    ExternalActionContract.STATUS_SUCCESS_WITH_WARNINGS,
+    ExternalActionContract.STATUS_STILL_RUNNING,
+    ExternalActionContract.STATUS_ALREADY_RUNNING,
+    -> NotificationCompat.PRIORITY_DEFAULT
+    else -> NotificationCompat.PRIORITY_HIGH
 }

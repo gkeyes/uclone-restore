@@ -47,7 +47,9 @@ class ExternalRequestStore(
 ) {
     private val monitor = Any()
     private val records = load(file, maxEvents).toMutableList()
-    private val loadedTerminalRecords = terminalIndex(load(terminalFile))
+    private val terminalLoad = loadTerminalIndex(terminalFile)
+    private var replayProtectionFailure = terminalLoad.failure
+    private val loadedTerminalRecords = terminalIndex(terminalLoad.events)
     private val terminalRecords = loadedTerminalRecords.toMutableMap().apply {
         records.asSequence()
             .filter { it.stage.isTerminalProtocolStage }
@@ -59,7 +61,7 @@ class ExternalRequestStore(
 
     init {
         require(maxEvents > 0)
-        if (terminalRecords.size != loadedTerminalRecords.size) {
+        if (replayProtectionFailure == null && terminalRecords.size != loadedTerminalRecords.size) {
             persist(terminalFile, terminalRecords.values.toList(), "外部请求终态索引")
         }
     }
@@ -72,24 +74,27 @@ class ExternalRequestStore(
         terminalRecords[requestId]
     }
 
+    fun replayProtectionFailure(): String? = synchronized(monitor) { replayProtectionFailure }
+
     fun record(event: ExternalRequestEvent) {
         synchronized(monitor) {
+            if (replayProtectionFailure != null && event.stage.isTerminalProtocolStage) {
+                persistDiagnosticEvent(event)
+                return
+            }
             if (event.stage.isTerminalProtocolStage && event.requestId !in terminalRecords) {
                 val nextTerminals = terminalRecords + (event.requestId to event)
                 persist(terminalFile, nextTerminals.values.toList(), "外部请求终态索引")
                 terminalRecords[event.requestId] = event
             }
-            val retained = (records + event).takeLast(maxEvents)
-            persist(file, retained, "外部请求诊断")
-            records.clear()
-            records += retained
-            recordsFlow.value = newestFirst(retained)
+            persistDiagnosticEvent(event)
         }
     }
 
     fun recordReconciledTerminal(event: ExternalRequestEvent): Boolean {
         require(event.stage.isTerminalProtocolStage)
         return synchronized(monitor) {
+            if (replayProtectionFailure != null) return@synchronized false
             val existing = terminalRecords[event.requestId]
             if (existing != null && existing.stage !in RECONCILABLE_TERMINAL_STAGES) {
                 return@synchronized false
@@ -97,12 +102,27 @@ class ExternalRequestStore(
             val nextTerminals = terminalRecords + (event.requestId to event)
             persist(terminalFile, nextTerminals.values.toList(), "外部请求终态索引")
             terminalRecords[event.requestId] = event
-            val retained = (records + event).takeLast(maxEvents)
-            persist(file, retained, "外部请求诊断")
-            records.clear()
-            records += retained
-            recordsFlow.value = newestFirst(retained)
+            persistDiagnosticEvent(event)
             true
+        }
+    }
+
+    private fun persistDiagnosticEvent(event: ExternalRequestEvent) {
+        val retained = (records + event).takeLast(maxEvents)
+        persist(file, retained, "外部请求诊断")
+        records.clear()
+        records += retained
+        recordsFlow.value = newestFirst(retained)
+    }
+
+    fun clear() {
+        synchronized(monitor) {
+            persist(terminalFile, emptyList(), "外部请求终态索引")
+            persist(file, emptyList(), "外部请求诊断")
+            terminalRecords.clear()
+            records.clear()
+            recordsFlow.value = emptyList()
+            replayProtectionFailure = null
         }
     }
 
@@ -111,6 +131,24 @@ class ExternalRequestStore(
         val decoded = source.readLines().mapNotNull(::decode)
         if (limit == null) decoded else decoded.takeLast(limit)
     }.getOrDefault(emptyList())
+
+    private fun loadTerminalIndex(source: File): TerminalLoadResult {
+        if (!source.exists()) return TerminalLoadResult(emptyList())
+        if (!source.isFile) return TerminalLoadResult(failure = "外部请求终态索引不是普通文件")
+        return runCatching {
+            val events = source.useLines { lines ->
+                lines
+                    .filter(String::isNotBlank)
+                    .mapIndexed { index, line ->
+                        decode(line) ?: error("第 ${index + 1} 条终态记录无法解析")
+                    }
+                    .toList()
+            }
+            TerminalLoadResult(events)
+        }.getOrElse { error ->
+            TerminalLoadResult(failure = "外部请求终态索引不可读：${error.message.orEmpty()}")
+        }
+    }
 
     private fun persist(target: File, events: List<ExternalRequestEvent>, label: String) {
         val parent = target.parentFile
@@ -181,6 +219,11 @@ class ExternalRequestStore(
                 ?.let { value -> enumValues<TaskStage>().firstOrNull { it.name == value } },
         )
     }.getOrNull()
+
+    private data class TerminalLoadResult(
+        val events: List<ExternalRequestEvent> = emptyList(),
+        val failure: String? = null,
+    )
 
     private companion object {
         const val MAX_EVENTS = 500

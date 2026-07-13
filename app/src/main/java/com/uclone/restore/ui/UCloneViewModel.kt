@@ -61,7 +61,7 @@ class UCloneViewModel(
             val settings = _state.value.settings
             runBusy("刷新中") {
                 val environment = syncEngine.checkEnvironment(settings)
-                val workspace = syncEngine.loadWorkspaceIndex(settings)
+                val workspace = loadWorkspaceIndexFailClosed(settings)
                 val apps = packageInspector.listApps(settings).map { app ->
                     val snapshot = workspace.snapshots[app.packageName]
                     app.copy(
@@ -82,6 +82,7 @@ class UCloneViewModel(
                             restoreBackups = workspace.restoreBackups,
                             cloneRollbackBackups = workspace.cloneRollbackBackups,
                             switchRollbackIds = workspace.switchMarkers,
+                            unknownStatePackages = workspace.unknownSwitchPackages,
                             message = "刷新完成",
                         )
                     }
@@ -105,7 +106,7 @@ class UCloneViewModel(
         launchRefresh {
             val settings = _state.value.settings
             runBusy("读取 App 列表") {
-                val workspace = syncEngine.loadWorkspaceIndex(settings)
+                val workspace = loadWorkspaceIndexFailClosed(settings)
                 val apps = packageInspector.listApps(settings).map { app ->
                     val snapshot = workspace.snapshots[app.packageName]
                     app.copy(
@@ -121,6 +122,7 @@ class UCloneViewModel(
                         restoreBackups = workspace.restoreBackups,
                         cloneRollbackBackups = workspace.cloneRollbackBackups,
                         switchRollbackIds = workspace.switchMarkers,
+                        unknownStatePackages = workspace.unknownSwitchPackages,
                     )
                 }
                 syncLauncherShortcuts()
@@ -147,6 +149,7 @@ class UCloneViewModel(
                     restoreBackups = workspace.restoreBackups,
                     cloneRollbackBackups = workspace.cloneRollbackBackups,
                     switchRollbackIds = workspace.switchMarkers,
+                    unknownStatePackages = workspace.unknownSwitchPackages,
                 )
             }
         }
@@ -381,7 +384,7 @@ class UCloneViewModel(
 
     fun resetSwitchStateSelected() {
         val packageName = _state.value.selectedPackage ?: return
-        submitTask(UiTaskAction.RESET_SWITCH_STATE, packageName, "正在重置切换状态")
+        submitTask(UiTaskAction.RESET_SWITCH_STATE, packageName, "正在将数据状态设为未知")
     }
 
     fun deleteSnapshotSelected() {
@@ -395,6 +398,10 @@ class UCloneViewModel(
     }
 
     fun deleteRestoreBackup(packageName: String, rollbackId: String) {
+        _state.value.restoreBackupDeletionBlockReason(packageName, rollbackId)?.let { reason ->
+            _state.update { it.copy(message = reason) }
+            return
+        }
         _state.update { it.copy(selectedPackage = packageName) }
         submitTask(UiTaskAction.DELETE_ROLLBACK, packageName, "正在删除被动备份", rollbackId)
     }
@@ -607,7 +614,7 @@ class UCloneViewModel(
                 val policy = RefreshPolicy.forTask(task.type)
                 val settings = _state.value.settings
                 val workspace = if (policy.workspace) {
-                    syncEngine.loadWorkspaceIndex(settings).also {
+                    loadWorkspaceIndexFailClosed(settings).also {
                         workspaceCache = WorkspaceCache(settings.rootDir, it)
                     }
                 } else {
@@ -670,10 +677,20 @@ class UCloneViewModel(
     private suspend fun workspaceIndex(settings: UCloneSettings): WorkspaceIndex {
         val cached = workspaceCache
         if (cached?.rootDir == settings.rootDir) return cached.index
-        return syncEngine.loadWorkspaceIndex(settings).also {
+        return loadWorkspaceIndexFailClosed(settings).also {
             workspaceCache = WorkspaceCache(settings.rootDir, it)
         }
     }
+
+    private suspend fun loadWorkspaceIndexFailClosed(settings: UCloneSettings): WorkspaceIndex =
+        try {
+            syncEngine.loadWorkspaceIndex(settings)
+        } catch (error: Exception) {
+            workspaceCache = null
+            _state.update(UiState::failClosedAfterWorkspaceReadFailure)
+            syncLauncherShortcuts()
+            throw error
+        }
 
     private fun workspaceOwnershipFrom(task: TaskRecord, settings: UCloneSettings): WorkspaceOwnershipReport? {
         val audit = task.audit
@@ -702,7 +719,7 @@ class UCloneViewModel(
                 FavoriteShortcutEntry(
                     packageName = app.packageName,
                     label = app.label,
-                    switched = app.packageName in state.switchRollbackIds,
+                    dataState = state.dataStateFor(app.packageName),
                 )
             },
         )

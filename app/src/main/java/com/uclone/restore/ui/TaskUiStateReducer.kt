@@ -156,6 +156,11 @@ internal object TaskUiStateReducer {
                 workspace != null -> workspace.switchMarkers
                 else -> state.switchRollbackIds
             },
+            unknownStatePackages = when {
+                reset -> emptySet()
+                workspace != null -> workspace.unknownSwitchPackages
+                else -> state.unknownStatePackages
+            },
             message = message,
         )
     }
