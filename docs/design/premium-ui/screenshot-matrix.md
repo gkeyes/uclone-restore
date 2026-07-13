@@ -2,7 +2,7 @@
 
 ## Status
 
-第一版 A1 产物（commit `6edc5d4`）已完成 GitHub 构建和真机首页截图，但因整行蓝色按钮、Material 选中块和卡片边框过重被判定 `REJECTED`。commit `6709e8b` 的后续真机截图又确认方角主按钮、逐项独立卡片和近不透明底栏仍偏 Android。A2 commit `1fc2831` 的固定签名产物已真机安装；用户提供的正确 UClone 截图确认分组面和底栏方向成立，但首页实心蓝主动作、工具图标和列表收藏控件的视觉层级仍不协调，因此按钮修正版必须重新构建和真机截图。串窗或不属于当前产物的截图一律不得作为证据。
+历史 A1/A2 截图只用于说明被否决的问题，不作为当前实现证据。当前分支已改为 Backdrop 1.0.2 的真实底栏背景采样、五项导航、连续分组列表和短半透明主动作；内容树不反向读取同一个 Backdrop。在安装当前提交对应的 GitHub 固定签名 APK 前，所有真机项保持 `UNVERIFIED`。
 
 ## 1. 主 App 核心矩阵
 
@@ -52,7 +52,7 @@
 
 | ID | Window | Direction | Screen | Required evidence | Result |
 | --- | --- | --- | --- | --- | --- |
-| A-01 | compact portrait | A | 6-destination floating tab bar | 所有入口可达、当前位置清楚；半透明导航层对比充足；选中镜片仅包围 icon，滚动内容时不得出现整项色块或文字遮挡 | `UNVERIFIED` |
+| A-01 | compact portrait | A2 | 5-destination floating glass tab bar | 五个顶级入口可达；诊断从设置可达；选中镜片移动正确；滚动内容经过底栏时产生真实背景采样 | `UNVERIFIED` |
 | A-02 | compact landscape | A | App list/detail | inset、键盘、内容不遮挡 | `UNVERIFIED` |
 | A-03 | medium | A | rail + list/detail | 选择/返回/状态保持 | `UNVERIFIED` |
 | A-04 | expanded | A | drawer + 3 pane | pane 尺寸稳定、无超大空白 | `UNVERIFIED` |
@@ -62,7 +62,7 @@
 | B-02 | medium | B | App list/workspace | App 切换和详情状态保持 | `UNVERIFIED` |
 | B-03 | expanded | B | 3 pane workspace | 任务检查器持续可见 | `UNVERIFIED` |
 
-方向未选择时，不执行 B 的入口移动测试。
+方向已固定为 A2；B 仅保留历史设计记录，不进入本轮验收。
 
 ## 4. Launcher module matrix
 
@@ -112,4 +112,13 @@ remaining issues:
 2. 情境主动作使用短胶囊，普通工具保持行尾文字动作，不形成按钮墙。
 3. Compact 底栏为单层半透明导航 chrome，选中态只形成 icon 镜片，不出现 glass-on-glass。
 4. 深色模式下高光边界可见但不过亮，内容面保持不透明和稳定对比。
-5. 1.3x 及最大字体下，六个导航标签、长中文动作和 App 状态均不重叠、不裁切关键含义。
+5. 1.3x 及 2.0x 字体下，五个导航标签、长中文动作和 App 状态均不重叠、不裁切关键含义。
+
+### Liquid Glass runtime gate
+
+1. 首页、App、App 详情、数据、历史、设置、诊断分别采集浅色与深色截图。
+2. 字体比例覆盖 1.0、1.3、2.0；状态覆盖默认、空、运行、警告、失败和禁用。
+3. 列表滚动经过底栏时必须显示内容驱动的模糊与折射，不能是固定白色托盘。
+4. 连续滚动和切换导航不得出现 RenderThread 崩溃、闪黑、玻璃错位或超过 500ms 的可见冻结。
+5. 相比基线 `18b0310`，卡顿帧比例不得增加超过 5 个百分点。
+6. TalkBack 阅读顺序、按钮名称、开关值和危险动作后果逐页核验。

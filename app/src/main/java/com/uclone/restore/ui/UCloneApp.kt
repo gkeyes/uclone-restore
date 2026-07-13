@@ -1,8 +1,8 @@
 package com.uclone.restore.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -120,11 +121,7 @@ fun UCloneApp(
         }
 
         val navigateBack = {
-            destination = if (destination == Destination.DATA_DETAIL) {
-                Destination.DATA
-            } else {
-                previousTopLevelDestination
-            }
+            destination = navigationBackTarget(destination, previousTopLevelDestination)
         }
         BackHandler(enabled = destination !in topLevelDestinations) {
             navigateBack()
@@ -339,7 +336,7 @@ private fun AppScaffold(
 }
 
 @Composable
-private fun FloatingTabBar(
+internal fun FloatingTabBar(
     destination: Destination,
     onSelect: (Destination) -> Unit,
     modifier: Modifier = Modifier,
@@ -351,32 +348,53 @@ private fun FloatingTabBar(
             .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        LiquidGlassSurface(
-            role = GlassRole.Navigation,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(60.dp),
         ) {
+            LiquidGlassSurface(
+                role = GlassRole.Navigation,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("uclone_bottom_navigation"),
+            ) {}
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val itemWidth = maxWidth / topLevelDestinations.size
                 val selectedIndex = topLevelDestinations
                     .indexOfFirst(destination::belongsTo)
                     .coerceAtLeast(0)
                 val reduceMotion = rememberReduceMotionEnabled()
-                val selectionOffset by animateDpAsState(
-                    targetValue = (itemWidth * selectedIndex) + 4.dp,
-                    animationSpec = if (reduceMotion) snap() else tween(durationMillis = 280),
-                    label = "bottomNavigationSelection",
-                )
-
-                LiquidGlassSurface(
-                    role = GlassRole.SelectionLens,
-                    modifier = Modifier
-                        .offset(x = selectionOffset, y = 4.dp)
-                        .width(itemWidth - 8.dp)
-                        .height(52.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                ) {}
+                if (reduceMotion) {
+                    Crossfade(
+                        targetState = selectedIndex,
+                        animationSpec = tween(150),
+                        label = "bottomNavigationSelectionFade",
+                    ) { index ->
+                        LiquidGlassSurface(
+                            role = GlassRole.SelectionLens,
+                            modifier = Modifier
+                                .offset(x = (itemWidth * index) + 4.dp, y = 4.dp)
+                                .width(itemWidth - 8.dp)
+                                .height(52.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        ) {}
+                    }
+                } else {
+                    val selectionOffset by animateDpAsState(
+                        targetValue = (itemWidth * selectedIndex) + 4.dp,
+                        animationSpec = tween(durationMillis = 280),
+                        label = "bottomNavigationSelection",
+                    )
+                    LiquidGlassSurface(
+                        role = GlassRole.SelectionLens,
+                        modifier = Modifier
+                            .offset(x = selectionOffset, y = 4.dp)
+                            .width(itemWidth - 8.dp)
+                            .height(52.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    ) {}
+                }
 
                 Row(
                     modifier = Modifier
@@ -412,6 +430,7 @@ private fun androidx.compose.foundation.layout.RowScope.FloatingTabItem(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
+            .testTag("uclone_nav_${item.name}")
             .selectable(
                 selected = selected,
                 onClick = onClick,
@@ -534,6 +553,15 @@ internal fun Destination.belongsTo(topLevel: Destination): Boolean = when (this)
     Destination.DATA_DETAIL -> topLevel == Destination.DATA
     Destination.DIAGNOSTICS -> topLevel == Destination.SETTINGS
     else -> this == topLevel
+}
+
+internal fun navigationBackTarget(
+    destination: Destination,
+    previousTopLevelDestination: Destination,
+): Destination = when (destination) {
+    Destination.DATA_DETAIL -> Destination.DATA
+    Destination.DIAGNOSTICS -> Destination.SETTINGS
+    else -> previousTopLevelDestination
 }
 
 @Composable

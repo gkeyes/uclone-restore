@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.core.graphics.drawable.toBitmap
 import com.uclone.restore.model.RiskLevel
 import com.uclone.restore.model.StepStatus
@@ -266,7 +267,6 @@ fun CompactActionButton(
     danger: Boolean = false,
     icon: ImageVector? = null,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
     val containerColor = when {
         !enabled -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.5f)
         primary -> MaterialTheme.colorScheme.primary.copy(alpha = 0.11f)
@@ -279,13 +279,36 @@ fun CompactActionButton(
         danger -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
+    val controlModifier = modifier
+        .heightIn(min = 48.dp)
+        .widthIn(min = 72.dp)
+        .semantics {
+            role = Role.Button
+            if (danger) stateDescription = "危险操作"
+        }
+    if (primary && !danger) {
+        LiquidGlassSurface(
+            role = GlassRole.PrimaryAction,
+            modifier = controlModifier,
+            enabled = enabled,
+            onClick = onClick,
+            tint = MaterialTheme.colorScheme.primary,
+            contentColor = contentColor,
+        ) {
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ActionButtonContent(text, icon)
+            }
+        }
+        return
+    }
+    val interactionSource = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
-        modifier = modifier
-            .heightIn(min = 48.dp)
-            .widthIn(min = 72.dp)
-            .pressScale(interactionSource, enabled)
-            .semantics { role = Role.Button },
+        modifier = controlModifier.pressScale(interactionSource, enabled),
         enabled = enabled,
         shape = RoundedCornerShape(22.dp),
         color = containerColor,
@@ -330,7 +353,10 @@ fun InlineActionButton(
         onClick = onClick,
         modifier = modifier
             .heightIn(min = 48.dp)
-            .semantics { role = Role.Button },
+            .semantics {
+                role = Role.Button
+                if (danger) stateDescription = "危险操作"
+            },
         enabled = enabled,
         color = Color.Transparent,
         contentColor = when {
@@ -360,6 +386,19 @@ fun UtilityIconButton(
     framed: Boolean = false,
     enabled: Boolean = true,
 ) {
+    if (framed) {
+        LiquidGlassSurface(
+            role = GlassRole.ToolbarControl,
+            modifier = modifier.size(48.dp),
+            enabled = enabled,
+            onClick = onClick,
+            tint = if (selected) tint else Color.Unspecified,
+            contentColor = tint,
+        ) {
+            Icon(imageVector, contentDescription = contentDescription, modifier = Modifier.size(20.dp))
+        }
+        return
+    }
     val interactionSource = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
@@ -370,13 +409,11 @@ fun UtilityIconButton(
         shape = CircleShape,
         color = when {
             selected -> tint.copy(alpha = 0.10f)
-            framed -> MaterialTheme.ucloneColors.navigationSurface.copy(alpha = 0.66f)
             else -> Color.Transparent
         },
         contentColor = tint,
         border = when {
             selected -> BorderStroke(0.5.dp, tint.copy(alpha = 0.14f))
-            framed -> BorderStroke(0.5.dp, MaterialTheme.ucloneColors.glassHighlight.copy(alpha = 0.72f))
             else -> null
         },
         interactionSource = interactionSource,
@@ -515,9 +552,15 @@ private fun Modifier.pressScale(
         animationSpec = if (reduceMotion) snap() else tween(150),
         label = "controlPressScale",
     )
+    val pressAlpha by animateFloatAsState(
+        targetValue = if (pressed && enabled && reduceMotion) 0.82f else 1f,
+        animationSpec = tween(150),
+        label = "controlPressFade",
+    )
     return graphicsLayer {
         scaleX = scale
         scaleY = scale
+        alpha = pressAlpha
     }
 }
 
@@ -574,9 +617,16 @@ fun DialogActionButton(
     onClick: () -> Unit,
     primary: Boolean = false,
     danger: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     TextButton(
         onClick = onClick,
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .semantics {
+                role = Role.Button
+                if (danger) stateDescription = "危险操作"
+            },
         colors = ButtonDefaults.textButtonColors(
             contentColor = when {
                 danger -> MaterialTheme.colorScheme.error

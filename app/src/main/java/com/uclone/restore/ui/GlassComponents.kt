@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -50,8 +51,8 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
 
 internal enum class GlassRole {
     Navigation,
@@ -65,10 +66,10 @@ private data class GlassSpec(
     val refractionHeightDp: Float,
     val refractionAmountDp: Float,
     val surfaceAlpha: Float,
-    val saturation: Float,
 )
 
 private val LocalGlassBackdrop = staticCompositionLocalOf<Backdrop?> { null }
+private val LocalReduceMotionEnabled = staticCompositionLocalOf { false }
 
 @Composable
 internal fun GlassBackdropHost(
@@ -77,14 +78,16 @@ internal fun GlassBackdropHost(
     overlay: @Composable BoxScope.() -> Unit,
 ) {
     val backdrop = rememberLayerBackdrop()
-    CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
-        Box(modifier) {
+    Box(modifier) {
+        CompositionLocalProvider(LocalGlassBackdrop provides null) {
             Box(
                 modifier = Modifier
                     .matchParentSize()
                     .layerBackdrop(backdrop),
                 content = background,
             )
+        }
+        CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
             overlay()
         }
     }
@@ -102,6 +105,7 @@ internal fun LiquidGlassSurface(
 ) {
     val backdrop = LocalGlassBackdrop.current
     val density = LocalDensity.current
+    val view = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val reduceMotion = rememberReduceMotionEnabled()
@@ -109,6 +113,11 @@ internal fun LiquidGlassSurface(
         targetValue = if (!reduceMotion && pressed && enabled && onClick != null) 0.97f else 1f,
         animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(150),
         label = "liquidGlassPress",
+    )
+    val pressAlpha by animateFloatAsState(
+        targetValue = if (reduceMotion && pressed && enabled && onClick != null) 0.82f else 1f,
+        animationSpec = tween(150),
+        label = "liquidGlassPressFade",
     )
     val shape = role.shape()
     val spec = role.spec()
@@ -125,7 +134,11 @@ internal fun LiquidGlassSurface(
             -> MaterialTheme.ucloneColors.navigationSurface.copy(alpha = spec.surfaceAlpha)
         }
     }
-    val opticalModifier = if (backdrop != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    val opticalModifier = if (
+        backdrop != null &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        view.isHardwareAccelerated
+    ) {
         val blurPx = with(density) { spec.blurDp.dp.toPx() }
         val refractionHeightPx = with(density) { spec.refractionHeightDp.dp.toPx() }
         val refractionAmountPx = with(density) { spec.refractionAmountDp.dp.toPx() }
@@ -133,7 +146,7 @@ internal fun LiquidGlassSurface(
             backdrop = backdrop,
             shape = { shape },
             effects = {
-                colorControls(saturation = spec.saturation)
+                vibrancy()
                 blur(blurPx)
                 lens(
                     refractionHeight = refractionHeightPx,
@@ -149,13 +162,7 @@ internal fun LiquidGlassSurface(
             onDrawSurface = { drawRect(surfaceColor) },
         )
     } else {
-        Modifier
-            .background(surfaceColor, shape)
-            .border(
-                width = 0.5.dp,
-                color = MaterialTheme.ucloneColors.glassHighlight.copy(alpha = 0.72f),
-                shape = shape,
-            )
+        Modifier.background(surfaceColor, shape)
     }
     val clickableModifier = if (onClick != null) {
         Modifier.clickable(
@@ -171,8 +178,13 @@ internal fun LiquidGlassSurface(
     Box(
         modifier = modifier
             .then(opticalModifier)
+            .border(
+                width = 0.5.dp,
+                color = MaterialTheme.ucloneColors.glassHighlight.copy(alpha = 0.72f),
+                shape = shape,
+            )
             .then(clickableModifier)
-            .alpha(if (enabled) 1f else 0.45f),
+            .alpha((if (enabled) 1f else 0.45f) * pressAlpha),
         contentAlignment = Alignment.Center,
     ) {
         CompositionLocalProvider(LocalContentColor provides contentColor) {
@@ -182,7 +194,16 @@ internal fun LiquidGlassSurface(
 }
 
 @Composable
-internal fun rememberReduceMotionEnabled(): Boolean {
+internal fun ReduceMotionProvider(content: @Composable () -> Unit) {
+    val reduceMotion = observeReduceMotionEnabled()
+    CompositionLocalProvider(LocalReduceMotionEnabled provides reduceMotion, content = content)
+}
+
+@Composable
+internal fun rememberReduceMotionEnabled(): Boolean = LocalReduceMotionEnabled.current
+
+@Composable
+private fun observeReduceMotionEnabled(): Boolean {
     val context = LocalContext.current
     var reduceMotion by remember(context) {
         mutableStateOf(context.contentResolver.animatorDurationScale() == 0f)
@@ -221,7 +242,6 @@ private fun GlassRole.spec(): GlassSpec = when (this) {
         refractionHeightDp = 18f,
         refractionAmountDp = 16f,
         surfaceAlpha = 0.18f,
-        saturation = 1.08f,
     )
 
     GlassRole.SelectionLens -> GlassSpec(
@@ -229,7 +249,6 @@ private fun GlassRole.spec(): GlassSpec = when (this) {
         refractionHeightDp = 12f,
         refractionAmountDp = 14f,
         surfaceAlpha = 0.12f,
-        saturation = 1.06f,
     )
 
     GlassRole.ToolbarControl -> GlassSpec(
@@ -237,7 +256,6 @@ private fun GlassRole.spec(): GlassSpec = when (this) {
         refractionHeightDp = 12f,
         refractionAmountDp = 16f,
         surfaceAlpha = 0.16f,
-        saturation = 1.06f,
     )
 
     GlassRole.PrimaryAction -> GlassSpec(
@@ -245,7 +263,6 @@ private fun GlassRole.spec(): GlassSpec = when (this) {
         refractionHeightDp = 12f,
         refractionAmountDp = 18f,
         surfaceAlpha = 0.16f,
-        saturation = 1.06f,
     )
 }
 

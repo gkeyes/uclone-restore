@@ -90,9 +90,37 @@ class TaskUiStateReducerTest {
 
     @Test
     fun everyUiActionHasAUniqueExternalOperation() {
-        assertEquals(UiTaskAction.entries.size, UiTaskAction.entries.map { it.operation }.toSet().size)
-        assertTrue(UiTaskAction.entries.any { it.operation == ExternalActionContract.OPERATION_RESET_WORKSPACE })
-        assertTrue(UiTaskAction.entries.any { it.operation == ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST })
+        val expectedOperations = setOf(
+            ExternalActionContract.OPERATION_BACKUP_DEFAULT,
+            ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP,
+            ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST,
+            ExternalActionContract.OPERATION_SWITCH_TO_CLONE,
+            ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
+            ExternalActionContract.OPERATION_RESTORE_MAIN,
+            ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE,
+            ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK,
+            ExternalActionContract.OPERATION_RESTORE_ROLLBACK,
+            ExternalActionContract.OPERATION_DELETE_SNAPSHOT,
+            ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP,
+            ExternalActionContract.OPERATION_PROBE_CLONE_CE,
+            ExternalActionContract.OPERATION_UNLOCK_CLONE,
+            ExternalActionContract.OPERATION_DEBUG_CLONE_SYSTEM,
+            ExternalActionContract.OPERATION_AUDIT_RESTORE,
+            ExternalActionContract.OPERATION_CLEAR_LOGS,
+            ExternalActionContract.OPERATION_RESET_WORKSPACE,
+            ExternalActionContract.OPERATION_SCAN_WORKSPACE_OWNERSHIP,
+            ExternalActionContract.OPERATION_REPAIR_WORKSPACE_OWNERSHIP,
+            ExternalActionContract.OPERATION_INSTALL_TO_OTHER_USER,
+            ExternalActionContract.OPERATION_INSTALL_WITH_PERMISSIONS_TO_OTHER_USER,
+            ExternalActionContract.OPERATION_INSTALL_AND_SYNC_TO_OTHER_USER,
+            ExternalActionContract.OPERATION_START_CLONE_USER,
+            ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER,
+            ExternalActionContract.OPERATION_STOP_CLONE_USER,
+        )
+        val actualOperations = UiTaskAction.entries.map { it.operation }
+
+        assertEquals(expectedOperations, actualOperations.toSet())
+        assertEquals(actualOperations.size, actualOperations.toSet().size)
     }
 
     private fun task(type: TaskType, status: TaskStatus) = TaskRecord(

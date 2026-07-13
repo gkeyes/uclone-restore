@@ -5,7 +5,7 @@
 - 审计模式：`audit + art-direction + specification`
 - 产品平台：Android 主 App + Android Launcher 模块
 - 视觉参考：Apple iOS/iPadOS HIG；Android 实现约束以 Android/Material 官方文档为准
-- 当前阶段：只读审计结论已落盘，尚未修改生产 UI
+- 当前阶段：五项顶级导航和 Liquid Glass UI 已实现，等待固定签名 APK 真机验收
 
 ## 证据等级
 
@@ -42,18 +42,18 @@
 | 顶层 | App | 底部导航 | 搜索、筛选、收藏、进入 App 详情 | `PackageInspector`、`UiState.apps`、设置 | `PROJECT-VERIFIED` |
 | 顶层 | 数据 | 底部导航 | 主动快照、主系统被动备份、分身回滚及容量 | `WorkspaceIndex`、`RestoreBackupEntry` | `PROJECT-VERIFIED` |
 | 顶层 | 历史 | 底部导航 | 任务时间、状态、结果、日志路径、将任务包名设为当前选中 App | `TaskRepository`、`UCloneViewModel.selectPackage` | `PROJECT-VERIFIED` |
-| 顶层 | 设置 | 底部导航 | 用户、工作区、数据范围、生命周期、模块、维护与重置 | `SettingsStore`、`WorkspaceOwnershipReport` | `PROJECT-VERIFIED` |
-| 顶层 | 诊断 | 底部导航 | Root、用户、CE/DE、目录探测和分身调试 | `EnvironmentStatus`、显式诊断任务 | `PROJECT-VERIFIED` |
+| 顶层 | 设置 | 底部导航 | 用户、工作区、数据范围、生命周期、模块、维护与重置；进入诊断与维护 | `SettingsStore`、`WorkspaceOwnershipReport` | `PROJECT-VERIFIED` |
+| 二级 | 诊断 | 设置 → 诊断与维护 | Root、用户、CE/DE、目录探测和分身调试 | `EnvironmentStatus`、显式诊断任务 | `PROJECT-VERIFIED` |
 | 详情 | App 详情 | 首页收藏或 App 列表 | 安装状态、数据状态、数据范围、主动快照、切换/还原、审计和跨用户安装等当前上下文动作 | 选中 App、规则、备份、marker、任务状态 | `PROJECT-VERIFIED` |
 | 详情 | 备份详情 | 数据页 | 查看并恢复或删除主动快照、主系统被动备份；当前不解析分身回滚详情 | 选中包名、rollback ID、主系统备份索引 | `PROJECT-VERIFIED` |
 
-### 当前导航问题
+### 当前导航实现与限制
 
-- `PROJECT-VERIFIED`：紧凑手机底部栏同时容纳 6 个顶层入口。
-- `PROJECT-VERIFIED`：详情返回栈由 `rememberSaveable` 和手工枚举维护。
-- `PROJECT-VERIFIED`：数据列表给分身回滚传入详情入口，但当前详情页只在 `restoreBackups` 中查找主系统被动备份，因此分身回滚详情会落入“备份不存在”；现有可用动作仍是列表行内恢复。
-- `DERIVED`：诊断和设置的低频程度与首页/App 的高频程度不同，但当前视觉权重相同。
-- `EXPERIMENTAL`：是否调整入口层级必须由视觉方向审批决定，当前阶段不得移动功能。
+- `PROJECT-VERIFIED`：紧凑手机底部栏包含首页、App、数据、历史、设置 5 个顶层入口。
+- `PROJECT-VERIFIED`：诊断功能完整保留，并通过“设置 → 诊断与维护”进入；返回后仍位于设置。
+- `PROJECT-VERIFIED`：详情返回栈仍由 `rememberSaveable` 和手工枚举维护。
+- `PROJECT-VERIFIED`：分身回滚当前只提供列表行内恢复，不提供详情入口；主动快照和主系统被动备份继续使用现有详情页。
+- `UNVERIFIED`：五项玻璃底栏在深色模式、大字体、TalkBack 和连续滚动下的视觉及性能表现仍需固定签名 APK 真机验收。
 
 ## 3. 主 App 页面功能
 
@@ -89,7 +89,7 @@
 - 区分主动快照、主系统被动备份、分身回滚。
 - 展示来源、时间、大小、状态标签和 rollback ID。
 - 恢复指定被动备份。
-- 分身回滚行当前既有行内恢复，也会响应整行点击并进入备份详情路由；但详情页只查询主系统被动备份，因此随后显示“备份不存在”。这是当前实现缺口，不得写成已支持的分身回滚详情。
+- 分身回滚行只提供行内恢复，不响应整行详情导航；不得写成已支持分身回滚详情。
 - 删除指定主动快照或主系统被动备份；当前没有删除分身回滚的 UI 动作。
 - 删除语义不得与卸载 App、清日志或普通刷新混淆。
 

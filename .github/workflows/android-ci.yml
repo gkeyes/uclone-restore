@@ -64,10 +64,27 @@ jobs:
           :launcher-module:lintDebug
           :app:lintRelease
           :launcher-module:lintRelease
+          :app:assembleDebugAndroidTest
           :app:assembleDebug
           :launcher-module:assembleDebug
           :app:assembleRelease
           :launcher-module:assembleRelease
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Compose UI contract tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: gradle --no-daemon :app:connectedDebugAndroidTest
 
       - name: Verify paired release signatures
         if: env.HAS_RELEASE_SIGNING == 'true'

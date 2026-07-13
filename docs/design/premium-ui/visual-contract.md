@@ -2,14 +2,14 @@
 
 ## Context
 
-- Status: `A2 BUTTON HIERARCHY REVISION / RENDER VERIFICATION PENDING`
+- Status: `LIQUID GLASS IMPLEMENTED / DEVICE VERIFICATION PENDING`
 - Platform/framework: Android, Jetpack Compose Material 3 + Android View
 - Locale: zh-CN
 - Product domain: Root / multi-user system utility
 - Selected official source IDs: see `official-source-evidence.md`
 - Project truth: `需求.md`, `docs/ARCHITECTURE.md`, `docs/INVARIANTS.md`, current production models
 - Existing project design system: `DESIGN.md`, `Theme.kt`, `Components.kt`
-- Approved direction: A2, Android-adapted iOS grouped utility with navigation-layer glass, approved by the user on 2026-07-13
+- Approved direction: Android-adapted iOS 26 grouped utility with Backdrop-based Liquid Glass chrome, approved by the user on 2026-07-13
 
 本合同约束当前生产实现。视觉方向借鉴 iOS 的分组、层级和语义色，但真实平台仍是 Android；不得声称原生 iOS、Apple HIG 合规或使用 SF Symbols。
 
@@ -18,17 +18,17 @@
 | Finding | Evidence | Classification | Contract response |
 | --- | --- | --- | --- |
 | 旧主题使用 Material 蓝灰和浅紫容器 | 真机截图、`Theme.kt` | `PROJECT-VERIFIED` | 改为中性 grouped background、纯色内容面和系统蓝强调 |
-| Compact 使用居中标题、汉堡菜单和 drawer | 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 改为左对齐标题和悬浮底部导航，保留全部六个入口 |
+| Compact 使用居中标题、汉堡菜单和 drawer | 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 改为左对齐标题和五项悬浮底部导航；诊断从设置进入 |
 | 第一版 A1 仍使用描边、阴影和 18dp 大圆角卡片 | commit `6edc5d4` 真机截图 | `PROJECT-VERIFIED` | 内容面改为 12dp 无描边、无阴影的 inset grouped surface |
 | 第一版 A1 仍有整行实心按钮和 Material 按钮墙 | commit `6edc5d4` 真机截图、`Components.kt` | `PROJECT-VERIFIED` | 普通命令改为行尾蓝色/红色文字；每个情境只允许一个短实心主动作 |
 | 第一版 A1 底栏选中项显示大面积蓝色矩形 | commit `6edc5d4` 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 选中态只使用蓝色 icon 和文字，不增加背景块或额外指示器 |
 | A1 主动作仍是 12dp 方角色块 | commit `6709e8b` 真机首页截图、用户反馈 | `PROJECT-VERIFIED` | 主动作改为短胶囊；普通和危险动作继续使用文字层级，不生成按钮墙 |
 | A1 App/收藏列表仍是逐项独立卡片 | commit `6709e8b` 真机首页截图、用户反馈 | `PROJECT-VERIFIED` | 改为单个 grouped surface 内的连续列表行和缩进分隔线 |
-| A1 底栏材质接近不透明白色托盘 | commit `6709e8b` 真机首页截图、用户提供的 iOS 26 方向 | `PROJECT-VERIFIED` | 保留六入口，使用导航层半透明纵向高光和仅包围图标的选中镜片 |
+| A1 底栏材质接近不透明白色托盘 | commit `6709e8b` 真机首页截图、用户提供的 iOS 26 方向 | `PROJECT-VERIFIED` | 使用五项 Backdrop 玻璃底栏、独立选中镜片和真实背景采样 |
 | A2 首页收藏行的实心蓝胶囊过重，App 页工具图标与收藏图标缺少统一层级 | commit `1fc2831` 真机截图、用户反馈 | `PROJECT-VERIFIED` | 主动作改为低饱和语义色玻璃胶囊；筛选、搜索、更多使用圆形工具镜片；列表收藏保持轻量图标 |
 | 图标按钮视觉尺寸 40dp | `Components.kt` | `PROJECT-VERIFIED` | 交互触控区域至少 48dp |
 | 诊断/详情连续堆叠多个全宽按钮 | 多个 screen | `PROJECT-VERIFIED` | 工具行 + 单主动作 + 危险区 |
-| 产品已有 6 个顶层入口 | `UCloneApp.kt`、用户要求 | `PROJECT-VERIFIED` | 六项全部保留；Compact 使用等宽 icon + 短标签布局 |
+| 六项底栏在手机上拥挤 | `UCloneApp.kt`、用户批准计划 | `PROJECT-VERIFIED` | 顶层收敛为首页、App、数据、历史、设置；诊断保留为设置二级页 |
 
 ### Existing design-system reconciliation
 
@@ -53,7 +53,7 @@
 | ID | Area | Decision | Evidence label | Source/project ID | Responsive/state variants | Acceptance test |
 | --- | --- | --- | --- | --- | --- | --- |
 | VC-001 | Product truth | 全部现有页面和 25 个动作必须可达 | `PROJECT-VERIFIED` | functional inventory/action matrix | 所有 window/state | 自动枚举覆盖 + 手工点击 |
-| VC-002 | Navigation | Compact 使用 6 项悬浮底栏；详情隐藏底栏并显示返回 | `PROJECT-VERIFIED` | 用户决定 + current code | compact/详情 | 360dp 宽、默认/大字体无重叠 |
+| VC-002 | Navigation | Compact 使用 5 项等宽悬浮玻璃底栏；诊断从设置进入；详情隐藏底栏并显示返回 | `PROJECT-VERIFIED` | 用户决定 + current code | compact/详情 | 自动导航合同 + 360dp 真机大字体检查 |
 | VC-003 | Layout | 页面使用 inset grouped surface，不允许 card 套 card | `PROJECT-VERIFIED` | 用户决定 + grouped utility direction | compact 单列；wide sidebar | 截图层级审查 |
 | VC-004 | Touch | 所有可点击目标最小 48dp | `OFFICIAL-VERIFIED` | Android API defaults | touch/keyboard/TalkBack | Layout Inspector + 点击 |
 | VC-005 | Theme | 使用 semantic light/dark color roles | `OFFICIAL-VERIFIED` | Android M3 + Apple color | light/dark/high contrast | 截图 + 对比检查 |
@@ -63,8 +63,8 @@
 | VC-009 | Destructive | 删除/重置独立危险区并确认后果 | `DERIVED` | action matrix + alerts | default/confirm/error | 实际打开确认框 |
 | VC-010 | Progress | 当前只展示阶段/步骤；未来有可信实时分母才显示百分比 | `DERIVED` | `TaskProgress` 当前无可靠实时总量 | accepted/running/rollback | fixture/真机任务截图；遥测扩展需独立批准 |
 | VC-011 | Content | 中文主文案，技术原值作为可展开次级信息 | `PROJECT-VERIFIED` | product truth | normal/error/diagnostic | 内容审查 + TalkBack |
-| VC-012 | Material | 半透明仅限导航 chrome，数据面不透明 | `PROJECT-VERIFIED` | approved direction | light/dark/edge-to-edge | 真机截图，检查对比与性能 |
-| VC-013 | Motion | 平台默认短过渡；reduced motion 下移除非必要位移 | `DERIVED` | platform guidance | normal/reduced | 开发者选项/系统设置测试 |
+| VC-012 | Material | Backdrop 光学用于与捕获层同级的导航和选中镜片；捕获内容树内的工具控件与情境主动作使用等尺寸静态半透明材质，数据面保持不透明 | `PROJECT-VERIFIED` | approved direction + Backdrop 1.0.2 glass-on-glass restriction | light/dark/edge-to-edge | 模拟器渲染 + 滚动背景折射、边缘高光和性能真机检查 |
+| VC-013 | Motion | 平台默认短过渡；reduced motion 下取消缩放和位移，只保留 150ms 淡入淡出 | `PROJECT-VERIFIED` | platform guidance + current code | normal/reduced | 开发者选项/系统设置测试 |
 | VC-014 | Module | 模块保留 Android View，不因视觉重构换框架 | `PROJECT-VERIFIED` | existing architecture | all module pages | 模块页面逐页截图 |
 
 ## 3. Reading order
@@ -100,7 +100,7 @@
 
 | Window class | Direction A | Direction B | Shared behavior |
 | --- | --- | --- | --- |
-| Compact | 左对齐标题 + 6 项悬浮底栏 + 单列 grouped content | 详情隐藏底栏并显示返回 | 行尾动作在大字体时移到下一行；不横向压缩文字 |
+| Compact | 左对齐标题 + 5 项悬浮底栏 + 单列 grouped content | 诊断从设置进入；详情隐藏底栏并显示返回 | 行尾动作在大字体时移到下一行；不横向压缩文字 |
 | Medium | 92dp 侧栏 + 单列/列表详情内容 | 详情保持稳定宽度 | 选中态使用浅色语义面，不使用 Material rail 指示器 |
 | Expanded | 248dp 侧栏 + 内容区 | 允许后续增加并列信息但不移动功能 | 不放大字体模拟桌面 |
 
@@ -164,7 +164,7 @@
 
 | Component | Official/project primitive | Variants | States | Accessibility behavior | Customization boundary |
 | --- | --- | --- | --- | --- | --- |
-| App shell | `Scaffold`, custom tab/sidebar surfaces | compact/medium/expanded | default/task active | 当前目的地有语义；返回可预测 | 不手绘系统栏；六入口不删减 |
+| App shell | `Scaffold`, Backdrop tab bar, custom sidebar | compact/medium/expanded | default/task active | 当前目的地有语义；返回可预测 | 五项顶级入口；诊断功能不删除，只下沉到设置 |
 | Top app bar | Material 3 app bar | root/detail | scrolled/default | 标题、导航和 action 描述完整 | chrome 可轻量材质，不遮内容 |
 | Health summary | project composable/View group | ready/warning/error/unknown | 当前可空环境；loading/stale 为候选 | 一次读出结论和原因 | 不只显示绿点；新增状态字段需独立任务 |
 | Task panel | progress indicators + project rows | staged/rollback；determinate 为后续能力 | all task statuses | 宣读动作、阶段和已有耗时 | 当前不伪造百分比或实时文件总量 |
@@ -236,14 +236,12 @@
 
 该表只映射语义，不复制 Apple chrome。
 
-## 14. Implementation slices after approval
+## 14. Implemented slices
 
-1. Theme and semantic components：light/dark、48dp、语义状态、基础 row；不改导航。
-2. Approved navigation shell：A 或 B 单独提交。
-3. Main screens：按首页、App、数据、历史、设置、诊断逐页迁移。
-4. Launcher module：独立提交，不和主 App 页面混改。
-5. Accessibility/large text/adaptive fixes。
-6. Screenshot matrix 与真机交互验收。
+1. `2375759`：Backdrop 1.0.2、共享背景采样和 Liquid Glass 基础。
+2. `91aab0f`：五项底栏、选中镜片、设置内诊断与返回归属。
+3. `771acf0`：连续分组页面、紧凑列表和行尾操作层级。
+4. 当前提交：组件语义测试、导航合同、循环 Backdrop 隔离、玻璃边缘抛光和视觉 QA 合同。
 
 每个切片只改 UI，不夹带 Root、状态判定、协议、依赖升级或发布版本变更。逐页 loading/error/stale、可靠实时百分比、审计包导出或新的备份详情类型都需要独立数据/行为契约，不得以“视觉完善”为名加入 UI 切片。
 
@@ -251,11 +249,10 @@
 
 | Item | Why unverified | Risk | Required follow-up |
 | --- | --- | --- | --- |
-| A2 修正版真机视觉还原度 | `6709e8b` 已真机渲染并确认方角主按钮、独立卡片列表和近不透明底栏仍偏 Android；当前 A2 尚未生成固定产物 | 胶囊动作、连续列表和导航镜片仍可能在真机偏离合同 | 经用户重新授权后 GitHub 构建、安装固定签名产物并逐页截图对照 |
-| Material Adaptive API | 未在本阶段改依赖/编译 | API 可能与当前版本不同 | 实现前核对 Gradle 依赖和官方文档 |
+| 当前 Liquid Glass 真机还原度 | 当前分支尚未安装，旧截图不对应本实现 | 模糊、折射、边缘高光和信息密度仍可能在设备上偏离合同 | 用户授权后安装当前 GitHub 固定签名 APK 并逐页截图 |
 | Light/dark color values | 未渲染 | 对比/品牌平衡未知 | 真机截图与对比检查 |
-| Chrome translucency | 已实现半透明高光层，但未做真实 backdrop blur 且尚未真机渲染 | 性能、对比和与内容背景的融合程度未知 | 固定产物真机滚动截图；不通过增加全屏 blur 追求效果 |
-| 大字体/TalkBack | 未实现 | 可访问性风险 | 真机逐页测试 |
+| Chrome translucency | 底栏与捕获层为同级，使用 Backdrop 1.0.2 的背景捕获、blur、lens 和 vibrancy；捕获内容树不读取同一 Backdrop | 真机对比和与滚动内容融合程度未知 | GitHub 模拟器先执行渲染测试；固定产物滚动录像和截图继续检查闪黑、错位和卡顿 |
+| 大字体/TalkBack | 48dp、危险/禁用和导航语义由 GitHub 模拟器执行自动合同，设备阅读顺序未验证 | 可访问性风险 | font scale 1.0/1.3/2.0 和 TalkBack 逐页测试 |
 | Module responsive layout | 当前为 programmatic View | 大字体/横屏风险 | 模块真机截图与操作 |
 | Compact/expanded behavior | 无当前渲染证据 | pane/导航可能不适配 | 手机、横屏/平板或模拟器验证 |
 | 逐页 loading/error/stale | 当前 `UiState` 无对应字段 | 设计可能误报旧数据新鲜度 | 独立状态模型方案、回归测试和批准 |

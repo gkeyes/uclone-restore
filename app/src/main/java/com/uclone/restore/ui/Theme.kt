@@ -206,7 +206,8 @@ fun UCloneTheme(content: @Composable () -> Unit) {
             colorScheme = if (darkTheme) DarkColors else LightColors,
             typography = UCloneTypography,
             shapes = UCloneShapes,
-            content = content,
-        )
+        ) {
+            ReduceMotionProvider(content)
+        }
     }
 }
