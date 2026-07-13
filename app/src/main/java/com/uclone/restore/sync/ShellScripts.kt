@@ -335,14 +335,8 @@ object ShellScripts {
         }
     """.trimIndent()
 
-    private fun cloneStateFunction(amCommand: String, sleepCommand: String): String = """
+    private fun cloneStateFunction(amCommand: String): String = """
         CLONE_STATE_AM_COMMAND=${shellQuote(amCommand)}
-        CLONE_STATE_SLEEP_COMMAND=${shellQuote(sleepCommand)}
-        clone_state_client_running() {
-          kill -0 "${'$'}CLONE_STATE_PID" 2>/dev/null || return 1
-          CLONE_STATE_CLIENT_STATE=${'$'}(awk '{ sub(/^[^)]*[)] /, ""); print ${'$'}1 }' "/proc/${'$'}CLONE_STATE_PID/stat" 2>/dev/null || true)
-          [ "${'$'}CLONE_STATE_CLIENT_STATE" != "Z" ]
-        }
         clone_state() {
           CLONE_STATE_QUERY_USER="${'$'}{1:-${'$'}{CLONE_USER:-}}"
           case "${'$'}CLONE_STATE_QUERY_USER" in ''|*[!0-9]*)
@@ -350,55 +344,18 @@ object ShellScripts {
             return 0
             ;;
           esac
-          CLONE_STATE_TEMP_ROOT="${'$'}{UCLONE_STATE_TEMP_ROOT:-${'$'}{ROOT:-${'$'}{TMPDIR:-/data/local/tmp}}}"
-          CLONE_STATE_TEMP_DIR="${'$'}CLONE_STATE_TEMP_ROOT/tmp"
-          mkdir -p "${'$'}CLONE_STATE_TEMP_DIR" 2>/dev/null || {
-            echo "CLONE_STATE_QUERY_UNAVAILABLE:temp_dir"
-            return 0
-          }
-          CLONE_STATE_TOKEN="${'$'}{UCLONE_REQUEST_ID:-state}"
-          case "${'$'}CLONE_STATE_TOKEN" in *[!A-Za-z0-9_.-]*) CLONE_STATE_TOKEN=state ;; esac
-          CLONE_STATE_LOG="${'$'}CLONE_STATE_TEMP_DIR/state_${'$'}{CLONE_STATE_TOKEN}_${'$'}${'$'}.log"
-          rm -f "${'$'}CLONE_STATE_LOG"
-          "${'$'}CLONE_STATE_AM_COMMAND" get-started-user-state "${'$'}CLONE_STATE_QUERY_USER" > "${'$'}CLONE_STATE_LOG" 2>&1 &
-          CLONE_STATE_PID=${'$'}!
-          CLONE_STATE_WAIT=0
-          CLONE_STATE_TIMED_OUT=0
-          while clone_state_client_running && [ "${'$'}CLONE_STATE_WAIT" -lt 10 ]; do
-            "${'$'}CLONE_STATE_SLEEP_COMMAND" 0.05
-            CLONE_STATE_WAIT=${'$'}((CLONE_STATE_WAIT + 1))
-          done
-          if clone_state_client_running; then
-            CLONE_STATE_TIMED_OUT=1
-            kill "${'$'}CLONE_STATE_PID" 2>/dev/null || true
-            CLONE_STATE_TERMINATE_WAIT=0
-            while clone_state_client_running && [ "${'$'}CLONE_STATE_TERMINATE_WAIT" -lt 4 ]; do
-              "${'$'}CLONE_STATE_SLEEP_COMMAND" 0.05
-              CLONE_STATE_TERMINATE_WAIT=${'$'}((CLONE_STATE_TERMINATE_WAIT + 1))
-            done
-            if clone_state_client_running; then
-              kill -9 "${'$'}CLONE_STATE_PID" 2>/dev/null || true
-            fi
-          fi
-          if clone_state_client_running; then
-            rm -f "${'$'}CLONE_STATE_LOG"
-            echo "CLONE_STATE_QUERY_TIMEOUT"
-            return 0
-          fi
           CLONE_STATE_EXIT=0
-          wait "${'$'}CLONE_STATE_PID" 2>/dev/null || CLONE_STATE_EXIT=${'$'}?
-          CLONE_STATE_OUTPUT=${'$'}(cat "${'$'}CLONE_STATE_LOG" 2>/dev/null || true)
-          rm -f "${'$'}CLONE_STATE_LOG"
-          if [ "${'$'}CLONE_STATE_TIMED_OUT" = "1" ]; then
-            echo "CLONE_STATE_QUERY_TIMEOUT"
-            return 0
-          fi
+          CLONE_STATE_OUTPUT=${'$'}("${'$'}CLONE_STATE_AM_COMMAND" get-started-user-state "${'$'}CLONE_STATE_QUERY_USER" 2>&1) || CLONE_STATE_EXIT=${'$'}?
           case "${'$'}CLONE_STATE_OUTPUT" in
             *RUNNING*|*"User is not started"*|*"not started"*|*SHUTDOWN*|*STOPPING*)
               printf '%s\n' "${'$'}CLONE_STATE_OUTPUT"
               ;;
+            "")
+              echo "CLONE_STATE_QUERY_EMPTY:exit=${'$'}CLONE_STATE_EXIT"
+              ;;
             *)
-            echo "CLONE_STATE_QUERY_EMPTY:exit=${'$'}CLONE_STATE_EXIT"
+              CLONE_STATE_OUTPUT_BYTES=${'$'}(printf '%s' "${'$'}CLONE_STATE_OUTPUT" | wc -c | tr -d ' ')
+              echo "CLONE_STATE_QUERY_UNAVAILABLE:unexpected_output:exit=${'$'}CLONE_STATE_EXIT:bytes=${'$'}CLONE_STATE_OUTPUT_BYTES"
               ;;
           esac
         }
@@ -422,7 +379,7 @@ object ShellScripts {
             STOP_CLONE_AFTER_TASK=${if (stopAfterTask) "1" else "0"}
             CLONE_STARTED_BY_TASK=0
             CLONE_STOPPED_AFTER_TASK=0
-            ${cloneStateFunction("/system/bin/am", "sleep")}
+            ${cloneStateFunction("/system/bin/am")}
             wait_for_clone_state() {
               WAIT_LABEL="${'$'}1"
               WAIT_LIMIT="${'$'}2"
@@ -431,7 +388,7 @@ object ShellScripts {
                 WAIT_STATE=${'$'}(clone_state)
                 echo "${'$'}{WAIT_LABEL}_${'$'}{WAIT_INDEX}=${'$'}WAIT_STATE"
                 case "${'$'}WAIT_STATE" in
-                  *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*) return 2 ;;
+                  *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*) return 2 ;;
                   *RUNNING_UNLOCKED*) return 0 ;;
                 esac
                 sleep 0.25
@@ -458,7 +415,7 @@ object ShellScripts {
             STATE_BEFORE_UNLOCK=${'$'}(clone_state)
             echo "STATE_BEFORE_UNLOCK=${'$'}STATE_BEFORE_UNLOCK"
             case "${'$'}STATE_BEFORE_UNLOCK" in
-              *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+              *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
                 echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_UNLOCK" >&2
                 exit 86
                 ;;
@@ -487,7 +444,7 @@ object ShellScripts {
                 STATE_BEFORE_VERIFY=${'$'}(clone_state)
                 echo "STATE_BEFORE_VERIFY=${'$'}STATE_BEFORE_VERIFY"
                 case "${'$'}STATE_BEFORE_VERIFY" in
-                  *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                  *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
                     echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_VERIFY" >&2
                     exit 86
                     ;;
@@ -560,7 +517,7 @@ object ShellScripts {
             START_STATE_BEFORE_REQUEST=${'$'}(clone_state)
             echo "START_STATE_BEFORE_REQUEST=${'$'}START_STATE_BEFORE_REQUEST"
             case "${'$'}START_STATE_BEFORE_REQUEST" in
-              *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+              *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
                 echo "ERR_CLONE_STATE_QUERY:${'$'}START_STATE_BEFORE_REQUEST" >&2
                 exit $failureExitCode
                 ;;
@@ -590,7 +547,7 @@ object ShellScripts {
                   START_WAIT_STATE=${'$'}(clone_state)
                   echo "WAIT_AFTER_START_${'$'}START_WAIT_INDEX=${'$'}START_WAIT_STATE"
                   case "${'$'}START_WAIT_STATE" in
-                    *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                    *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
                       echo "ERR_CLONE_STATE_QUERY:${'$'}START_WAIT_STATE" >&2
                       exit $failureExitCode
                       ;;
@@ -617,7 +574,9 @@ object ShellScripts {
                   if start_user_client_running; then
                     kill -9 "${'$'}START_USER_PID" 2>/dev/null || true
                   fi
-                  START_CLIENT_TERMINATED=1
+                  if ! start_user_client_running; then
+                    START_CLIENT_TERMINATED=1
+                  fi
                 fi
                 if start_user_client_running; then
                   START_CLIENT_DETACHED=1
@@ -693,11 +652,12 @@ object ShellScripts {
             STOP_CLONE_CONFIRMED=0
             STOP_USER_EXIT=0
             STOP_USER_CLIENT_TERMINATED=0
+            STOP_USER_CLIENT_DETACHED=0
             STOP_USER_REAPED=0
             STOP_STATE_BEFORE_REQUEST=${'$'}(clone_state)
             echo "STATE_BEFORE_STOP=${'$'}STOP_STATE_BEFORE_REQUEST"
             case "${'$'}STOP_STATE_BEFORE_REQUEST" in
-              *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+              *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
                 echo "ERR_CLONE_STATE_QUERY:${'$'}STOP_STATE_BEFORE_REQUEST" >&2
                 exit 88
                 ;;
@@ -724,7 +684,7 @@ object ShellScripts {
                   STOP_WAIT_STATE=${'$'}(clone_state)
                   echo "WAIT_AFTER_STOP_${'$'}STOP_WAIT_INDEX=${'$'}STOP_WAIT_STATE"
                   case "${'$'}STOP_WAIT_STATE" in
-                    *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+                    *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
                       STOP_USER_EXIT=88
                       echo "ERR_CLONE_STATE_QUERY:${'$'}STOP_WAIT_STATE" >&2
                       break
@@ -763,10 +723,14 @@ object ShellScripts {
                     if stop_user_client_running; then
                       kill -9 "${'$'}STOP_USER_PID" 2>/dev/null || true
                     fi
+                  fi
+                  if stop_user_client_running; then
+                    STOP_USER_CLIENT_DETACHED=1
+                  else
+                    wait "${'$'}STOP_USER_PID" 2>/dev/null || STOP_USER_EXIT=${'$'}?
+                    STOP_USER_REAPED=1
                     STOP_USER_CLIENT_TERMINATED=1
                   fi
-                  wait "${'$'}STOP_USER_PID" 2>/dev/null || STOP_USER_EXIT=${'$'}?
-                  STOP_USER_REAPED=1
                 fi
                 STOP_USER_OUTPUT=${'$'}(cat "${'$'}STOP_USER_LOG" 2>/dev/null || true)
                 rm -f "${'$'}STOP_USER_LOG"
@@ -776,6 +740,7 @@ object ShellScripts {
             uclone_request_stop_user || true
             echo "STOP_USER_EXIT=${'$'}STOP_USER_EXIT"
             echo "STOP_USER_CLIENT_TERMINATED=${'$'}STOP_USER_CLIENT_TERMINATED"
+            echo "STOP_USER_CLIENT_DETACHED=${'$'}STOP_USER_CLIENT_DETACHED"
             echo "STOP_USER_OUTPUT=${'$'}{STOP_USER_OUTPUT:-}"
         """.trimIndent()
     }
@@ -832,7 +797,7 @@ object ShellScripts {
           STATE=${'$'}(clone_state)
           echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
           case "${'$'}STATE" in
-            *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+            *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
               echo "ERR_CLONE_STATE_QUERY:${'$'}STATE" >&2
               uclone_remove_tree "${'$'}TRY_TMP" || exit 11
               exit 86
@@ -1465,7 +1430,7 @@ object ShellScripts {
         set -u
         CLONE_USER=${settings.cloneUserId}
         UCLONE_STATE_TEMP_ROOT=/data/local/tmp
-        ${cloneStateFunction("/system/bin/am", "sleep")}
+        ${cloneStateFunction("/system/bin/am")}
         echo "PROBE_CLONE_USER=${'$'}CLONE_USER"
         echo "ROOT_ID=${'$'}(id 2>&1)"
         state_of_clone() {
@@ -1511,14 +1476,12 @@ object ShellScripts {
     internal fun boundedUserStateProbe(
         userId: Int,
         amCommand: String = "/system/bin/am",
-        sleepCommand: String = "sleep",
     ): String {
         require(userId >= 0)
         return """
             set -u
             CLONE_USER=$userId
-            UCLONE_STATE_TEMP_ROOT=/data/local/tmp
-            ${cloneStateFunction(amCommand, sleepCommand)}
+            ${cloneStateFunction(amCommand)}
             clone_state "${'$'}CLONE_USER"
         """.trimIndent()
     }
@@ -1542,12 +1505,12 @@ object ShellScripts {
     ): String = """
         set -u
         CLONE_USER=${settings.cloneUserId}
-        ${cloneStateFunction(amCommand, sleepCommand)}
+        ${cloneStateFunction(amCommand)}
         echo "EXPLICIT_START_CLONE_USER=${'$'}CLONE_USER"
         STATE_BEFORE_START=${'$'}(clone_state)
         echo "STATE_BEFORE_START=${'$'}STATE_BEFORE_START"
         case "${'$'}STATE_BEFORE_START" in
-          *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+          *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
             echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_START" >&2
             exit 88
             ;;
@@ -1573,12 +1536,12 @@ object ShellScripts {
         return """
         set -u
         CLONE_USER=${settings.cloneUserId}
-        ${cloneStateFunction(amCommand, sleepCommand)}
+        ${cloneStateFunction(amCommand)}
         echo "EXPLICIT_STOP_CLONE_USER=${'$'}CLONE_USER"
         STATE_BEFORE_STOP=${'$'}(clone_state)
         echo "STATE_BEFORE_STOP=${'$'}STATE_BEFORE_STOP"
         case "${'$'}STATE_BEFORE_STOP" in
-          *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+          *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
             echo "ERR_CLONE_STATE_QUERY:${'$'}STATE_BEFORE_STOP" >&2
             exit 88
             ;;
@@ -1609,7 +1572,7 @@ object ShellScripts {
         MAIN_USER=${settings.mainUserId}
         CLONE_USER=${settings.cloneUserId}
         UCLONE_STATE_TEMP_ROOT=/data/local/tmp
-        ${cloneStateFunction("/system/bin/am", "sleep")}
+        ${cloneStateFunction("/system/bin/am")}
         APP_PKG=${shellQuote(appPackage)}
         ROOT_DIR=${shellQuote(settings.rootDir)}
         echo "DEBUG_CLONE_SYSTEM_BEGIN"
@@ -1753,7 +1716,7 @@ object ShellScripts {
         TARGET_USER=${settings.mainUserId}
         CLONE_USER=${settings.cloneUserId}
         UCLONE_STATE_TEMP_ROOT=/data/local/tmp
-        ${cloneStateFunction("/system/bin/am", "sleep")}
+        ${cloneStateFunction("/system/bin/am")}
         ${uniqueStampScript()}
         TS=${'$'}(uclone_unique_stamp) || { echo "ERR_UNIQUE_STAMP" >&2; exit 10; }
         OUT="${'$'}ROOT/audit/${'$'}PKG/${'$'}TS"
@@ -2154,7 +2117,7 @@ object ShellScripts {
           STATE=${'$'}(clone_state)
           echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
           case "${'$'}STATE" in
-            *CLONE_STATE_QUERY_TIMEOUT*|*CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
+            *CLONE_STATE_QUERY_UNAVAILABLE*|*CLONE_STATE_QUERY_EMPTY*)
               echo "ERR_CLONE_STATE_QUERY:${'$'}STATE" >&2
               uclone_remove_tree "${'$'}TRY_TMP" || exit 11
               exit 86

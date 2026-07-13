@@ -4,6 +4,7 @@ import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.PermissionRestoreMode
 import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.root.shellQuote
+import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -522,7 +523,7 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun sourceCaptureStateChecksUseTheBoundedCloneStateClient() {
+    fun sourceCaptureStateChecksUseTheDirectCloneStateClient() {
         val rule = AppRule(packageName = "com.example.app")
         val scripts = listOf(
             ShellScripts.capture("com.example.app", rule, settings, appPackage),
@@ -1148,7 +1149,7 @@ class ShellScriptsTest {
 
         assertContains(script, "get-started-user-state")
         assertContains(script, "UCLONE_STATE_TEMP_ROOT=/data/local/tmp")
-        assertContains(script, "CLONE_STATE_QUERY_TIMEOUT")
+        assertContains(script, "CLONE_STATE_QUERY_UNAVAILABLE:unexpected_output")
         assertContains(script, "USER10_CE_READY=1")
         assertFalse(script.contains("am start-user"))
         assertFalse(script.contains("am unlock-user"))
@@ -1157,13 +1158,14 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun environmentStateProbeUsesTheBoundedStateClient() {
+    fun environmentStateProbeUsesTheDirectStateClient() {
         val script = ShellScripts.boundedUserStateProbe(10)
 
         assertContains(script, "CLONE_USER=10")
-        assertContains(script, "UCLONE_STATE_TEMP_ROOT=/data/local/tmp")
-        assertContains(script, "CLONE_STATE_QUERY_TIMEOUT")
+        assertContains(script, "CLONE_STATE_QUERY_UNAVAILABLE:unexpected_output")
         assertContains(script, "clone_state \"${'$'}CLONE_USER\"")
+        assertFalse(script.contains("CLONE_STATE_QUERY_TIMEOUT"))
+        assertFalse(script.contains("CLONE_STATE_TEMP_DIR"))
         assertFalse(script.contains("start-user"))
         assertFalse(script.contains("stop-user"))
     }
@@ -1211,6 +1213,7 @@ class ShellScriptsTest {
         assertContains(script, "[ \"${'$'}CLONE_STARTED_BY_TASK\" != \"1\" ]")
         assertContains(script, "STOP_USER_PID=${'$'}!")
         assertContains(script, "STOP_USER_CLIENT_TERMINATED=")
+        assertContains(script, "STOP_USER_CLIENT_DETACHED=")
         assertContains(script, "\"${'$'}STOP_AM_COMMAND\" stop-user \"${'$'}CLONE_USER\"")
         assertFalse(script.contains("stop-user -w"))
         assertContains(script, "WAIT_AFTER_STOP_${'$'}STOP_WAIT_INDEX")
@@ -1228,6 +1231,7 @@ class ShellScriptsTest {
         assertFalse(script.contains("stop-user -w"))
         assertContains(script, "STOP_USER_PID=${'$'}!")
         assertContains(script, "STOP_USER_CLIENT_TERMINATED=")
+        assertContains(script, "STOP_USER_CLIENT_DETACHED=")
         assertContains(script, "STOP_CLONE_CONFIRMED=1")
         assertContains(script, "STOP_USER_EXIT=0")
         assertContains(script, "ERR_STOP_CLONE_REQUEST_FAILED")
@@ -1285,6 +1289,38 @@ class ShellScriptsTest {
         assertContains(result.output, "STOP_CLONE_CONFIRMED=1")
         assertContains(result.output, "STOP_USER_CLIENT_TERMINATED=1")
         assertTrue(result.executionDurationMs < 2_000, "stop helper waited ${result.executionDurationMs} ms for a hung ActivityManager client")
+    }
+
+    @Test
+    fun explicitStopDetachesUnkillableActivityManagerClientInsteadOfWaitingForever() {
+        val result = runExplicitStopScript(
+            amBody = """
+                case "${'$'}1" in
+                  get-started-user-state) echo RUNNING_UNLOCKED; exit 0 ;;
+                  stop-user)
+                    echo "${'$'}${'$'}" > "${'$'}UCLONE_TEST_STOP_PID_FILE"
+                    exec sleep 5
+                    ;;
+                esac
+            """.trimIndent(),
+            shellPrelude = """
+                kill() {
+                  case "${'$'}1" in
+                    -0|-9) signal="${'$'}1"; target="${'$'}2" ;;
+                    *) signal=""; target="${'$'}1" ;;
+                  esac
+                  if [ -f "${'$'}UCLONE_TEST_STOP_PID_FILE" ] && [ "${'$'}target" = "${'$'}(cat "${'$'}UCLONE_TEST_STOP_PID_FILE")" ]; then
+                    return 0
+                  fi
+                  if [ -n "${'$'}signal" ]; then command kill "${'$'}signal" "${'$'}target"; else command kill "${'$'}target"; fi
+                }
+            """.trimIndent(),
+        )
+
+        assertEquals(87, result.exitCode, result.output)
+        assertContains(result.output, "STOP_USER_CLIENT_DETACHED=1")
+        assertContains(result.output, "ERR_STOP_CLONE_PENDING:RUNNING_UNLOCKED")
+        assertTrue(result.executionDurationMs < 2_000, "stop helper waited ${result.executionDurationMs} ms for an unkillable ActivityManager client")
     }
 
     @Test
@@ -1381,24 +1417,25 @@ class ShellScriptsTest {
         assertEquals(0, result.exitCode, result.output)
         assertContains(result.output, "START_CLONE_CONFIRMED=RUNNING_LOCKED")
         assertContains(result.output, "START_USER_CLIENT_DETACHED=1")
+        assertContains(result.output, "START_USER_CLIENT_TERMINATED=0")
         assertTrue(result.executionDurationMs < 2_000, "start helper waited ${result.executionDurationMs} ms after state was ready")
     }
 
     @Test
-    fun explicitStartFailsQuicklyWhenStateProbeClientHangs() {
+    fun explicitStartFailsBeforeStartingWhenStateProbeReturnsNoResult() {
         val result = runExplicitStartScript(
             """
                 case "${'$'}1" in
-                  get-started-user-state) exec sleep 5 ;;
+                  get-started-user-state) exit 2 ;;
                   start-user) echo SHOULD_NOT_START; exit 9 ;;
                 esac
             """.trimIndent(),
         )
 
         assertEquals(88, result.exitCode, result.output)
-        assertContains(result.output, "ERR_CLONE_STATE_QUERY:CLONE_STATE_QUERY_TIMEOUT")
+        assertContains(result.output, "ERR_CLONE_STATE_QUERY:CLONE_STATE_QUERY_EMPTY:exit=2")
         assertFalse(result.output.contains("SHOULD_NOT_START"))
-        assertTrue(result.executionDurationMs < 2_000, "state probe waited ${result.executionDurationMs} ms for a hung ActivityManager client")
+        assertTrue(result.executionDurationMs < 2_000, "state probe did not fail promptly after an empty result")
     }
 
     @Test
@@ -1459,9 +1496,13 @@ class ShellScriptsTest {
         assertFalse(script.contains("am switch-user"))
     }
 
-    private fun runExplicitStopScript(amBody: String): StopScriptResult {
+    private fun runExplicitStopScript(
+        amBody: String,
+        shellPrelude: String = "",
+    ): StopScriptResult {
         val directory = Files.createTempDirectory("uclone-stop-test")
         val stateFile = directory.resolve("state").toFile()
+        val stopPidFile = directory.resolve("stop-pid").toFile()
         val fakeAm = directory.resolve("am").toFile().apply {
             writeText("#!/bin/sh\n$amBody\n")
             check(setExecutable(true))
@@ -1473,21 +1514,28 @@ class ShellScriptsTest {
             stopPollLimit = 2,
             stopPollIntervalSeconds = 0.01,
         )
-        val process = ProcessBuilder("/bin/bash", "-c", script)
+        val process = ProcessBuilder("/bin/bash", "-c", "$shellPrelude\n$script")
             .redirectErrorStream(true)
             .apply {
                 environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath
+                environment()["UCLONE_TEST_STOP_PID_FILE"] = stopPidFile.absolutePath
                 environment()["TMPDIR"] = directory.toAbsolutePath().toString()
                 environment()["UCLONE_STATE_TEMP_ROOT"] = directory.toAbsolutePath().toString()
             }
             .start()
         val startedAt = System.nanoTime()
         val output = process.inputStream.bufferedReader().readText()
-        return StopScriptResult(
+        val result = StopScriptResult(
             exitCode = process.waitFor(),
             output = output,
             executionDurationMs = (System.nanoTime() - startedAt) / 1_000_000,
         )
+        stopPidFile.takeIf(File::exists)
+            ?.readText()
+            ?.trim()
+            ?.toLongOrNull()
+            ?.let { ProcessHandle.of(it).ifPresent { handle -> handle.destroyForcibly() } }
+        return result
     }
 
     private fun runExplicitStartScript(
@@ -1519,11 +1567,17 @@ class ShellScriptsTest {
             .start()
         val startedAt = System.nanoTime()
         val output = process.inputStream.bufferedReader().readText()
-        return StopScriptResult(
+        val result = StopScriptResult(
             exitCode = process.waitFor(),
             output = output,
             executionDurationMs = (System.nanoTime() - startedAt) / 1_000_000,
         )
+        startPidFile.takeIf(File::exists)
+            ?.readText()
+            ?.trim()
+            ?.toLongOrNull()
+            ?.let { ProcessHandle.of(it).ifPresent { handle -> handle.destroyForcibly() } }
+        return result
     }
 
     private data class StopScriptResult(
