@@ -88,7 +88,7 @@ internal object FilesystemSafetyShell {
         uclone_clear_tree_contents() {
           UCLONE_CLEAR_ROOT="${'$'}1"
           uclone_assert_single_filesystem "${'$'}UCLONE_CLEAR_ROOT" || return 1
-          find "${'$'}UCLONE_CLEAR_ROOT" -xdev -mindepth 1 -depth -delete
+          find "${'$'}UCLONE_CLEAR_ROOT" -xdev -mindepth 1 -depth -delete >/dev/null
         }
         uclone_remove_tree() {
           UCLONE_REMOVE_ROOT="${'$'}1"
@@ -98,7 +98,7 @@ internal object FilesystemSafetyShell {
             return 1
           }
           uclone_assert_single_filesystem "${'$'}UCLONE_REMOVE_ROOT" || return 1
-          find "${'$'}UCLONE_REMOVE_ROOT" -xdev -depth -delete
+          find "${'$'}UCLONE_REMOVE_ROOT" -xdev -depth -delete >/dev/null
         }
         uclone_remove_file() {
           UCLONE_REMOVE_FILE="${'$'}1"

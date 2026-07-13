@@ -998,6 +998,59 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun sourcePartCaptureFailuresAreNeverIgnored() {
+        val scripts = listOf(
+            ShellScripts.capture(
+                "com.example.app",
+                AppRule(packageName = "com.example.app"),
+                settings,
+                appPackage,
+            ),
+            ShellScripts.pushMainToClone(
+                "com.example.app",
+                AppRule(packageName = "com.example.app"),
+                settings,
+                appPackage,
+            ),
+            ShellScripts.switchFromCloneLatest(
+                "com.example.app",
+                AppRule(packageName = "com.example.app"),
+                settings,
+                appPackage,
+            ),
+        )
+
+        scripts.forEach { script ->
+            val selectedCalls = script.lineSequence()
+                .map(String::trim)
+                .filter { it.startsWith("capture_part ") }
+                .toList()
+            assertEquals(5, selectedCalls.size)
+            selectedCalls.forEach { call -> assertTrue(call.endsWith("|| exit 17"), call) }
+            assertContains(script, "ERR_PART_METADATA_WRITE:${'$'}STATE_NAME")
+        }
+    }
+
+    @Test
+    fun cloneRollbackMetadataFailureIdentifiesThePart() {
+        val scripts = listOf(
+            ShellScripts.pushMainToClone(
+                "com.example.app",
+                AppRule(packageName = "com.example.app"),
+                settings,
+                appPackage,
+            ),
+            ShellScripts.restore("com.example.app", settings, appPackage),
+        )
+
+        scripts.forEach { script ->
+            assertContains(script, "ERR_ROLLBACK_PART_METADATA:${'$'}PART_NAME")
+            assertContains(script, "ERR_ROLLBACK_SOURCE_SCAN:${'$'}PART_NAME")
+            assertContains(script, "ERR_ROLLBACK_COPY_SCAN:${'$'}PART_NAME")
+        }
+    }
+
+    @Test
     fun pushMainToCloneUsesMergePermissionRestoreByDefault() {
         val script = ShellScripts.pushMainToClone(
             "com.example.app",

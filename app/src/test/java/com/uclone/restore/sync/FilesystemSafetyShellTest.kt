@@ -111,4 +111,46 @@ class FilesystemSafetyShellTest {
         assertContains(script, "set -o pipefail")
         assertContains(script, "ERR_PIPEFAIL_UNAVAILABLE")
     }
+
+    @Test
+    fun removeTreeSuppressesToyboxDeletePathOutputButStillDeletes() {
+        val root = Files.createTempDirectory("uclone-quiet-remove-").toFile()
+        root.resolve("nested/deeper").mkdirs()
+        root.resolve("nested/deeper/file.txt").writeText("payload")
+        val support = Files.createTempDirectory("uclone-quiet-remove-support-").toFile()
+        val mountInfo = support.resolve("mountinfo").apply { writeText("") }
+        val bin = support.resolve("bin").apply { mkdirs() }
+        bin.resolve("stat").apply {
+            writeText("#!/bin/sh\nprintf '%s\\n' 7\n")
+            check(setExecutable(true))
+        }
+        bin.resolve("find").apply {
+            writeText(
+                """
+                    #!/bin/sh
+                    /usr/bin/find "${'$'}@"
+                    result="${'$'}?"
+                    for arg in "${'$'}@"; do
+                      [ "${'$'}arg" != "-delete" ] || echo TOYBOX_DELETE_PATH_OUTPUT
+                    done
+                    exit "${'$'}result"
+                """.trimIndent() + "\n",
+            )
+            check(setExecutable(true))
+        }
+        val process = ProcessBuilder(
+            "/bin/sh",
+            "-c",
+            FilesystemSafetyShell.functions() + "\nuclone_remove_tree ${shellQuote(root.absolutePath)}",
+        ).redirectErrorStream(true).apply {
+            environment()["PATH"] = "${bin.absolutePath}:${System.getenv("PATH")}"
+            environment()["UCLONE_MOUNTINFO_PATH"] = mountInfo.absolutePath
+        }.start()
+        val output = process.inputStream.bufferedReader().readText()
+
+        assertEquals(0, process.waitFor(), output)
+        assertFalse(output.contains("TOYBOX_DELETE_PATH_OUTPUT"), output)
+        assertFalse(root.exists())
+        support.deleteRecursively()
+    }
 }

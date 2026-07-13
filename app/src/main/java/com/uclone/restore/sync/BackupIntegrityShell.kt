@@ -95,11 +95,39 @@ internal object BackupIntegrityShell {
               UCLONE_META_ITEMS=${'$'}(find "${'$'}MEASURE_PAYLOAD" -xdev -mindepth 1 -print 2>/dev/null | wc -l | tr -d ' ') || return 1
               case "${'$'}UCLONE_META_ITEMS" in ''|*[!0-9]*) return 1 ;; esac
               [ "${'$'}UCLONE_META_ITEMS" -gt 0 ] || return 1
-              UCLONE_META_BYTES=${'$'}(find "${'$'}MEASURE_PAYLOAD" -xdev -type f -exec stat -c '%s' {} + 2>/dev/null | awk '{ total += ${'$'}1 } END { printf "%.0f\n", total + 0 }') || return 1
+              UCLONE_META_BYTES=${'$'}(
+                find "${'$'}MEASURE_PAYLOAD" -xdev -type f -print0 2>/dev/null |
+                  xargs -0 -n 500 sh -c '
+                    [ "${'$'}#" -eq 0 ] || stat -c "%s" "${'$'}@" || {
+                      printf "%s\n" UCLONE_STAT_BATCH_FAILED
+                      exit 1
+                    }
+                  ' sh |
+                  awk '
+                    ${'$'}0 == "UCLONE_STAT_BATCH_FAILED" { failed = 1; next }
+                    ${'$'}0 !~ /^[0-9]+${'$'}/ { failed = 1; next }
+                    { total += ${'$'}1 }
+                    END {
+                      if (failed) exit 1
+                      printf "%.0f\n", total + 0
+                    }
+                  '
+              ) || return 1
               case "${'$'}UCLONE_META_BYTES" in ''|*[!0-9]*) return 1 ;; esac
               UCLONE_META_DIGEST=${'$'}(
                 cd "${'$'}MEASURE_PAYLOAD" &&
-                LC_ALL=C find . -xdev -mindepth 1 -exec stat -c '%N|%F|%s|%Y|%a' {} + 2>/dev/null |
+                LC_ALL=C find . -xdev -mindepth 1 -print0 2>/dev/null |
+                  xargs -0 -n 500 sh -c '
+                    [ "${'$'}#" -eq 0 ] || stat -c "%N|%F|%s|%Y|%a" "${'$'}@" || {
+                      printf "%s\n" UCLONE_STAT_BATCH_FAILED
+                      exit 1
+                    }
+                  ' sh |
+                  awk '
+                    ${'$'}0 == "UCLONE_STAT_BATCH_FAILED" { failed = 1; next }
+                    { print }
+                    END { if (failed) exit 1 }
+                  ' |
                   LC_ALL=C sort |
                   uclone_sha256_stream |
                   awk '{print ${'$'}1}'

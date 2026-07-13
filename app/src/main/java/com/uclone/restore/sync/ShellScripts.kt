@@ -132,7 +132,10 @@ object ShellScripts {
           STATE_SECURITY_SOURCE="${'$'}{4:-}"
           mkdir -p "${'$'}STATE_ROOT/.state" || return 1
           printf '%s\n' "${'$'}STATE_VALUE" > "${'$'}STATE_ROOT/.state/${'$'}STATE_NAME" || return 1
-          uclone_write_part_metadata "${'$'}STATE_ROOT" "${'$'}STATE_NAME" "${'$'}STATE_VALUE" "${'$'}STATE_SECURITY_SOURCE" || return 1
+          uclone_write_part_metadata "${'$'}STATE_ROOT" "${'$'}STATE_NAME" "${'$'}STATE_VALUE" "${'$'}STATE_SECURITY_SOURCE" || {
+            echo "ERR_PART_METADATA_WRITE:${'$'}STATE_NAME" >&2
+            return 1
+          }
           echo "PART_STATE:${'$'}STATE_NAME=${'$'}STATE_VALUE"
         }
         capture_excluded_part() {
@@ -883,11 +886,11 @@ object ShellScripts {
           CAPTURED_PARTS=0
           CAPTURED_PERMISSIONS=0
           PERMISSION_CAPTURE_STATE=excluded
-          ${if (rule.includeCe) "capture_part \"${'$'}TRY_TMP\" ce \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" ce"}
-          ${if (rule.includeDe) "capture_part \"${'$'}TRY_TMP\" de \"${'$'}TRY_TMP/de\" \"/data/user_de/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}TRY_USER/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" de"}
-          ${if (rule.includeExternal) "capture_part \"${'$'}TRY_TMP\" external \"${'$'}TRY_TMP/external\" \"/data/media/${'$'}TRY_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/data/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" external"}
-          ${if (rule.includeMedia) "capture_part \"${'$'}TRY_TMP\" media \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" media"}
-          ${if (rule.includeObb) "capture_part \"${'$'}TRY_TMP\" obb \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" obb"}
+          ${if (rule.includeCe) "capture_part \"${'$'}TRY_TMP\" ce \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}TRY_TMP\" ce"}
+          ${if (rule.includeDe) "capture_part \"${'$'}TRY_TMP\" de \"${'$'}TRY_TMP/de\" \"/data/user_de/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}TRY_USER/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}TRY_TMP\" de"}
+          ${if (rule.includeExternal) "capture_part \"${'$'}TRY_TMP\" external \"${'$'}TRY_TMP/external\" \"/data/media/${'$'}TRY_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/data/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}TRY_TMP\" external"}
+          ${if (rule.includeMedia) "capture_part \"${'$'}TRY_TMP\" media \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}TRY_TMP\" media"}
+          ${if (rule.includeObb) "capture_part \"${'$'}TRY_TMP\" obb \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}TRY_TMP\" obb"}
           ${if (rule.includePermissions) sourcePermissionCaptureScript("${'$'}TRY_TMP/permissions", "${'$'}TRY_USER", settings.permissionRestoreMode) else ":"}
           CE_CAPTURE_STATE=${'$'}(sed -n '1p' "${'$'}TRY_TMP/.state/ce" 2>/dev/null || true)
           if [ "${'$'}CAPTURE_REQUIRE_CE" = "1" ] && [ "${'$'}CE_CAPTURE_STATE" != "data" ] && [ "${'$'}CE_CAPTURE_STATE" != "empty" ]; then
@@ -1146,20 +1149,20 @@ object ShellScripts {
           mkdir -p "${'$'}ROLLBACK/.state" || exit 54
           if [ ! -d "${'$'}SRC" ]; then
             printf '%s\n' "absent" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
-            uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" absent || exit 54
+            uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" absent || { echo "ERR_ROLLBACK_PART_METADATA:${'$'}PART_NAME" >&2; exit 54; }
             return 0
           fi
-          SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+          SRC_ITEMS=${'$'}(count_items "${'$'}SRC") || { echo "ERR_ROLLBACK_SOURCE_SCAN:${'$'}PART_NAME" >&2; exit 63; }
           if [ "${'$'}SRC_ITEMS" -le 0 ]; then
             printf '%s\n' "empty" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
-            uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" empty "${'$'}SRC" || exit 54
+            uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" empty "${'$'}SRC" || { echo "ERR_ROLLBACK_PART_METADATA:${'$'}PART_NAME" >&2; exit 54; }
             echo "SKIP_BACKUP_EMPTY:${'$'}SRC"
             return 0
           fi
           uclone_remove_tree "${'$'}DST" || exit 54
           mkdir -p "${'$'}DST" || exit 54
           uclone_extract_workspace_tree "${'$'}SRC" "${'$'}DST" || exit 55
-          BACKUP_ITEMS=${'$'}(count_items "${'$'}DST")
+          BACKUP_ITEMS=${'$'}(count_items "${'$'}DST") || { echo "ERR_ROLLBACK_COPY_SCAN:${'$'}PART_NAME" >&2; exit 63; }
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
           UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + BACKUP_ITEMS))
           BACKUP_SIZE_KB=${'$'}(uclone_tree_kb "${'$'}DST") || exit 63
@@ -1167,7 +1170,7 @@ object ShellScripts {
           uclone_record_temp_path "${'$'}DST"
           [ "${'$'}BACKUP_ITEMS" -gt 0 ] || { echo "ERR_BACKUP_EMPTY:${'$'}SRC" >&2; exit 63; }
           printf '%s\n' "data" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
-          uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" data "${'$'}SRC" || exit 54
+          uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" data "${'$'}SRC" || { echo "ERR_ROLLBACK_PART_METADATA:${'$'}PART_NAME" >&2; exit 54; }
           BACKUP_PARTS=${'$'}((BACKUP_PARTS + 1))
           echo "CLONE_BACKUP:${'$'}SRC ITEMS=${'$'}BACKUP_ITEMS"
         }
@@ -1362,11 +1365,11 @@ object ShellScripts {
         BACKUP_PARTS=0
         RESTORED_PARTS=0
         RESTORED_ITEMS=0
-        ${if (rule.includeCe) "capture_part \"${'$'}PUSH_TEMP\" ce \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}SRC_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}SRC_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}SRC_USER/${'$'}PKG\"" else "capture_excluded_part \"${'$'}PUSH_TEMP\" ce"}
-        ${if (rule.includeDe) "capture_part \"${'$'}PUSH_TEMP\" de \"${'$'}PUSH_TEMP/de\" \"/data/user_de/${'$'}SRC_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}SRC_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}SRC_USER/${'$'}PKG\"" else "capture_excluded_part \"${'$'}PUSH_TEMP\" de"}
-        ${if (rule.includeExternal) "capture_part \"${'$'}PUSH_TEMP\" external \"${'$'}PUSH_TEMP/external\" \"/data/media/${'$'}SRC_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/data/${'$'}PKG\"" else "capture_excluded_part \"${'$'}PUSH_TEMP\" external"}
-        ${if (rule.includeMedia) "capture_part \"${'$'}PUSH_TEMP\" media \"${'$'}PUSH_TEMP/media\" \"/data/media/${'$'}SRC_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/media/${'$'}PKG\"" else "capture_excluded_part \"${'$'}PUSH_TEMP\" media"}
-        ${if (rule.includeObb) "capture_part \"${'$'}PUSH_TEMP\" obb \"${'$'}PUSH_TEMP/obb\" \"/data/media/${'$'}SRC_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/obb/${'$'}PKG\"" else "capture_excluded_part \"${'$'}PUSH_TEMP\" obb"}
+        ${if (rule.includeCe) "capture_part \"${'$'}PUSH_TEMP\" ce \"${'$'}PUSH_TEMP/ce\" \"/data/user/${'$'}SRC_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}SRC_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}SRC_USER/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}PUSH_TEMP\" ce"}
+        ${if (rule.includeDe) "capture_part \"${'$'}PUSH_TEMP\" de \"${'$'}PUSH_TEMP/de\" \"/data/user_de/${'$'}SRC_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}SRC_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}SRC_USER/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}PUSH_TEMP\" de"}
+        ${if (rule.includeExternal) "capture_part \"${'$'}PUSH_TEMP\" external \"${'$'}PUSH_TEMP/external\" \"/data/media/${'$'}SRC_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/data/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}PUSH_TEMP\" external"}
+        ${if (rule.includeMedia) "capture_part \"${'$'}PUSH_TEMP\" media \"${'$'}PUSH_TEMP/media\" \"/data/media/${'$'}SRC_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/media/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}PUSH_TEMP\" media"}
+        ${if (rule.includeObb) "capture_part \"${'$'}PUSH_TEMP\" obb \"${'$'}PUSH_TEMP/obb\" \"/data/media/${'$'}SRC_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/obb/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}PUSH_TEMP\" obb"}
         ${if (rule.includePermissions) sourcePermissionCaptureScript("${'$'}PUSH_TEMP/permissions", "${'$'}SRC_USER", settings.permissionRestoreMode) else ":"}
         PUSH_CE_STATE=${'$'}(sed -n '1p' "${'$'}PUSH_TEMP/.state/ce" 2>/dev/null || true)
         if [ "${'$'}PUSH_REQUIRE_CE" = "1" ] && [ "${'$'}PUSH_CE_STATE" != "data" ] && [ "${'$'}PUSH_CE_STATE" != "empty" ]; then
@@ -2201,11 +2204,11 @@ object ShellScripts {
           CAPTURED_PARTS=0
           CAPTURED_PERMISSIONS=0
           PERMISSION_CAPTURE_STATE=excluded
-          ${if (rule.includeCe) "capture_part \"${'$'}TRY_TMP\" ce \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" ce"}
-          ${if (rule.includeDe) "capture_part \"${'$'}TRY_TMP\" de \"${'$'}TRY_TMP/de\" \"/data/user_de/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}TRY_USER/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" de"}
-          ${if (rule.includeExternal) "capture_part \"${'$'}TRY_TMP\" external \"${'$'}TRY_TMP/external\" \"/data/media/${'$'}TRY_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/data/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" external"}
-          ${if (rule.includeMedia) "capture_part \"${'$'}TRY_TMP\" media \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" media"}
-          ${if (rule.includeObb) "capture_part \"${'$'}TRY_TMP\" obb \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\"" else "capture_excluded_part \"${'$'}TRY_TMP\" obb"}
+          ${if (rule.includeCe) "capture_part \"${'$'}TRY_TMP\" ce \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}TRY_TMP\" ce"}
+          ${if (rule.includeDe) "capture_part \"${'$'}TRY_TMP\" de \"${'$'}TRY_TMP/de\" \"/data/user_de/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}TRY_USER/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}TRY_TMP\" de"}
+          ${if (rule.includeExternal) "capture_part \"${'$'}TRY_TMP\" external \"${'$'}TRY_TMP/external\" \"/data/media/${'$'}TRY_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/data/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}TRY_TMP\" external"}
+          ${if (rule.includeMedia) "capture_part \"${'$'}TRY_TMP\" media \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}TRY_TMP\" media"}
+          ${if (rule.includeObb) "capture_part \"${'$'}TRY_TMP\" obb \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\" || exit 17" else "capture_excluded_part \"${'$'}TRY_TMP\" obb"}
           ${if (rule.includePermissions) sourcePermissionCaptureScript("${'$'}TRY_TMP/permissions", "${'$'}TRY_USER", settings.permissionRestoreMode) else ":"}
           SWITCH_CE_STATE=${'$'}(sed -n '1p' "${'$'}TRY_TMP/.state/ce" 2>/dev/null || true)
           if [ "${'$'}SWITCH_REQUIRE_CE" = "1" ] && [ "${'$'}SWITCH_CE_STATE" != "data" ] && [ "${'$'}SWITCH_CE_STATE" != "empty" ]; then
@@ -2672,23 +2675,23 @@ object ShellScripts {
               mkdir -p "${'$'}ROLLBACK/.state" || exit 54
               if [ ! -d "${'$'}SRC" ]; then
                 printf '%s\n' "absent" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
-                uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" absent || exit 54
+                uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" absent || { echo "ERR_ROLLBACK_PART_METADATA:${'$'}PART_NAME" >&2; exit 54; }
                 return 0
               fi
-              SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+              SRC_ITEMS=${'$'}(count_items "${'$'}SRC") || { echo "ERR_ROLLBACK_SOURCE_SCAN:${'$'}PART_NAME" >&2; exit 63; }
               if [ "${'$'}SRC_ITEMS" -le 0 ]; then
                 printf '%s\n' "empty" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
-                uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" empty "${'$'}SRC" || exit 54
+                uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" empty "${'$'}SRC" || { echo "ERR_ROLLBACK_PART_METADATA:${'$'}PART_NAME" >&2; exit 54; }
                 echo "SKIP_BACKUP_EMPTY:${'$'}SRC"
                 return 0
               fi
               uclone_remove_tree "${'$'}DST" || exit 54
               mkdir -p "${'$'}DST" || exit 54
               uclone_extract_workspace_tree "${'$'}SRC" "${'$'}DST" || exit 55
-              BACKUP_ITEMS=${'$'}(count_items "${'$'}DST")
+              BACKUP_ITEMS=${'$'}(count_items "${'$'}DST") || { echo "ERR_ROLLBACK_COPY_SCAN:${'$'}PART_NAME" >&2; exit 63; }
               [ "${'$'}BACKUP_ITEMS" -gt 0 ] || { echo "ERR_BACKUP_EMPTY:${'$'}SRC" >&2; exit 63; }
               printf '%s\n' "data" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
-              uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" data "${'$'}SRC" || exit 54
+              uclone_write_part_metadata "${'$'}ROLLBACK" "${'$'}PART_NAME" data "${'$'}SRC" || { echo "ERR_ROLLBACK_PART_METADATA:${'$'}PART_NAME" >&2; exit 54; }
               BACKUP_PARTS=${'$'}((BACKUP_PARTS + 1))
               UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
               UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + BACKUP_ITEMS))
