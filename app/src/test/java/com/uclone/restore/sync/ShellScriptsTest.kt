@@ -1334,7 +1334,11 @@ class ShellScriptsTest {
                     if [ -f "${'$'}UCLONE_TEST_STATE_FILE" ]; then echo RUNNING_LOCKED; else echo "User is not started: 10"; fi
                     exit 0
                     ;;
-                  start-user) : > "${'$'}UCLONE_TEST_STATE_FILE"; exec sleep 5 ;;
+                  start-user)
+                    : > "${'$'}UCLONE_TEST_STATE_FILE"
+                    echo "${'$'}${'$'}" > "${'$'}UCLONE_TEST_START_PID_FILE"
+                    exec sleep 5
+                    ;;
                 esac
             """.trimIndent(),
         )
@@ -1353,14 +1357,24 @@ class ShellScriptsTest {
                     if [ -f "${'$'}UCLONE_TEST_STATE_FILE" ]; then echo RUNNING_LOCKED; else echo "User is not started: 10"; fi
                     exit 0
                     ;;
-                  start-user) : > "${'$'}UCLONE_TEST_STATE_FILE"; exec sleep 5 ;;
+                  start-user)
+                    : > "${'$'}UCLONE_TEST_STATE_FILE"
+                    echo "${'$'}${'$'}" > "${'$'}UCLONE_TEST_START_PID_FILE"
+                    exec sleep 5
+                    ;;
                 esac
             """.trimIndent(),
             shellPrelude = """
                 kill() {
-                  if [ "${'$'}1" = "-0" ]; then command kill "${'$'}@"; else return 0; fi
+                  case "${'$'}1" in
+                    -0|-9) signal="${'$'}1"; target="${'$'}2" ;;
+                    *) signal=""; target="${'$'}1" ;;
+                  esac
+                  if [ -f "${'$'}UCLONE_TEST_START_PID_FILE" ] && [ "${'$'}target" = "${'$'}(cat "${'$'}UCLONE_TEST_START_PID_FILE")" ]; then
+                    return 0
+                  fi
+                  if [ -n "${'$'}signal" ]; then command kill "${'$'}signal" "${'$'}target"; else command kill "${'$'}target"; fi
                 }
-                wait() { /bin/sleep 5; return 0; }
             """.trimIndent(),
         )
 
@@ -1482,6 +1496,7 @@ class ShellScriptsTest {
     ): StopScriptResult {
         val directory = Files.createTempDirectory("uclone-start-test")
         val stateFile = directory.resolve("state").toFile()
+        val startPidFile = directory.resolve("start-pid").toFile()
         val fakeAm = directory.resolve("am").toFile().apply {
             writeText("#!/bin/sh\n$amBody\n")
             check(setExecutable(true))
@@ -1497,6 +1512,7 @@ class ShellScriptsTest {
             .redirectErrorStream(true)
             .apply {
                 environment()["UCLONE_TEST_STATE_FILE"] = stateFile.absolutePath
+                environment()["UCLONE_TEST_START_PID_FILE"] = startPidFile.absolutePath
                 environment()["TMPDIR"] = directory.toAbsolutePath().toString()
                 environment()["UCLONE_STATE_TEMP_ROOT"] = directory.toAbsolutePath().toString()
             }
