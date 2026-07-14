@@ -12,15 +12,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,10 +32,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.uclone.restore.model.CloneSessionPolicy
+import com.uclone.restore.model.MainReturnPointPolicy
 import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.WorkspaceOwnershipReport
 import com.uclone.restore.util.Formatters
@@ -49,6 +57,7 @@ fun SettingsScreen(
     var resetConfirmStage by remember { mutableStateOf(0) }
     var confirmOwnershipRepair by remember { mutableStateOf(false) }
     var confirmDangerousSwitch by remember { mutableStateOf(false) }
+    var switchPolicyDialog by remember { mutableStateOf<SwitchPolicyDialog?>(null) }
     Column(
         modifier
             .fillMaxSize()
@@ -115,33 +124,52 @@ fun SettingsScreen(
                 draft = draft.copy(stopCloneAfterTask = it)
             }
         }
-        SectionCard("切换模式") {
-            InfoRow("MAIN 恢复来源", "固定 MAIN 返回点")
-            Text(
-                "首次从 MAIN 切换到 CLONE 时建立；之后不会自动更新，只能在 App 详情中手动更新。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        SectionCard("切换策略") {
+            PolicySettingRow(
+                title = "MAIN 返回点",
+                value = SwitchPolicyText.mainReturnLabel(draft.mainReturnPointPolicy),
+                description = SwitchPolicyText.mainReturnDescription(draft.mainReturnPointPolicy),
+                onClick = { switchPolicyDialog = SwitchPolicyDialog.MAIN_RETURN },
             )
-            InfoRow("CLONE 切换来源", "user${draft.cloneUserId} 当前数据")
-            Text(
-                "每次切换到 CLONE 都直接读取分身系统当前数据，不使用旧版 CLONE 长期备份。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
+            PolicySettingRow(
+                title = "返回 MAIN 时的分数据",
+                value = SwitchPolicyText.cloneSessionLabel(draft.cloneSessionPolicy),
+                description = SwitchPolicyText.cloneSessionDescription(draft.cloneSessionPolicy, draft.cloneUserId),
+                onClick = { switchPolicyDialog = SwitchPolicyDialog.CLONE_SESSION },
             )
-            ToggleRow(
-                label = "危险快速返回",
-                checked = draft.switchSafetyMode == SwitchSafetyMode.DANGEROUS_FAST,
-                description = if (draft.switchSafetyMode == SwitchSafetyMode.DANGEROUS_FAST) {
-                    "CLONE → MAIN 为 2 次完整写入：直接同步当前分数据到 user${draft.cloneUserId}，再恢复固定 MAIN。不建立本地 CLONE 检查点；恢复失败时会标记为未知并要求人工处理。"
-                } else {
-                    "安全模式。MAIN → CLONE 为 2 次完整写入；CLONE → MAIN 为 3 次：保存本地 CLONE 检查点、同步 user${draft.cloneUserId}、恢复固定 MAIN。"
-                },
+            HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
+            PolicySettingRow(
+                title = "失败保护",
+                value = SwitchPolicyText.safetyLabel(draft.switchSafetyMode),
+                description = SwitchPolicyText.safetyDescription(draft.switchSafetyMode),
+                onClick = { switchPolicyDialog = SwitchPolicyDialog.SAFETY },
+            )
+            HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
+            Column(
+                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (it) {
-                    confirmDangerousSwitch = true
-                } else {
-                    draft = draft.copy(switchSafetyMode = SwitchSafetyMode.SAFE)
-                }
+                Text(
+                    "当前执行方案 · ${SwitchPolicyText.planLabel(draft)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (draft.switchSafetyMode == SwitchSafetyMode.DANGEROUS_FAST) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    SwitchPolicyText.planSummary(draft),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "切换到 CLONE 始终读取 user${draft.cloneUserId} 当前数据，不使用长期 CLONE 备份。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         SectionCard("模块控制") {
@@ -325,9 +353,7 @@ fun SettingsScreen(
             onDismissRequest = { confirmDangerousSwitch = false },
             title = { Text("启用危险快速返回") },
             text = {
-                Text(
-                    "该模式只改变 CLONE → MAIN：会省去一次本地 CLONE 检查点复制。若固定 MAIN 恢复失败，user0 没有本次操作前的本地回滚，只能保持未知状态并人工处理。",
-                )
+                Text(SwitchPolicyText.restoreConfirmation(draft.copy(switchSafetyMode = SwitchSafetyMode.DANGEROUS_FAST)))
             },
             confirmButton = {
                 DialogActionButton(
@@ -342,6 +368,90 @@ fun SettingsScreen(
             dismissButton = {
                 DialogActionButton("取消", onClick = { confirmDangerousSwitch = false })
             },
+        )
+    }
+    switchPolicyDialog?.let { dialog ->
+        val choices = when (dialog) {
+            SwitchPolicyDialog.MAIN_RETURN -> listOf(
+                PolicyChoice(
+                    label = "固定保存",
+                    description = SwitchPolicyText.mainReturnDescription(MainReturnPointPolicy.FIXED),
+                    selected = draft.mainReturnPointPolicy == MainReturnPointPolicy.FIXED,
+                    onSelect = {
+                        draft = draft.copy(mainReturnPointPolicy = MainReturnPointPolicy.FIXED)
+                        switchPolicyDialog = null
+                    },
+                ),
+                PolicyChoice(
+                    label = "每次离开 MAIN 时更新",
+                    description = SwitchPolicyText.mainReturnDescription(MainReturnPointPolicy.REFRESH_ON_MAIN_EXIT),
+                    selected = draft.mainReturnPointPolicy == MainReturnPointPolicy.REFRESH_ON_MAIN_EXIT,
+                    onSelect = {
+                        draft = draft.copy(mainReturnPointPolicy = MainReturnPointPolicy.REFRESH_ON_MAIN_EXIT)
+                        switchPolicyDialog = null
+                    },
+                ),
+            )
+            SwitchPolicyDialog.CLONE_SESSION -> listOf(
+                PolicyChoice(
+                    label = "同步到分身系统",
+                    description = SwitchPolicyText.cloneSessionDescription(CloneSessionPolicy.SYNC_TO_CLONE_USER, draft.cloneUserId),
+                    selected = draft.cloneSessionPolicy == CloneSessionPolicy.SYNC_TO_CLONE_USER,
+                    onSelect = {
+                        draft = draft.copy(cloneSessionPolicy = CloneSessionPolicy.SYNC_TO_CLONE_USER)
+                        switchPolicyDialog = null
+                    },
+                ),
+                PolicyChoice(
+                    label = "不更新分身系统",
+                    description = SwitchPolicyText.cloneSessionDescription(CloneSessionPolicy.DISCARD_ON_MAIN_RETURN, draft.cloneUserId),
+                    selected = draft.cloneSessionPolicy == CloneSessionPolicy.DISCARD_ON_MAIN_RETURN,
+                    onSelect = {
+                        draft = draft.copy(cloneSessionPolicy = CloneSessionPolicy.DISCARD_ON_MAIN_RETURN)
+                        switchPolicyDialog = null
+                    },
+                ),
+            )
+            SwitchPolicyDialog.SAFETY -> listOf(
+                PolicyChoice(
+                    label = "安全保护",
+                    description = SwitchPolicyText.safetyDescription(SwitchSafetyMode.SAFE),
+                    selected = draft.switchSafetyMode == SwitchSafetyMode.SAFE,
+                    onSelect = {
+                        draft = draft.copy(switchSafetyMode = SwitchSafetyMode.SAFE)
+                        switchPolicyDialog = null
+                    },
+                ),
+                PolicyChoice(
+                    label = "危险快速",
+                    description = SwitchPolicyText.safetyDescription(SwitchSafetyMode.DANGEROUS_FAST),
+                    selected = draft.switchSafetyMode == SwitchSafetyMode.DANGEROUS_FAST,
+                    danger = true,
+                    onSelect = {
+                        switchPolicyDialog = null
+                        confirmDangerousSwitch = true
+                    },
+                ),
+            )
+        }
+        AlertDialog(
+            onDismissRequest = { switchPolicyDialog = null },
+            title = {
+                Text(
+                    when (dialog) {
+                        SwitchPolicyDialog.MAIN_RETURN -> "选择 MAIN 返回点策略"
+                        SwitchPolicyDialog.CLONE_SESSION -> "选择分数据处理方式"
+                        SwitchPolicyDialog.SAFETY -> "选择失败保护"
+                    },
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    choices.forEach { choice -> PolicyChoiceRow(choice) }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { DialogActionButton("取消", onClick = { switchPolicyDialog = null }) },
         )
     }
 }
@@ -410,6 +520,98 @@ private fun ToggleRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+private enum class SwitchPolicyDialog {
+    MAIN_RETURN,
+    CLONE_SESSION,
+    SAFETY,
+}
+
+private data class PolicyChoice(
+    val label: String,
+    val description: String,
+    val selected: Boolean,
+    val danger: Boolean = false,
+    val onSelect: () -> Unit,
+)
+
+@Composable
+private fun PolicySettingRow(
+    title: String,
+    value: String,
+    description: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = Color.Transparent,
+    ) {
+        Row(
+            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(
+                    "当前：$value",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = "选择$title",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PolicyChoiceRow(choice: PolicyChoice) {
+    val accent = if (choice.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    Surface(
+        onClick = choice.onSelect,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = if (choice.selected) accent.copy(alpha = 0.10f) else Color.Transparent,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    choice.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = if (choice.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    choice.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (choice.selected) {
+                Icon(Icons.Default.Check, contentDescription = "已选择", tint = accent)
+            }
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.CloneReturnPlan
 import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.RestoreBackupEntry
 import com.uclone.restore.model.StepStatus
@@ -10,8 +11,8 @@ import com.uclone.restore.model.TaskStage
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskStep
 import com.uclone.restore.model.TaskType
-import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.model.cloneReturnPlan
 import com.uclone.restore.root.RootEnvironmentChecker
 import com.uclone.restore.root.RootShellExecutor
 import com.uclone.restore.root.ShellOutput
@@ -236,15 +237,20 @@ class SyncEngine(
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
     ): TaskRecord {
-        val dangerousFast = settings.switchSafetyMode == SwitchSafetyMode.DANGEROUS_FAST
+        val plan = settings.cloneReturnPlan()
         return runScriptTask(
             type = TaskType.RESTORE_SWITCH_MAIN_STATE,
             packageName = packageName,
             settings = settings,
-            labels = if (dangerousFast) {
-                listOf("检查切换状态", "直接同步当前分数据", "验证分身数据", "恢复固定 MAIN", "提交主数据状态", "完成")
-            } else {
-                listOf("检查切换状态", "保存 CLONE 检查点", "同步当前分数据", "验证分身数据", "恢复固定 MAIN", "完成")
+            labels = when (plan) {
+                CloneReturnPlan.SYNC_SAFE ->
+                    listOf("检查切换状态", "保存当前分数据检查点", "同步分数据到 user${settings.cloneUserId}", "恢复固定 MAIN", "提交主数据状态", "完成")
+                CloneReturnPlan.SYNC_FAST ->
+                    listOf("检查切换状态", "同步分数据到 user${settings.cloneUserId}", "恢复固定 MAIN", "提交主数据状态", "完成")
+                CloneReturnPlan.DISCARD_SAFE ->
+                    listOf("检查切换状态", "保存临时分数据检查点", "恢复固定 MAIN", "提交主数据状态", "完成")
+                CloneReturnPlan.DISCARD_FAST ->
+                    listOf("检查危险返回", "直接恢复固定 MAIN", "提交主数据状态", "完成")
             },
             script = ShellScripts.pushMainToCloneThenRestoreMain(packageName, rollbackId, rule, settings, appPackage),
             report = report,

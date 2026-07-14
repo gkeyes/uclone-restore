@@ -1,6 +1,8 @@
 package com.uclone.restore.data
 
 import android.content.Context
+import com.uclone.restore.model.CloneSessionPolicy
+import com.uclone.restore.model.MainReturnPointPolicy
 import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.UCloneSettings
 
@@ -11,7 +13,7 @@ class SettingsStore private constructor(
     constructor(context: Context) : this(context, AndroidKeystoreCredentialCipher())
 
     private val prefs = context.getSharedPreferences("uclone_settings", Context.MODE_PRIVATE)
-    private val schemaVersion = 12
+    private val schemaVersion = 13
 
     fun load(): UCloneSettings = UCloneSettings(
         mainUserId = prefs.getInt("mainUserId", 0),
@@ -27,6 +29,8 @@ class SettingsStore private constructor(
         stopCloneAfterTask = prefs.getBoolean("stopCloneAfterTask", true),
         autoUnlockClone = prefs.getBoolean("autoUnlockClone", false),
         allowModuleControl = prefs.getBoolean("allowModuleControl", false),
+        mainReturnPointPolicy = migratedMainReturnPointPolicy(prefs.getString("mainReturnPointPolicy", null)),
+        cloneSessionPolicy = migratedCloneSessionPolicy(prefs.getString("cloneSessionPolicy", null)),
         switchSafetyMode = migratedSwitchSafetyMode(prefs.getString("switchSafetyMode", null)),
         favoritePackages = prefs.getStringSet("favoritePackages", emptySet()).orEmpty().toSet(),
         cloneUnlockCredential = loadCredential(),
@@ -47,6 +51,8 @@ class SettingsStore private constructor(
             .putBoolean("stopCloneAfterTask", settings.stopCloneAfterTask)
             .putBoolean("autoUnlockClone", settings.autoUnlockClone)
             .putBoolean("allowModuleControl", settings.allowModuleControl)
+            .putString("mainReturnPointPolicy", settings.mainReturnPointPolicy.name)
+            .putString("cloneSessionPolicy", settings.cloneSessionPolicy.name)
             .putString("switchSafetyMode", settings.switchSafetyMode.name)
             .putStringSet("favoritePackages", settings.favoritePackages.toMutableSet())
             .putString(ENCRYPTED_CREDENTIAL_KEY, encryptCredential(settings.cloneUnlockCredential.trim()))
@@ -88,3 +94,13 @@ internal fun migratedSwitchSafetyMode(storedValue: String?): SwitchSafetyMode =
     runCatching { storedValue?.let(SwitchSafetyMode::valueOf) }
         .getOrNull()
         ?: SwitchSafetyMode.SAFE
+
+internal fun migratedMainReturnPointPolicy(storedValue: String?): MainReturnPointPolicy =
+    runCatching { storedValue?.let(MainReturnPointPolicy::valueOf) }
+        .getOrNull()
+        ?: MainReturnPointPolicy.FIXED
+
+internal fun migratedCloneSessionPolicy(storedValue: String?): CloneSessionPolicy =
+    runCatching { storedValue?.let(CloneSessionPolicy::valueOf) }
+        .getOrNull()
+        ?: CloneSessionPolicy.SYNC_TO_CLONE_USER

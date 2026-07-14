@@ -14,21 +14,23 @@ internal object TaskResultMessages {
         val cloneStopWarnings = output.lineSequence().count { it.startsWith("WARN_STOP_CLONE_") }
         val stateWarnings = output.lineSequence().count {
             it.startsWith("WARN_STATE_BACKUP_") ||
+                it.startsWith("WARN_MAIN_RETURN_") ||
                 it.startsWith("WARN_DATA_STATE_") ||
                 it.startsWith("WARN_CLONE_ROLLBACK_") ||
                 it.startsWith("WARN_TRANSACTION_UNDO_")
         }
+        val completion = returnPlanCompletion(output) ?: "完成"
         if (
             grantWarnings == 0 && revokeWarnings == 0 && appOpsWarnings == 0 &&
             captureWarnings == 0 && cloneStopWarnings == 0 && stateWarnings == 0
         ) {
-            return "完成"
+            return completion
         }
         if (
             grantWarnings == 0 && revokeWarnings == 0 && appOpsWarnings == 0 &&
             captureWarnings == 0 && stateWarnings == 0
         ) {
-            return "完成，但分身自动关闭失败，分身可能仍在运行"
+            return "$completion，但分身自动关闭失败，分身可能仍在运行"
         }
 
         val parts = buildList {
@@ -44,6 +46,14 @@ internal object TaskResultMessages {
             cloneStopWarnings > 0 -> "部分状态未完全恢复"
             else -> "权限部分未完全恢复"
         }
-        return "完成，$summary（${parts.joinToString("，")}）"
+        return "$completion，$summary（${parts.joinToString("，")}）"
+    }
+
+    private fun returnPlanCompletion(output: String): String? = when {
+        "plan=SYNC_SAFE" in output -> "完成（安全同步，3 次完整写入）：分数据已同步到分身，MAIN 已恢复"
+        "plan=SYNC_FAST" in output -> "完成（危险快速同步，2 次完整写入）：分数据已同步到分身，MAIN 已恢复"
+        "plan=DISCARD_SAFE" in output -> "完成（安全丢弃，2 次完整写入）：分身数据未更新，MAIN 已恢复"
+        "plan=DISCARD_FAST" in output -> "完成（危险快速丢弃，1 次完整写入）：当前分数据已丢弃，MAIN 已恢复"
+        else -> null
     }
 }

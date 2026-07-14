@@ -111,7 +111,7 @@ internal object RestoreTransactionShell {
              [ "${'$'}ROLLBACK_READY" != "1" ] &&
              [ "${'$'}TRANSACTION_COMMITTED" != "1" ]; then
             TRANSACTION_EMIT_FAILURE_METRICS=1
-            echo "RECOVERY_REQUIRED:mode=DANGEROUS_FAST rollback=unavailable marker=UNKNOWN" >&2
+            echo "RECOVERY_REQUIRED:mode=${'$'}{UCLONE_RETURN_PLAN:-DANGEROUS_FAST} rollback=unavailable marker=UNKNOWN" >&2
             TRANSACTION_EXIT_CODE=91
           fi
           """.trimIndent() else ":"}

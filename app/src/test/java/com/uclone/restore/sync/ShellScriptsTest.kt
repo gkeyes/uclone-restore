@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.CloneSessionPolicy
 import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.UCloneSettings
@@ -127,6 +128,23 @@ class ShellScriptsTest {
                 "persistent_main",
                 rule,
                 settings.copy(switchSafetyMode = SwitchSafetyMode.DANGEROUS_FAST),
+                appPackage,
+            ),
+            ShellScripts.pushMainToCloneThenRestoreMain(
+                "com.example.app",
+                "persistent_main",
+                rule,
+                settings.copy(cloneSessionPolicy = CloneSessionPolicy.DISCARD_ON_MAIN_RETURN),
+                appPackage,
+            ),
+            ShellScripts.pushMainToCloneThenRestoreMain(
+                "com.example.app",
+                "persistent_main",
+                rule,
+                settings.copy(
+                    cloneSessionPolicy = CloneSessionPolicy.DISCARD_ON_MAIN_RETURN,
+                    switchSafetyMode = SwitchSafetyMode.DANGEROUS_FAST,
+                ),
                 appPackage,
             ),
             ShellScripts.rollback("com.example.app", "20260710-010203", settings, appPackage),

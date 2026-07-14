@@ -1,8 +1,10 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.CloneReturnPlan
 import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.model.cloneReturnPlan
 import com.uclone.restore.root.shellQuote
 
 object ShellScripts {
@@ -1067,8 +1069,8 @@ object ShellScripts {
         rule: AppRule,
         settings: UCloneSettings,
         appPackage: String,
-    ): String = when (settings.switchSafetyMode) {
-        SwitchSafetyMode.SAFE -> restoreBody(
+    ): String = when (settings.cloneReturnPlan()) {
+        CloneReturnPlan.SYNC_SAFE -> restoreBody(
             packageName = packageName,
             settings = settings,
             appPackage = appPackage,
@@ -1089,7 +1091,7 @@ object ShellScripts {
             pruneOldRollbacks = false,
         )
 
-        SwitchSafetyMode.DANGEROUS_FAST -> restoreBody(
+        CloneReturnPlan.SYNC_FAST -> restoreBody(
             packageName = packageName,
             settings = settings,
             appPackage = appPackage,
@@ -1107,6 +1109,50 @@ object ShellScripts {
             restoreCopyPassLabel = "fixed_main_to_user0",
             expectedCopyPasses = 2,
             pruneOldRollbacks = false,
+        )
+
+        CloneReturnPlan.DISCARD_SAFE -> restoreBody(
+            packageName = packageName,
+            settings = settings,
+            appPackage = appPackage,
+            rollbackName = """switch_checkpoint_${'$'}RUN_ID""",
+            rollbackReason = "丢弃当前分数据前保存临时检查点",
+            sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId",
+            sourceRollbackId = rollbackId,
+            sourceKind = RestoreSourceKind.ROLLBACK,
+            prepareSourceScript = OptimizedSwitchPreparationShell.discardReturn(rule, settings, rollbackId, safe = true),
+            clearSwitchMarker = true,
+            directSource = true,
+            sourceStateAware = true,
+            restoreRule = rule,
+            rollbackProtection = RollbackProtection.FRESH,
+            cleanupRollbackOnSuccess = true,
+            backupCopyPassLabel = "clone_discard_checkpoint",
+            restoreCopyPassLabel = "fixed_main_to_user0",
+            expectedCopyPasses = 2,
+            pruneOldRollbacks = false,
+            manageCloneLifecycleAfterTask = false,
+        )
+
+        CloneReturnPlan.DISCARD_FAST -> restoreBody(
+            packageName = packageName,
+            settings = settings,
+            appPackage = appPackage,
+            rollbackName = """dangerous_discard_no_rollback_${'$'}RUN_ID""",
+            rollbackReason = "危险丢弃当前分数据且不生成回滚",
+            sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId",
+            sourceRollbackId = rollbackId,
+            sourceKind = RestoreSourceKind.ROLLBACK,
+            prepareSourceScript = OptimizedSwitchPreparationShell.discardReturn(rule, settings, rollbackId, safe = false),
+            clearSwitchMarker = true,
+            directSource = true,
+            sourceStateAware = true,
+            restoreRule = rule,
+            rollbackProtection = RollbackProtection.NONE,
+            restoreCopyPassLabel = "fixed_main_to_user0",
+            expectedCopyPasses = 1,
+            pruneOldRollbacks = false,
+            manageCloneLifecycleAfterTask = false,
         )
     }
 
@@ -1770,6 +1816,7 @@ object ShellScripts {
         backupCopyPassLabel: String? = null,
         restoreCopyPassLabel: String? = null,
         expectedCopyPasses: Int? = null,
+        manageCloneLifecycleAfterTask: Boolean = writeSwitchMarker || clearSwitchMarker,
     ): String {
         val sourceRoot = sourcePrefix.ifBlank { "${settings.rootDir}/snapshots/$packageName/active" }
         val selectedRestoreParts = buildList {
@@ -1808,6 +1855,7 @@ object ShellScripts {
             $activeAssignment
             SOURCE_KIND=${shellQuote(sourceKindToken)}
             SOURCE_ROLLBACK_ID=${shellQuote(sourceRollbackId.orEmpty())}
+            MAIN_RETURN_POLICY=${shellQuote(settings.mainReturnPointPolicy.name)}
             MANAGE_MAIN_STATE=${if (targetUserId == settings.mainUserId && rollbackRootName == "rollback") "1" else "0"}
             EXPLICIT_SWITCH_TO_CLONE=${if (writeSwitchMarker) "1" else "0"}
             EXPLICIT_RESTORE_MAIN=${if (clearSwitchMarker) "1" else "0"}
@@ -1874,9 +1922,13 @@ object ShellScripts {
             esac
             PREVIOUS_MAIN_RETURN_ID=""
             CURRENT_TARGET_STATE=CLONE
+            CURRENT_MAIN_CONFIRMED=0
             if [ "${'$'}MANAGE_MAIN_STATE" = "1" ]; then
               PREVIOUS_MAIN_RETURN_ID=${'$'}(uclone_read_main_return_id 2>/dev/null || true)
               CURRENT_TARGET_STATE=${'$'}(uclone_current_main_state)
+              if [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] && uclone_confirmed_main_state; then
+                CURRENT_MAIN_CONFIRMED=1
+              fi
               if [ "${'$'}EXPLICIT_SWITCH_TO_CLONE" = "1" ] && [ "${'$'}CURRENT_TARGET_STATE" != "MAIN" ]; then
                 echo "ERR_STATE_MISMATCH:expected=MAIN actual=${'$'}CURRENT_TARGET_STATE" >&2
                 exit 74
@@ -1889,6 +1941,17 @@ object ShellScripts {
             NEXT_MAIN_STATE="${'$'}SOURCE_STATE"
             [ "${'$'}EXPLICIT_SWITCH_TO_CLONE" != "1" ] || NEXT_MAIN_STATE=CLONE
             [ "${'$'}EXPLICIT_RESTORE_MAIN" != "1" ] || NEXT_MAIN_STATE=MAIN
+            if [ "${'$'}MANAGE_MAIN_STATE" = "1" ] &&
+               [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] &&
+               [ "${'$'}NEXT_MAIN_STATE" = "CLONE" ]; then
+              PERSISTENT_MAIN_DIR="${'$'}ROOT/rollback/${'$'}PKG/persistent_main"
+              if [ -e "${'$'}PERSISTENT_MAIN_DIR" ] || [ -L "${'$'}PERSISTENT_MAIN_DIR" ]; then
+                uclone_valid_state_backup "${'$'}PERSISTENT_MAIN_DIR" MAIN || {
+                  echo "ERR_MAIN_RETURN_INVALID:${'$'}PERSISTENT_MAIN_DIR" >&2
+                  exit 53
+                }
+              fi
+            fi
             if [ "${'$'}MANAGE_MAIN_STATE" = "1" ] &&
                [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] &&
                [ "${'$'}NEXT_MAIN_STATE" = "CLONE" ] &&
@@ -2232,6 +2295,7 @@ object ShellScripts {
                 esac
               fi
             }
+            ${if (manageCloneLifecycleAfterTask) """
             stop_clone_user_after_switch_restore() {
               ${if (settings.stopCloneAfterTask && (writeSwitchMarker || clearSwitchMarker)) """
               if [ "${'$'}{CLONE_STARTED_BY_TASK:-0}" = "1" ]; then
@@ -2247,6 +2311,7 @@ object ShellScripts {
               echo "STOP_CLONE_AFTER_TASK=0 reason=switch_restore_disabled"
               """.trimIndent()}
             }
+            """.trimIndent() else ":"}
             uclone_stage_begin ROLLBACK_BACKUP
             ${backupCopyPassLabel?.let { "uclone_copy_pass_begin ${shellQuote(it)}" } ?: ":"}
             ${when (rollbackProtection) {
@@ -2325,7 +2390,12 @@ object ShellScripts {
             FINAL_STATE_PUBLISHED=1
             ${if (targetUserId == settings.mainUserId && rollbackRootName == "rollback") """
             if [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] && [ "${'$'}NEXT_MAIN_STATE" = "CLONE" ]; then
-              uclone_select_transaction_state_backup "${'$'}ORIGINAL_TRANSACTION_DIR" "${'$'}ORIGINAL_TRANSACTION_ID" "${'$'}CURRENT_TARGET_STATE" || exit 53
+              uclone_select_transaction_state_backup \
+                "${'$'}ORIGINAL_TRANSACTION_DIR" \
+                "${'$'}ORIGINAL_TRANSACTION_ID" \
+                "${'$'}CURRENT_TARGET_STATE" \
+                "${'$'}MAIN_RETURN_POLICY" \
+                "${'$'}CURRENT_MAIN_CONFIRMED" || exit 53
               if [ "${'$'}EXPLICIT_SWITCH_TO_CLONE" != "1" ] && [ "${'$'}UCLONE_STATE_BACKUP_REUSED" != "1" ]; then
                 echo "ERR_MAIN_RETURN_AUTO_INIT_FORBIDDEN" >&2
                 exit 53
@@ -2438,9 +2508,9 @@ object ShellScripts {
             UCLONE_TARGET_DOWNTIME_MS=${'$'}(uclone_elapsed_ms "${'$'}UCLONE_TARGET_READY_AT" "${'$'}UCLONE_TARGET_STOPPED_AT")
             uclone_stage_end
             ${if (pruneOldRollbacks) "(prune_old_rollbacks) || echo \"WARN_PRUNE_ROLLBACK_FAILED:${'$'}ROLLBACK\"" else ":"}
-            ${if (writeSwitchMarker || clearSwitchMarker) "stop_clone_user_after_switch_restore" else ":"}
+            ${if (manageCloneLifecycleAfterTask) "stop_clone_user_after_switch_restore" else ":"}
             uclone_emit_metrics
-            ${expectedCopyPasses?.let { "echo \"UCLONE_COPY_PASSES=${'$'}UCLONE_COPY_PASSES mode=${settings.switchSafetyMode.name}\"" } ?: ":"}
+            ${expectedCopyPasses?.let { "echo \"UCLONE_COPY_PASSES=${'$'}UCLONE_COPY_PASSES plan=${'$'}{UCLONE_RETURN_PLAN:-${settings.switchSafetyMode.name}}\"" } ?: ":"}
             echo "TRANSACTION_UNDO=${'$'}ORIGINAL_TRANSACTION_DIR disposition=${'$'}TRANSACTION_UNDO_DISPOSITION"
             echo "RESTORE_SUMMARY: restoredParts=${'$'}RESTORED_PARTS restoredItems=${'$'}RESTORED_ITEMS backupParts=${'$'}BACKUP_PARTS"
         """.trimIndent()

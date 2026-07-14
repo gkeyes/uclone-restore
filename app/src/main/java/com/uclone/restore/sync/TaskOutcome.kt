@@ -28,9 +28,17 @@ internal object TaskOutcome {
             "reason=partial_sync" in output ->
             "分数据同步中断，user10 目标可能不完整；user0 仍保留当前 CLONE 数据，MAIN 还原尚未开始，请重新同步并查看日志"
         status == TaskStatus.FAILED_FATAL &&
+            "RECOVERY_REQUIRED:mode=SYNC_FAST" in output &&
+            "rollback=unavailable" in output ->
+            "当前分数据已同步到 user10，但恢复 MAIN 失败；本次没有本地检查点，user0 状态已标记为未知，请勿启动目标 App，并查看日志"
+        status == TaskStatus.FAILED_FATAL &&
+            "RECOVERY_REQUIRED:mode=DISCARD_FAST" in output &&
+            "rollback=unavailable" in output ->
+            "当前 user0 分数据已按设置丢弃，但恢复 MAIN 失败；本次没有本地检查点，user0 状态已标记为未知，请勿启动目标 App，并查看日志"
+        status == TaskStatus.FAILED_FATAL &&
             "RECOVERY_REQUIRED:mode=DANGEROUS_FAST" in output &&
             "rollback=unavailable" in output ->
-            "危险快速返回在恢复 MAIN 时失败；本次没有本地 CLONE 检查点，user0 状态已标记为未知，请勿启动目标 App，并查看日志"
+            "危险快速返回在恢复 MAIN 时失败；本次没有本地检查点，user0 状态已标记为未知，请勿启动目标 App，并查看日志"
         status == TaskStatus.ROLLED_BACK -> "操作失败，已自动恢复操作前数据"
         status == TaskStatus.FAILED_FATAL -> "操作失败且自动回滚失败，请勿启动目标 App，并查看日志"
         else -> null
@@ -44,6 +52,7 @@ internal object TaskOutcome {
         "WARN_INSTALL_",
         "WARN_STOP_CLONE_",
         "WARN_STATE_BACKUP_",
+        "WARN_MAIN_RETURN_",
         "WARN_DATA_STATE_",
         "WARN_CLONE_ROLLBACK_",
         "WARN_TRANSACTION_UNDO_",

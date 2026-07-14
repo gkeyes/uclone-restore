@@ -81,7 +81,13 @@ internal object StateBackupShell {
           UCLONE_SSB_TRANSACTION_DIR="${'$'}1"
           UCLONE_SSB_TRANSACTION_ID="${'$'}2"
           UCLONE_SSB_STATE_KIND="${'$'}3"
+          UCLONE_SSB_POLICY="${'$'}{4:-FIXED}"
+          UCLONE_SSB_CONFIRMED_MAIN="${'$'}{5:-0}"
           [ "${'$'}UCLONE_SSB_STATE_KIND" = "MAIN" ] || return 1
+          case "${'$'}UCLONE_SSB_POLICY" in
+            FIXED|REFRESH_ON_MAIN_EXIT) ;;
+            *) echo "ERR_MAIN_RETURN_POLICY:${'$'}UCLONE_SSB_POLICY" >&2; return 1 ;;
+          esac
           UCLONE_SSB_PERSISTENT_ID="persistent_main"
           UCLONE_SSB_PERSISTENT_DIR="${'$'}ROOT/rollback/${'$'}PKG/${'$'}UCLONE_SSB_PERSISTENT_ID"
           if [ -e "${'$'}UCLONE_SSB_PERSISTENT_DIR" ] || [ -L "${'$'}UCLONE_SSB_PERSISTENT_DIR" ]; then
@@ -89,10 +95,24 @@ internal object StateBackupShell {
               echo "ERR_MAIN_RETURN_INVALID:${'$'}UCLONE_SSB_PERSISTENT_DIR" >&2
               return 1
             }
-            UCLONE_STATE_BACKUP_ID="${'$'}UCLONE_SSB_PERSISTENT_ID"
-            UCLONE_STATE_BACKUP_PATH="${'$'}UCLONE_SSB_PERSISTENT_DIR"
-            UCLONE_STATE_BACKUP_REUSED=1
-            echo "MAIN_RETURN_SELECTED:path=${'$'}UCLONE_SSB_PERSISTENT_DIR mode=fixed"
+            if [ "${'$'}UCLONE_SSB_POLICY" = "REFRESH_ON_MAIN_EXIT" ] &&
+               [ "${'$'}UCLONE_SSB_CONFIRMED_MAIN" = "1" ]; then
+              uclone_valid_state_backup "${'$'}UCLONE_SSB_TRANSACTION_DIR" MAIN || return 1
+              UCLONE_STATE_BACKUP_ID="${'$'}UCLONE_SSB_TRANSACTION_ID"
+              UCLONE_STATE_BACKUP_PATH="${'$'}UCLONE_SSB_TRANSACTION_DIR"
+              UCLONE_STATE_BACKUP_REUSED=0
+              echo "MAIN_RETURN_SELECTED:path=${'$'}UCLONE_SSB_TRANSACTION_DIR mode=refresh"
+            else
+              UCLONE_STATE_BACKUP_ID="${'$'}UCLONE_SSB_PERSISTENT_ID"
+              UCLONE_STATE_BACKUP_PATH="${'$'}UCLONE_SSB_PERSISTENT_DIR"
+              UCLONE_STATE_BACKUP_REUSED=1
+              if [ "${'$'}UCLONE_SSB_POLICY" = "REFRESH_ON_MAIN_EXIT" ]; then
+                echo "WARN_MAIN_RETURN_REFRESH_SKIPPED:reason=main_state_not_confirmed"
+                echo "MAIN_RETURN_SELECTED:path=${'$'}UCLONE_SSB_PERSISTENT_DIR mode=refresh_skipped"
+              else
+                echo "MAIN_RETURN_SELECTED:path=${'$'}UCLONE_SSB_PERSISTENT_DIR mode=fixed"
+              fi
+            fi
           else
             uclone_valid_state_backup "${'$'}UCLONE_SSB_TRANSACTION_DIR" MAIN || return 1
             UCLONE_STATE_BACKUP_ID="${'$'}UCLONE_SSB_TRANSACTION_ID"

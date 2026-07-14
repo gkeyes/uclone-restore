@@ -23,7 +23,7 @@ class TaskOutcomeTest {
 
     @Test
     fun partialCloneSyncRequiresRecoveryWithoutClaimingRollbackFailure() {
-        val output = "RECOVERY_REQUIRED:mode=SAFE target=user10 reason=partial_sync"
+        val output = "RECOVERY_REQUIRED:mode=SYNC_SAFE target=user10 reason=partial_sync"
         val result = ShellResult(91, "", output)
 
         assertEquals(TaskStatus.FAILED_FATAL, TaskOutcome.status(result))
@@ -34,13 +34,25 @@ class TaskOutcomeTest {
     }
 
     @Test
-    fun dangerousMainRestoreFailureExplainsThatNoLocalRollbackExists() {
-        val output = "RECOVERY_REQUIRED:mode=DANGEROUS_FAST rollback=unavailable marker=UNKNOWN"
+    fun syncFastMainRestoreFailureExplainsThatCloneDataReachedUser10() {
+        val output = "RECOVERY_REQUIRED:mode=SYNC_FAST rollback=unavailable marker=UNKNOWN"
         val result = ShellResult(91, "", output)
 
         assertEquals(TaskStatus.FAILED_FATAL, TaskOutcome.status(result))
         assertEquals(
-            "危险快速返回在恢复 MAIN 时失败；本次没有本地 CLONE 检查点，user0 状态已标记为未知，请勿启动目标 App，并查看日志",
+            "当前分数据已同步到 user10，但恢复 MAIN 失败；本次没有本地检查点，user0 状态已标记为未知，请勿启动目标 App，并查看日志",
+            TaskOutcome.failureMessage(TaskStatus.FAILED_FATAL, output),
+        )
+    }
+
+    @Test
+    fun discardFastMainRestoreFailureExplainsThatCurrentCloneDataWasDiscarded() {
+        val output = "RECOVERY_REQUIRED:mode=DISCARD_FAST rollback=unavailable marker=UNKNOWN"
+        val result = ShellResult(91, "", output)
+
+        assertEquals(TaskStatus.FAILED_FATAL, TaskOutcome.status(result))
+        assertEquals(
+            "当前 user0 分数据已按设置丢弃，但恢复 MAIN 失败；本次没有本地检查点，user0 状态已标记为未知，请勿启动目标 App，并查看日志",
             TaskOutcome.failureMessage(TaskStatus.FAILED_FATAL, output),
         )
     }
@@ -96,6 +108,13 @@ class TaskOutcomeTest {
 
             assertEquals(TaskStatus.SUCCESS_WITH_WARNINGS, TaskOutcome.status(result))
         }
+    }
+
+    @Test
+    fun skippedAutomaticMainRefreshHasExplicitWarningStatus() {
+        val result = ShellResult(0, "WARN_MAIN_RETURN_REFRESH_SKIPPED:reason=main_state_not_confirmed", "")
+
+        assertEquals(TaskStatus.SUCCESS_WITH_WARNINGS, TaskOutcome.status(result))
     }
 
     @Test

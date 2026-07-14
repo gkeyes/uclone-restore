@@ -1,6 +1,8 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.CloneSessionPolicy
+import com.uclone.restore.model.MainReturnPointPolicy
 import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.UCloneSettings
 import java.nio.file.Files
@@ -21,6 +23,54 @@ class StateBackupShellTest {
         assertContains(script, "[ \"${'$'}UCLONE_SSB_STATE_KIND\" = \"MAIN\" ] || return 1")
         assertContains(script, "stateKind")
         assertFalse(script.contains("UCLONE_SSB_PERSISTENT_ID=\"persistent_clone\""))
+    }
+
+    @Test
+    fun refreshPolicySelectsTheFreshTransactionOnlyForConfirmedMain() {
+        val root = Files.createTempDirectory("uclone-main-refresh-selector")
+        createStateBackup(root, "persistent_main", "MAIN", PARTS)
+        createStateBackup(root, "transaction_confirmed", "MAIN", PARTS)
+        createStateBackup(root, "transaction_inferred", "MAIN", PARTS)
+
+        val result = runShell(
+            """
+                set -u
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                TS=20260714-120000
+                ${StateBackupShell.functions()}
+                uclone_select_transaction_state_backup \
+                  "${'$'}ROOT/rollback/${'$'}PKG/transaction_confirmed" \
+                  transaction_confirmed MAIN REFRESH_ON_MAIN_EXIT 1 || exit 9
+                echo CONFIRMED=${'$'}UCLONE_STATE_BACKUP_ID:${'$'}UCLONE_STATE_BACKUP_REUSED
+                uclone_select_transaction_state_backup \
+                  "${'$'}ROOT/rollback/${'$'}PKG/transaction_inferred" \
+                  transaction_inferred MAIN REFRESH_ON_MAIN_EXIT 0 || exit 10
+                echo INFERRED=${'$'}UCLONE_STATE_BACKUP_ID:${'$'}UCLONE_STATE_BACKUP_REUSED
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "CONFIRMED=transaction_confirmed:0")
+        assertContains(result.output, "MAIN_RETURN_SELECTED:path=${root}/rollback/com.example.app/transaction_confirmed mode=refresh")
+        assertContains(result.output, "WARN_MAIN_RETURN_REFRESH_SKIPPED:reason=main_state_not_confirmed")
+        assertContains(result.output, "INFERRED=persistent_main:1")
+    }
+
+    @Test
+    fun forwardSwitchUsesTheConfiguredMainReturnPolicyWithoutAddingACopyPass() {
+        val script = ShellScripts.switchFromCloneLatest(
+            "com.example.app",
+            AppRule("com.example.app"),
+            UCloneSettings(mainReturnPointPolicy = MainReturnPointPolicy.REFRESH_ON_MAIN_EXIT),
+            "com.uclone.restore",
+        )
+
+        assertContains(script, "MAIN_RETURN_POLICY='REFRESH_ON_MAIN_EXIT'")
+        assertContains(script, "CURRENT_MAIN_CONFIRMED=1")
+        assertContains(script, "WARN_MAIN_RETURN_REFRESH_SKIPPED:reason=main_state_not_confirmed")
+        assertContains(script, "UCLONE_COPY_PASS_CONTRACT:expected=2")
+        assertTrue(script.indexOf("ERR_MAIN_RETURN_INVALID:${'$'}PERSISTENT_MAIN_DIR") < script.indexOf("uclone_stage_begin TARGET_STOP"))
     }
 
     @Test
@@ -93,10 +143,89 @@ class StateBackupShellTest {
         assertContains(script, "UCLONE_COPY_PASS_CONTRACT:expected=2")
         assertContains(script, "ROLLBACK_READY=0")
         assertContains(script, "DANGEROUS_NO_LOCAL_ROLLBACK=1")
-        assertContains(script, "RECOVERY_REQUIRED:mode=DANGEROUS_FAST")
-        assertContains(script, "RECOVERY_REQUIRED:mode=DANGEROUS_FAST target=user10 reason=partial_sync")
+        assertContains(script, "RECOVERY_REQUIRED:mode=${'$'}{UCLONE_RETURN_PLAN:-DANGEROUS_FAST}")
+        assertContains(script, "RECOVERY_REQUIRED:mode=SYNC_FAST target=user10 reason=partial_sync")
         assertContains(script, "dangerous_prepare_on_exit")
         assertFalse(script.contains("uclone_copy_pass_begin clone_checkpoint"))
+    }
+
+    @Test
+    fun discardSafeUsesAUser0CheckpointAndNeverAccessesUser10() {
+        val script = ShellScripts.pushMainToCloneThenRestoreMain(
+            packageName = "com.example.app",
+            rollbackId = "persistent_main",
+            rule = AppRule("com.example.app"),
+            settings = UCloneSettings(cloneSessionPolicy = CloneSessionPolicy.DISCARD_ON_MAIN_RETURN),
+            appPackage = "com.uclone.restore",
+        )
+
+        assertContains(script, "UCLONE_RETURN_PLAN=DISCARD_SAFE")
+        assertContains(script, "uclone_copy_pass_begin 'clone_discard_checkpoint'")
+        assertContains(script, "uclone_copy_pass_begin 'fixed_main_to_user0'")
+        assertContains(script, "UCLONE_COPY_PASS_CONTRACT:expected=2")
+        assertContains(script, "ROLLBACK_READY=1")
+        assertContains(script, "SWITCH_CHECKPOINT_CLEANED")
+        assertTrue(script.indexOf("clone_discard_checkpoint") < script.indexOf("fixed_main_to_user0"))
+        assertNoCloneUserAccess(script)
+    }
+
+    @Test
+    fun discardFastOnlyRestoresFixedMainAndFailsClosedWithoutRollback() {
+        val script = ShellScripts.pushMainToCloneThenRestoreMain(
+            packageName = "com.example.app",
+            rollbackId = "persistent_main",
+            rule = AppRule("com.example.app"),
+            settings = UCloneSettings(
+                cloneSessionPolicy = CloneSessionPolicy.DISCARD_ON_MAIN_RETURN,
+                switchSafetyMode = SwitchSafetyMode.DANGEROUS_FAST,
+            ),
+            appPackage = "com.uclone.restore",
+        )
+
+        assertContains(script, "UCLONE_RETURN_PLAN=DISCARD_FAST")
+        assertContains(script, "uclone_copy_pass_begin 'fixed_main_to_user0'")
+        assertContains(script, "UCLONE_COPY_PASS_CONTRACT:expected=1")
+        assertContains(script, "ROLLBACK_READY=0")
+        assertContains(script, "DANGEROUS_NO_LOCAL_ROLLBACK=1")
+        assertContains(script, "RECOVERY_REQUIRED:mode=${'$'}{UCLONE_RETURN_PLAN:-DANGEROUS_FAST}")
+        assertFalse(script.contains("clone_discard_checkpoint"))
+        assertNoCloneUserAccess(script)
+    }
+
+    @Test
+    fun discardReturnPrecheckExecutesWithoutAnyCloneUserCommand() {
+        val root = Files.createTempDirectory("uclone-discard-return-precheck")
+        createStateBackup(root, "persistent_main", "MAIN", PARTS)
+
+        listOf(true to "DISCARD_SAFE", false to "DISCARD_FAST").forEach { (safe, plan) ->
+            val preparation = OptimizedSwitchPreparationShell.discardReturn(
+                AppRule("com.example.app"),
+                UCloneSettings(),
+                "persistent_main",
+                safe,
+            )
+            val result = runShell(
+                """
+                    set -u
+                    ROOT=${shellQuote(root.toString())}
+                    PKG=com.example.app
+                    TS=20260714-120010
+                    ${StateBackupShell.functions()}
+                    uclone_current_main_state() { echo CLONE; }
+                    uclone_read_main_return_id() { echo persistent_main; }
+                    cmd() { echo UNEXPECTED_CMD >&2; return 99; }
+                    am() { echo UNEXPECTED_AM >&2; return 99; }
+                    $preparation
+                """.trimIndent(),
+            )
+
+            assertEquals(0, result.exitCode, result.output)
+            assertContains(
+                result.output,
+                "SWITCH_RETURN_PRECHECK:plan=$plan mainUser=0 mainReturn=persistent_main cloneUserAccess=none",
+            )
+            assertFalse(result.output.contains("UNEXPECTED_"), result.output)
+        }
     }
 
     @Test
@@ -506,11 +635,11 @@ class StateBackupShellTest {
         val dangerous = generatedExitHandlerRun(SwitchSafetyMode.DANGEROUS_FAST, "dangerous_prepare_on_exit")
 
         assertEquals(91, safe.exitCode, safe.output)
-        assertContains(safe.output, "RECOVERY_REQUIRED:mode=SAFE target=user10 reason=partial_sync")
+        assertContains(safe.output, "RECOVERY_REQUIRED:mode=SYNC_SAFE target=user10 reason=partial_sync")
         assertContains(safe.output, "CLONE_LIFECYCLE_CLEANUP")
         assertFalse(safe.output.contains("AUTO_ROLLBACK_FAILED"), safe.output)
         assertEquals(91, dangerous.exitCode, dangerous.output)
-        assertContains(dangerous.output, "RECOVERY_REQUIRED:mode=DANGEROUS_FAST target=user10 reason=partial_sync")
+        assertContains(dangerous.output, "RECOVERY_REQUIRED:mode=SYNC_FAST target=user10 reason=partial_sync")
         assertContains(dangerous.output, "CLONE_LIFECYCLE_CLEANUP")
         assertFalse(dangerous.output.contains("AUTO_ROLLBACK_FAILED"), dangerous.output)
     }
@@ -864,6 +993,16 @@ class StateBackupShellTest {
             ?: error("Missing generated shell function: $name")
 
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\"'\"'")}'"
+
+    private fun assertNoCloneUserAccess(script: String) {
+        assertFalse(script.contains("ENSURE_CLONE_CE_BEGIN"), "must not start or unlock user10")
+        assertFalse(script.contains("CLONE_USER="), "must not resolve the clone user")
+        assertFalse(script.contains("sync_workspace_part_to_clone"), "must not copy a checkpoint to user10")
+        assertFalse(script.contains("sync_live_part_to_clone"), "must not copy live user0 data to user10")
+        assertFalse(script.contains("cleanup_clone_user"), "must not stop user10")
+        assertFalse(script.contains("checkpoint_to_user10"), "must not emit a user10 copy pass")
+        assertFalse(script.contains("live_user0_to_user10"), "must not emit a user10 copy pass")
+    }
 
     private data class ShellRun(val exitCode: Int, val output: String)
 

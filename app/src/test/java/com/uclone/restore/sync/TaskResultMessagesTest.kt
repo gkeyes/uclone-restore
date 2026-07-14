@@ -66,4 +66,28 @@ class TaskResultMessagesTest {
             TaskResultMessages.successMessage(output),
         )
     }
+
+    @Test
+    fun skippedAutomaticMainRefreshIsVisibleAsAStateWarning() {
+        val output = "WARN_MAIN_RETURN_REFRESH_SKIPPED:reason=main_state_not_confirmed"
+
+        assertEquals(
+            "完成，状态记录或回滚保护存在警告（状态/回滚 1 项）",
+            TaskResultMessages.successMessage(output),
+        )
+    }
+
+    @Test
+    fun returnPlanIsVisibleInFinalNotificationAndHistoryMessage() {
+        val messages = mapOf(
+            "SYNC_SAFE" to Pair(3, "完成（安全同步，3 次完整写入）：分数据已同步到分身，MAIN 已恢复"),
+            "SYNC_FAST" to Pair(2, "完成（危险快速同步，2 次完整写入）：分数据已同步到分身，MAIN 已恢复"),
+            "DISCARD_SAFE" to Pair(2, "完成（安全丢弃，2 次完整写入）：分身数据未更新，MAIN 已恢复"),
+            "DISCARD_FAST" to Pair(1, "完成（危险快速丢弃，1 次完整写入）：当前分数据已丢弃，MAIN 已恢复"),
+        )
+
+        messages.forEach { (plan, contract) ->
+            assertEquals(contract.second, TaskResultMessages.successMessage("UCLONE_COPY_PASSES=${contract.first} plan=$plan"))
+        }
+    }
 }

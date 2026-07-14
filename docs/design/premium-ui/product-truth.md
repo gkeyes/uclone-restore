@@ -23,9 +23,10 @@
 | PT-13 | ROM 行为只能由真机命令证据确认，不能从命令名称、exit code 或 AOSP 假设生产行为。 | `PROJECT-VERIFIED` | 诊断信息需保留原始证据，不用“理论支持”冒充已验证。 |
 | PT-14 | 跨用户安装只启用系统已有 package/code path，不复制 `/data/app`。 | `PROJECT-VERIFIED` | “安装到另一侧”不能写成 APK 传输。 |
 | PT-15 | 安装成功但权限或同步失败是部分成功，不自动卸载。 | `PROJECT-VERIFIED` | 安装、权限、数据三个阶段分别显示结果。 |
-| PT-16 | 已知 `CLONE` 还原 MAIN 时提供两种全局模式：默认 `SAFE` 先建立当前 user0 CLONE 检查点、由该检查点同步 user10，再还原固定 MAIN，共三次完整写入；`DANGEROUS_FAST` 直接把当前 user0 CLONE 同步到 user10，再还原固定 MAIN，共两次完整写入且没有本地 CLONE 检查点。 | `PROJECT-VERIFIED` | 设置和确认文案必须同时说明写入次数、检查点差异，以及 user10 同步失败时不会开始 MAIN 还原。 |
-| PT-16B | `SAFE` 的本地 CLONE 检查点只保护本次复合还原；固定 MAIN 返回点在正常切换中不自动更新。`DANGEROUS_FAST` 的 user10 同步若发生部分写入，任务必须进入致命 `RECOVERY_REQUIRED`，但不得谎称执行过自动回滚。 | `PROJECT-VERIFIED` | 错误提示应明确 user0 仍为 CLONE、user10 可能不完整，并要求重新同步。 |
+| PT-16 | 切换策略由三个独立设置组成：MAIN 返回点是固定或在离开显式 MAIN 时刷新；返回 MAIN 时同步或不更新 user10；失败保护是安全或危险快速。后两项组合成 `SYNC_SAFE`（3 次写入）、`SYNC_FAST`（2 次）、`DISCARD_SAFE`（2 次且不访问 user10）、`DISCARD_FAST`（1 次且不访问 user10）。 | `PROJECT-VERIFIED` | 设置和确认文案必须显示最终计划、完整写入次数、user10 是否变化及本地检查点差异。 |
+| PT-16B | 安全计划的新鲜本地撤销只保护本次操作；快速计划省略该检查点。同步计划在 user10 同步失败时不得开始 MAIN 还原；丢弃计划不得读取、启动或修改 user10。快速计划失败进入 `RECOVERY_REQUIRED`，不得谎称执行过自动回滚。 | `PROJECT-VERIFIED` | 错误提示必须区分 user10 可能部分写入、当前分数据已丢弃和 user0 状态未知。 |
 | PT-16A | 正常切换到 CLONE 始终读取 user10 当前数据；旧版 `persistent_clone` 不参与正常切换。 | `PROJECT-VERIFIED` | 设置页将该来源作为固定规则展示，不提供开关。 |
+| PT-16C | 主 App、桌面快捷入口和模块均可执行四种返回组合；入口不覆盖策略。`ExternalActionService` 接受请求后从同一份持久设置快照派生计划。 | `PROJECT-VERIFIED` | 外部入口不要求再次弹窗，但任务通知、历史和日志必须显示实际计划与结果。 |
 | PT-17 | 0.4 的事务 journal、App gate、启动恢复和合作式取消不属于当前 0.3 UI 的已实现能力。 | `PROJECT-VERIFIED` | 当前 UI 不得宣称断电级事务恢复。 |
 
 ## 2. 术语契约
@@ -36,7 +37,7 @@
 | `CLONE` | 分数据正在使用 | user0 当前为分身数据；可还原主数据 | 分身系统正在运行（混淆用户生命周期） |
 | `UNKNOWN` | 当前数据来源待确认 | marker/工作区状态不足 | 主数据、已安全还原 |
 | active snapshot | 主动快照 | 用户建立的恢复源 | 自动回滚 |
-| persistent MAIN | 固定 MAIN 返回点 | 首次切换时建立；仅可手动更新 | 本次事务撤销 |
+| persistent MAIN | MAIN 返回点 | 首次切换时建立；可固定保留、在离开显式 MAIN 时自动刷新，或在 App 详情手动更新 | 本次事务撤销 |
 | persistent CLONE | 旧版 CLONE 状态备份 | 旧版本遗留、只作用户管理 | 分身当前实时数据、正常切换来源 |
 | transaction undo | 本次操作前保护 | 覆盖目标前新建 | 长期备份 |
 | clone rollback | 分身覆盖前保护 | 推送前保存的 user10 数据 | 主系统备份 |

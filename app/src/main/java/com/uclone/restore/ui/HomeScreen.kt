@@ -40,8 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.StepStatus
-import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.TaskStep
+import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.model.User10CeState
 import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.util.Formatters
@@ -96,9 +96,10 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
     confirm?.let { action ->
         HomeConfirmDialog(
             action = action,
-            mainUserId = state.settings.mainUserId,
-            cloneUserId = state.settings.cloneUserId,
-            switchSafetyMode = state.settings.switchSafetyMode,
+            settings = state.settings,
+            hasMainReturnPoint = state.restoreBackups.any {
+                it.packageName == action.packageName && it.rollbackId == "persistent_main"
+            },
             onDismiss = { confirm = null },
             onConfirm = {
                 confirm = null
@@ -288,17 +289,18 @@ private fun AppDataState.color(): Color = when (this) {
 }
 
 private sealed class HomeConfirm {
-    data class Push(val packageName: String, val label: String) : HomeConfirm()
-    data class Switch(val packageName: String, val label: String) : HomeConfirm()
-    data class Restore(val packageName: String, val label: String) : HomeConfirm()
+    abstract val packageName: String
+
+    data class Push(override val packageName: String, val label: String) : HomeConfirm()
+    data class Switch(override val packageName: String, val label: String) : HomeConfirm()
+    data class Restore(override val packageName: String, val label: String) : HomeConfirm()
 }
 
 @Composable
 private fun HomeConfirmDialog(
     action: HomeConfirm,
-    mainUserId: Int,
-    cloneUserId: Int,
-    switchSafetyMode: SwitchSafetyMode,
+    settings: UCloneSettings,
+    hasMainReturnPoint: Boolean,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
@@ -308,12 +310,9 @@ private fun HomeConfirmDialog(
         is HomeConfirm.Restore -> "还原主系统态"
     }
     val body = when (action) {
-        is HomeConfirm.Push -> "来源：user$mainUserId 当前 ${action.label} 数据。\n目标：user$cloneUserId 分身 App 数据。\n保护：执行前保存分身回滚。\n后果：覆盖分身当前数据，不改变首页切换标记。"
-        is HomeConfirm.Switch -> "来源：user$cloneUserId 当前 ${action.label} 数据。\n目标：user$mainUserId App 数据。\nMAIN 返回点：首次切换时建立，已有时保持不变。\n后果：主系统将进入分数据 CLONE 状态。"
-        is HomeConfirm.Restore -> when (switchSafetyMode) {
-            SwitchSafetyMode.SAFE -> "安全模式，共 3 次完整写入：\n1. 保存 user$mainUserId 当前 CLONE 检查点；\n2. 同步到 user$cloneUserId；\n3. 恢复固定 MAIN。\n同步失败不会开始 MAIN 恢复，恢复失败可用本次检查点回滚。"
-            SwitchSafetyMode.DANGEROUS_FAST -> "危险快速返回，共 2 次完整写入：\n1. 直接同步 user$mainUserId 当前分数据到 user$cloneUserId；\n2. 恢复固定 MAIN。\n不会建立本地 CLONE 检查点；MAIN 恢复失败时状态会变为未知。"
-        }
+        is HomeConfirm.Push -> "来源：user${settings.mainUserId} 当前 ${action.label} 数据。\n目标：user${settings.cloneUserId} 分身 App 数据。\n保护：执行前保存分身回滚。\n后果：覆盖分身当前数据，不改变首页切换标记。"
+        is HomeConfirm.Switch -> SwitchPolicyText.switchToCloneConfirmation(settings, hasMainReturnPoint)
+        is HomeConfirm.Restore -> SwitchPolicyText.restoreConfirmation(settings)
     }
     AlertDialog(
         onDismissRequest = onDismiss,

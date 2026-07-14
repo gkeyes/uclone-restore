@@ -201,10 +201,22 @@ data class UCloneSettings(
     val stopCloneAfterTask: Boolean = true,
     val autoUnlockClone: Boolean = false,
     val allowModuleControl: Boolean = false,
+    val mainReturnPointPolicy: MainReturnPointPolicy = MainReturnPointPolicy.FIXED,
+    val cloneSessionPolicy: CloneSessionPolicy = CloneSessionPolicy.SYNC_TO_CLONE_USER,
     val switchSafetyMode: SwitchSafetyMode = SwitchSafetyMode.SAFE,
     val favoritePackages: Set<String> = emptySet(),
     val cloneUnlockCredential: String = "",
 )
+
+enum class MainReturnPointPolicy {
+    FIXED,
+    REFRESH_ON_MAIN_EXIT,
+}
+
+enum class CloneSessionPolicy {
+    SYNC_TO_CLONE_USER,
+    DISCARD_ON_MAIN_RETURN,
+}
 
 enum class SwitchSafetyMode {
     SAFE,

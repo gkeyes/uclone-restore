@@ -7,6 +7,7 @@ import com.uclone.restore.root.shellQuote
 internal object OptimizedSwitchPreparationShell {
     fun safeReturn(rule: AppRule, settings: UCloneSettings, rollbackId: String): String = """
         UCLONE_SWITCH_MODE=SAFE
+        UCLONE_RETURN_PLAN=SYNC_SAFE
         UCLONE_EXPECTED_MAIN_RETURN=${shellQuote(rollbackId)}
         SAFE_CHECKPOINT_CREATED=0
         SAFE_CHECKPOINT_COMPLETE=0
@@ -22,7 +23,7 @@ internal object OptimizedSwitchPreparationShell {
           if [ "${'$'}SAFE_PREP_EXIT" -ne 0 ] &&
              [ "${'$'}SAFE_PREPARATION_COMPLETE" != "1" ] &&
              [ "${'$'}{CLONE_TARGET_MUTATED:-0}" = "1" ]; then
-            echo "RECOVERY_REQUIRED:mode=SAFE target=user10 reason=partial_sync checkpoint=${'$'}ROLLBACK" >&2
+            echo "RECOVERY_REQUIRED:mode=SYNC_SAFE target=user10 reason=partial_sync checkpoint=${'$'}ROLLBACK" >&2
             SAFE_PREP_EXIT=91
           fi
           if command -v cleanup_on_exit >/dev/null 2>&1; then
@@ -88,6 +89,7 @@ internal object OptimizedSwitchPreparationShell {
 
     fun dangerousReturn(rule: AppRule, settings: UCloneSettings, rollbackId: String): String = """
         UCLONE_SWITCH_MODE=DANGEROUS_FAST
+        UCLONE_RETURN_PLAN=SYNC_FAST
         UCLONE_EXPECTED_MAIN_RETURN=${shellQuote(rollbackId)}
         DANGER_META="${'$'}ROOT/tmp/dangerous_switch_${'$'}{PKG}_${'$'}RUN_ID"
         DANGER_META_CREATED=0
@@ -105,7 +107,7 @@ internal object OptimizedSwitchPreparationShell {
           if [ "${'$'}DANGEROUS_PREP_EXIT" -ne 0 ] &&
              [ "${'$'}DANGEROUS_PREPARATION_COMPLETE" != "1" ] &&
              [ "${'$'}{CLONE_TARGET_MUTATED:-0}" = "1" ]; then
-            echo "RECOVERY_REQUIRED:mode=DANGEROUS_FAST target=user10 reason=partial_sync" >&2
+            echo "RECOVERY_REQUIRED:mode=SYNC_FAST target=user10 reason=partial_sync" >&2
             DANGEROUS_PREP_EXIT=91
           fi
           if command -v cleanup_on_exit >/dev/null 2>&1; then
@@ -139,6 +141,47 @@ internal object OptimizedSwitchPreparationShell {
         sync
         DANGEROUS_PREPARATION_COMPLETE=1
         echo "DANGEROUS_CLONE_SYNCED:parts=${'$'}SWITCH_PUSHED_PARTS items=${'$'}SWITCH_PUSHED_ITEMS rollback=none"
+    """.trimIndent()
+
+    fun discardReturn(
+        rule: AppRule,
+        settings: UCloneSettings,
+        rollbackId: String,
+        safe: Boolean,
+    ): String = """
+        UCLONE_SWITCH_MODE=${if (safe) "SAFE" else "DANGEROUS_FAST"}
+        UCLONE_RETURN_PLAN=${if (safe) "DISCARD_SAFE" else "DISCARD_FAST"}
+        UCLONE_EXPECTED_MAIN_RETURN=${shellQuote(rollbackId)}
+        MAIN_USER=${settings.mainUserId}
+        FORCE_CURRENT_STATE=${'$'}(uclone_current_main_state)
+        [ "${'$'}FORCE_CURRENT_STATE" = "CLONE" ] || {
+          echo "ERR_SWITCH_RETURN_STATE:expected=CLONE actual=${'$'}FORCE_CURRENT_STATE" >&2
+          exit 88
+        }
+        FORCE_ACTUAL_MAIN_RETURN=${'$'}(uclone_read_main_return_id 2>/dev/null || true)
+        [ "${'$'}FORCE_ACTUAL_MAIN_RETURN" = "${'$'}UCLONE_EXPECTED_MAIN_RETURN" ] || {
+          echo "ERR_SWITCH_RETURN_POINT:expected=${'$'}UCLONE_EXPECTED_MAIN_RETURN actual=${'$'}FORCE_ACTUAL_MAIN_RETURN" >&2
+          exit 88
+        }
+        MAIN_RETURN_DIR="${'$'}ROOT/rollback/${'$'}PKG/${'$'}UCLONE_EXPECTED_MAIN_RETURN"
+        uclone_valid_state_backup "${'$'}MAIN_RETURN_DIR" MAIN || {
+          echo "ERR_MAIN_RETURN_INVALID:${'$'}UCLONE_EXPECTED_MAIN_RETURN" >&2
+          exit 53
+        }
+        require_main_return_part() {
+          RMRP_NAME="${'$'}1"
+          RMRP_STATE=${'$'}(sed -n '1p' "${'$'}MAIN_RETURN_DIR/.state/${'$'}RMRP_NAME" 2>/dev/null | tr -d '\r')
+          case "${'$'}RMRP_STATE" in
+            data|empty|absent) ;;
+            *) echo "ERR_MAIN_RETURN_PART_UNAVAILABLE:${'$'}RMRP_NAME:${'$'}RMRP_STATE" >&2; exit 53 ;;
+          esac
+        }
+        ${if (rule.includeCe) "require_main_return_part ce" else ":"}
+        ${if (rule.includeDe) "require_main_return_part de" else ":"}
+        ${if (rule.includeExternal) "require_main_return_part external" else ":"}
+        ${if (rule.includeMedia) "require_main_return_part media" else ":"}
+        ${if (rule.includeObb) "require_main_return_part obb" else ":"}
+        echo "SWITCH_RETURN_PRECHECK:plan=${'$'}UCLONE_RETURN_PLAN mainUser=${'$'}MAIN_USER mainReturn=${'$'}FORCE_ACTUAL_MAIN_RETURN cloneUserAccess=none"
     """.trimIndent()
 
     private fun precheck(rule: AppRule, settings: UCloneSettings): String = """
@@ -185,7 +228,7 @@ internal object OptimizedSwitchPreparationShell {
         CLONE_UID=${'$'}(cmd package list packages -U --user "${'$'}CLONE_USER" "${'$'}PKG" 2>/dev/null | awk -v p="package:${'$'}PKG" '${'$'}1==p { sub("uid:","",${'$'}2); print ${'$'}2; exit }')
         [ -n "${'$'}MAIN_UID" ] || { echo "ERR_SOURCE_UID_MISSING:${'$'}MAIN_USER" >&2; exit 52; }
         [ -n "${'$'}CLONE_UID" ] || { echo "ERR_TARGET_UID_MISSING:${'$'}CLONE_USER" >&2; exit 52; }
-        echo "SWITCH_RETURN_PRECHECK:mode=${'$'}UCLONE_SWITCH_MODE mainUser=${'$'}MAIN_USER cloneUser=${'$'}CLONE_USER mainReturn=${'$'}FORCE_ACTUAL_MAIN_RETURN"
+        echo "SWITCH_RETURN_PRECHECK:plan=${'$'}UCLONE_RETURN_PLAN safety=${'$'}UCLONE_SWITCH_MODE mainUser=${'$'}MAIN_USER cloneUser=${'$'}CLONE_USER mainReturn=${'$'}FORCE_ACTUAL_MAIN_RETURN"
     """.trimIndent()
 
     private fun commonFunctions(rule: AppRule): String = """

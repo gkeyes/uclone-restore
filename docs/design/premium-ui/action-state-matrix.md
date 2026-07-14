@@ -9,9 +9,9 @@
 | `CAPTURE` | 建立分身数据主动快照 | App 在 user10 安装；所选 CE 需要分身已解锁；确认来源为分身 | 准备源数据、写入快照 | 显示时间、范围、大小；权限跳过为警告 | 不覆盖现有 active 前必须完成临时写入/提交 |
 | `RESTORE_ACTIVE` | 用主动快照覆盖主系统 App | active 存在；确认“主动快照 -> user0”及本次保护 | 回滚保护、写入、属性、权限、验证 | 数据完成与权限警告分开 | 失败显示是否已自动回滚，不能笼统写“恢复失败” |
 | `RESTORE_CLONE_LATEST` | 从分身最新数据备份并覆盖主系统 App | user10 安装/解锁；确认源与目标 | 源准备后再修改目标 | 显示恢复范围和回滚点 | 源准备失败不得修改 user0 |
-| `SWITCH_TO_CLONE` | 在主系统使用分数据 | 当前状态 MAIN；存在可用分身数据；首次切换会建立固定 MAIN 返回点 | user10 当前数据 -> 临时源 -> user0 | 状态提交后变 CLONE；已有固定 MAIN 不更新 | 失败不得写 CLONE；本次事务回滚结果明确 |
+| `SWITCH_TO_CLONE` | 在主系统使用分数据 | 当前状态 MAIN；存在可用分身数据；确认 MAIN 返回点策略 | user10 当前数据 -> 临时源 -> user0 | 状态提交后变 CLONE。缺少返回点时初始化固定 MAIN；`FIXED` 保留已有返回点；`REFRESH_ON_MAIN_EXIT` 仅在显式确认 MAIN 时用本次事务撤销原子更新返回点 | 旧工作区仅推断为 MAIN 时跳过自动更新并警告；失败不得写 CLONE；本次事务回滚结果明确 |
 | `SWITCH_OR_RESTORE` | 切换数据状态 | 根据已确认 MAIN/CLONE 决定；UNKNOWN 不直接执行 | 显示具体子动作，不显示抽象枚举 | 提交后刷新真实状态 | 状态不确定时要求检查而不是猜测 |
-| `RESTORE_MAIN` | 还原主数据 | 当前 CLONE 且有有效固定 MAIN 返回点；确认全局 `SAFE` 或 `DANGEROUS_FAST` 模式 | `SAFE`：user0 CLONE -> 本地检查点 -> user10 -> 固定 MAIN -> user0，共三次完整写入。`DANGEROUS_FAST`：user0 CLONE -> user10 -> 固定 MAIN -> user0，共两次完整写入且无本地检查点 | 状态提交后变 MAIN；固定 MAIN 不自动更新 | user10 同步失败不开始 MAIN 还原；部分写入报告 `RECOVERY_REQUIRED`。`SAFE` 的 MAIN 还原失败可用本次检查点回滚；`DANGEROUS_FAST` 失败后进入 UNKNOWN 并人工处理 |
+| `RESTORE_MAIN` | 还原主数据 | 当前 CLONE 且有有效固定 MAIN 返回点；确认“是否同步 user10”和“是否保留本地失败保护” | `SYNC_SAFE`：user0 CLONE -> 本地检查点 -> user10 -> MAIN -> user0，3 次；`SYNC_FAST`：user0 CLONE -> user10 -> MAIN -> user0，2 次；`DISCARD_SAFE`：user0 CLONE -> 临时撤销 -> MAIN -> user0，2 次且不访问 user10；`DISCARD_FAST`：MAIN -> user0，1 次且不访问 user10 | 状态提交后变 MAIN；固定 MAIN 不自动更新。同步计划更新 user10，丢弃计划明确保持 user10 不变 | 同步失败不开始 MAIN 还原；安全计划保留本次可验证撤销；快速计划没有本地检查点，失败后进入 UNKNOWN/`RECOVERY_REQUIRED`。四种组合均可由主 App、桌面快捷入口和模块执行保存的设置 |
 | `UPDATE_MAIN_RETURN_POINT` | 更新固定 MAIN 返回点 | 仅主 App 内部入口；当前状态必须明确为 MAIN | user0 当前 MAIN 数据 -> 临时目录 -> 完整验证 -> 替换固定 MAIN | 状态仍为 MAIN | 替换失败恢复旧返回点；模块和桌面快捷入口拒绝 |
 | `PUSH_MAIN` | 用主系统当前数据更新分身 App | user0/user10 安装；确认覆盖 user10；分身 CE 条件满足 | 源准备、分身回滚、覆盖 user10 | user0 状态 marker 不变 | 安装/权限/文件结果分开；失败不得改变 user0 状态 |
 | `RESTORE_CLONE_ROLLBACK` | 用分身回滚恢复分身 App | 明确 rollback ID、来源和 user10 目标 | 保护/恢复/验证 | 展示恢复的分身回滚 ID | 不得误标为主系统被动备份 |
@@ -53,6 +53,7 @@
 6. `PROJECT-VERIFIED`：权限/AppOps 警告不能掩盖文件数据成功，也不能把无效捕获当有效空集。
 7. `PROJECT-VERIFIED`：当前实时 UI 只有阶段/步骤和日志；任务结束后 `TaskMetrics` 才提供已解析的文件数、字节与耗时。没有可靠实时分母时不得伪造百分比。
 8. `UNVERIFIED`：所有动作的 TalkBack、最大字体、深色和横屏表现仍需实现后真机验证。
+9. `PROJECT-VERIFIED`：主 App、桌面快捷入口和模块只决定请求来源，不改变切换策略；Service 接受请求后读取同一份已保存设置并派生执行计划。
 
 ## 5. 覆盖检查
 
