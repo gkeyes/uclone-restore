@@ -7,6 +7,7 @@ internal object RootTaskScript {
         val logDir = logPath.substringBeforeLast('/')
         return """
             set -o pipefail || exit 73
+            trap '' USR1
             LOG_DIR=${shellQuote(logDir)}
             LOG_PATH=${shellQuote(logPath)}
             ROOT_ID=${'$'}(/system/bin/id 2>&1)
@@ -16,6 +17,8 @@ internal object RootTaskScript {
               TASK_EXIT=0
               /system/bin/printf '%s' ${shellQuote(header)}
               echo "ROOT=${'$'}ROOT_ID"
+              echo "ROOT_TASK_PID=${'$'}${'$'}"
+              echo "ROOT_SIGNAL_POLICY=IGNORE_USR1"
               case "${'$'}ROOT_ID" in
                 *uid=0*)
                   if [ "${'$'}LOG_DIR_READY" != "1" ]; then

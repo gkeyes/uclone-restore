@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -230,8 +231,10 @@ private fun android.content.ContentResolver.animatorDurationScale(): Float = run
 }.getOrDefault(1f)
 
 private fun GlassRole.shape(): Shape = when (this) {
-    GlassRole.Navigation -> RoundedCornerShape(30.dp)
-    GlassRole.SelectionLens -> RoundedCornerShape(24.dp)
+    GlassRole.Navigation,
+    GlassRole.SelectionLens,
+    -> CircleShape
+
     GlassRole.ToolbarControl -> RoundedCornerShape(24.dp)
     GlassRole.PrimaryAction -> RoundedCornerShape(24.dp)
 }

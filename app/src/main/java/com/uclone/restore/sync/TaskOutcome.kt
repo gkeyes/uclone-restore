@@ -13,6 +13,7 @@ internal object TaskOutcome {
             "AUTO_ROLLBACK_SUCCESS" in output -> TaskStatus.ROLLED_BACK
             result.isSuccess && PERMISSION_WARNING_MARKERS.any(output::contains) -> TaskStatus.SUCCESS_WITH_WARNINGS
             result.isSuccess -> TaskStatus.SUCCESS
+            result.exitCode in UNIX_SIGNAL_EXIT_CODES -> TaskStatus.INTERRUPTED
             else -> TaskStatus.FAILED
         }
     }
@@ -37,4 +38,6 @@ internal object TaskOutcome {
         "WARN_CLONE_ROLLBACK_",
         "WARN_TRANSACTION_UNDO_",
     )
+
+    private val UNIX_SIGNAL_EXIT_CODES = 129..192
 }

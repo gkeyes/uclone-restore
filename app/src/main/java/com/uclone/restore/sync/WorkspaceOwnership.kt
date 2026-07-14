@@ -30,7 +30,7 @@ internal object WorkspaceOwnershipScripts {
           for NAME in snapshots rollback clone_rollback tmp; do
             workspace_owner_target "${'$'}NAME" || exit 76
             [ -n "${'$'}WORKSPACE_TARGET" ] || continue
-            find "${'$'}WORKSPACE_TARGET" -xdev \( ! -uid 0 -o ! -gid 0 \) -print0 2>/dev/null |
+            find "${'$'}WORKSPACE_TARGET" -xdev \( ! -user root -o ! -group root \) -print0 2>/dev/null |
               xargs -0 -n 500 sh -c '
                 [ "${'$'}#" -gt 0 ] || exit 0
                 chown -h 0:0 "${'$'}@" || exit 76
@@ -43,9 +43,6 @@ internal object WorkspaceOwnershipScripts {
         echo "WORKSPACE_OWNER_VERIFY remaining=${'$'}WORKSPACE_NON_ROOT"
         [ "${'$'}WORKSPACE_NON_ROOT" -eq 0 ] || exit 77
         echo "UCLONE_STAGE_BEGIN:COMMIT"
-        mkdir -p "${'$'}ROOT_REAL/config" || exit 78
-        printf '%s\n' 'root-owned-v1' > "${'$'}ROOT_REAL/config/workspace_owner_root_v1" || exit 78
-        chmod 600 "${'$'}ROOT_REAL/config/workspace_owner_root_v1" || exit 78
         echo "WORKSPACE_OWNER_REPAIR_DONE changed=${'$'}CHANGED"
     """.trimIndent()
 
@@ -84,7 +81,7 @@ internal object WorkspaceOwnershipScripts {
             workspace_owner_target "${'$'}NAME" || exit 76
             [ -n "${'$'}WORKSPACE_TARGET" ] || continue
             TARGET_TOTAL=${'$'}(find "${'$'}WORKSPACE_TARGET" -xdev 2>/dev/null | wc -l | tr -d ' ') || exit 76
-            TARGET_NON_ROOT=${'$'}(find "${'$'}WORKSPACE_TARGET" -xdev \( ! -uid 0 -o ! -gid 0 \) 2>/dev/null | wc -l | tr -d ' ') || exit 76
+            TARGET_NON_ROOT=${'$'}(find "${'$'}WORKSPACE_TARGET" -xdev \( ! -user root -o ! -group root \) 2>/dev/null | wc -l | tr -d ' ') || exit 76
             TARGET_SIZE_KB=${'$'}(du -skx "${'$'}WORKSPACE_TARGET" 2>/dev/null | awk '{print ${'$'}1}') || exit 76
             case "${'$'}TARGET_TOTAL:${'$'}TARGET_NON_ROOT:${'$'}TARGET_SIZE_KB" in *[!0-9:]*) exit 76 ;; esac
             WORKSPACE_TOTAL=${'$'}((WORKSPACE_TOTAL + TARGET_TOTAL))

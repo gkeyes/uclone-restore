@@ -552,6 +552,7 @@ class SyncEngine(
             "ERR_PUSH_CE_MISSING" in output -> "主系统 CE 数据缺失，未执行推送"
             "ERR_FORCE_STOP_FAILED" in output -> "无法停止分身 App，未读取或写入数据"
             "ERR_NOTHING_PUSHED" in output || "ERR_NOTHING_COPIED" in output -> "没有找到可推送的数据"
+            result.exitCode in 129..192 -> "Root 执行被信号 ${result.exitCode - 128} 中断，请查看任务日志"
             else -> result.stderr.ifBlank { "命令失败：${result.exitCode}" }
         }
     }

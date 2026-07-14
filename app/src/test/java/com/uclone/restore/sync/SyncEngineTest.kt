@@ -158,6 +158,22 @@ class SyncEngineTest {
     }
 
     @Test
+    fun unixSignalExitIsPersistedAsInterruptedWithSignalNumber() = runBlocking {
+        val shell = RollbackResultShell("", 138)
+        val engine = SyncEngine(
+            shell = shell,
+            environmentChecker = RootEnvironmentChecker(shell),
+            logStore = TaskLogStore(shell),
+            appPackage = "com.uclone.restore",
+        )
+
+        val result = engine.restoreSnapshot("com.example.app", UCloneSettings(), {}, "signal-request")
+
+        assertEquals(TaskStatus.INTERRUPTED, result.status)
+        assertEquals("Root 执行被信号 10 中断，请查看任务日志", result.message)
+    }
+
+    @Test
     fun stageBeginIsPublishedImmediatelyWhileRootCommandRuns() = runBlocking {
         val shell = StageStreamingShell()
         val engine = SyncEngine(

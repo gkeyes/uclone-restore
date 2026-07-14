@@ -453,6 +453,7 @@ fun ToolRow(
     enabled: Boolean = true,
     primary: Boolean = false,
     danger: Boolean = false,
+    showDivider: Boolean = true,
 ) {
     Column(modifier.fillMaxWidth()) {
         Row(
@@ -491,7 +492,9 @@ fun ToolRow(
                 )
             }
         }
-        HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
+        if (showDivider) {
+            HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
+        }
     }
 }
 

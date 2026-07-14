@@ -22,6 +22,15 @@ class TaskOutcomeTest {
     }
 
     @Test
+    fun unixSignalExitIsInterruptedUnlessRollbackFailureIsFatal() {
+        assertEquals(TaskStatus.INTERRUPTED, TaskOutcome.status(ShellResult(138, "", "User signal 1")))
+        assertEquals(
+            TaskStatus.FAILED_FATAL,
+            TaskOutcome.status(ShellResult(138, "AUTO_ROLLBACK_FAILED originalExit=58", "")),
+        )
+    }
+
+    @Test
     fun fatalInstallSyncFailureStillReportsThatThePackageWasPreserved() {
         val output = "AUTO_ROLLBACK_FAILED originalExit=58\nINSTALL_PACKAGE_PRESERVED targetUser=10"
         val result = ShellResult(91, output, "")

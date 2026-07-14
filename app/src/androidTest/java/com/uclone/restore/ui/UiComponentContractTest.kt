@@ -27,6 +27,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -35,6 +36,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import com.uclone.restore.model.WorkspaceOwnershipReport
 
 class UiComponentContractTest {
     @get:Rule
@@ -162,5 +164,26 @@ class UiComponentContractTest {
             .assertHasClickAction()
             .assertHeightIsAtLeast(48.dp)
             .assertWidthIsAtLeast(48.dp)
+    }
+
+    @Test
+    fun ownershipSummaryKeepsCountsCapacityTimeAndCanonicalPathVisible() {
+        composeRule.setContent {
+            UCloneTheme {
+                WorkspaceOwnershipSummary(
+                    WorkspaceOwnershipReport(
+                        canonicalRoot = "/data/adb/uclone",
+                        totalEntries = 22513,
+                        nonRootEntries = 18,
+                        totalSizeKb = 4096,
+                        scannedAt = 1_789_632_000_000,
+                    ),
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("总项数 22513 · 非 root 18").assertExists()
+        composeRule.onNodeWithText("容量 4.0 MB · 扫描时间", substring = true).assertExists()
+        composeRule.onNodeWithText("规范路径：/data/adb/uclone").assertExists()
     }
 }

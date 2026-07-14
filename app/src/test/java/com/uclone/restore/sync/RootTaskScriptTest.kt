@@ -18,12 +18,39 @@ class RootTaskScriptTest {
 
         assertEquals(1, Regex("/system/bin/tee -a").findAll(script).count())
         assertTrue("set -o pipefail" in script)
+        assertTrue("trap '' USR1" in script)
+        assertTrue("ROOT_TASK_PID=" in script)
+        assertTrue("ROOT_SIGNAL_POLICY=IGNORE_USR1" in script)
         assertTrue("ERR_ROOT_UNAVAILABLE" in script)
         assertTrue("DURATION_MS=" in script)
         assertTrue("TASK_DURATION_MS=${'$'}(awk" in script)
         assertFalse("TASK_END -" in script)
         assertTrue("echo BODY_OK" in script)
         assertTrue("/data/adb/uclone/logs/task.log" in script)
+    }
+
+    @Test
+    fun wrapperAndChildIgnoreUsr1WithoutChangingTaskExit() {
+        val directory = Files.createTempDirectory("uclone-root-usr1-").toFile().apply { deleteOnExit() }
+        val log = directory.resolve("task.log").apply { deleteOnExit() }
+        val androidScript = RootTaskScript.wrap(
+            logPath = log.absolutePath,
+            header = "TASK=TEST\n",
+            body = "/bin/sh -c 'kill -USR1 ${'$'}${'$'}; echo CHILD_SURVIVED'",
+            startedAt = System.currentTimeMillis(),
+        )
+        val portableScript = portable(androidScript)
+            .replace("*uid=0*)", "*uid=*)")
+
+        val process = ProcessBuilder("/bin/bash", "-c", portableScript).start()
+        val output = process.inputStream.bufferedReader().readText()
+        val error = process.errorStream.bufferedReader().readText()
+        val exitCode = process.waitFor()
+
+        assertEquals(0, exitCode, error)
+        assertTrue("CHILD_SURVIVED" in output)
+        assertTrue("ROOT_SIGNAL_POLICY=IGNORE_USR1" in output)
+        assertTrue("EXIT=0" in log.readText())
     }
 
     @Test

@@ -31,6 +31,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.uclone.restore.model.WorkspaceOwnershipReport
+import com.uclone.restore.util.Formatters
 
 @Composable
 fun SettingsScreen(
@@ -147,66 +149,68 @@ fun SettingsScreen(
             ToggleRow("排除 cache/code_cache", draft.excludeCache) { draft = draft.copy(excludeCache = it) }
         }
         SectionCard("应用更改") {
-            InlineActionButton(
-                text = "保存设置",
+            ToolRow(
+                title = "保存本页设置",
+                description = "应用用户、工作区和数据范围修改。",
+                actionLabel = "保存",
                 onClick = {
                     viewModel.saveSettings(draft)
                     Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show()
                 },
-                modifier = Modifier.fillMaxWidth(),
                 icon = Icons.Default.Save,
+                showDivider = false,
             )
         }
-        SectionCard("维护") {
-            Text("备份容量归属", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            val ownership = state.workspaceOwnership
-            if (ownership == null) {
-                Text("先执行只读扫描，确认旧备份是否仍归属于目标 App。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                InfoRow("文件与目录", ownership.totalEntries.toString())
-                InfoRow("需要修复", ownership.nonRootEntries.toString())
-                SingleLinePathText(ownership.canonicalRoot)
-            }
+        val ownership = state.workspaceOwnership
+        SectionCard("备份容量归属") {
             ToolRow(
                 title = "扫描备份容量归属",
-                description = "只读统计非 root 归属项，不修改工作区内容。",
+                description = if (ownership == null) {
+                    "只读统计受管备份中的非 root 归属项；不修改备份内容，会记录任务日志。"
+                } else {
+                    "上次扫描 ${ownership.totalEntries} 项，其中 ${ownership.nonRootEntries} 项需要修复。"
+                },
                 actionLabel = "扫描",
                 icon = Icons.Outlined.Search,
                 onClick = viewModel::scanWorkspaceOwnership,
                 enabled = !state.busy,
+                showDivider = ownership != null,
             )
+            if (ownership != null) {
+                WorkspaceOwnershipSummary(ownership)
+            }
             if (ownership != null && ownership.nonRootEntries > 0L) {
                 ToolRow(
                     title = "修复备份容量归属",
-                    description = "分批把受管目录中的 UID/GID 修正为 root:root。",
+                    description = "分批修正为 root:root；不修改文件内容或 SELinux context。",
                     actionLabel = "修复",
                     icon = Icons.Outlined.Build,
                     onClick = { confirmOwnershipRepair = true },
                     enabled = !state.busy,
+                    showDivider = false,
                 )
             }
-            Text("日志目录", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SingleLinePathText("${state.settings.rootDir}/logs")
-            Text("清理日志只删除任务日志文件，不会删除主动备份或被动备份。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        SectionCard("任务日志") {
             ToolRow(
                 title = "清理任务日志",
-                description = "只删除日志文件，不删除主动快照、被动备份或分身回滚。",
+                description = "只删除任务日志；主动快照、被动备份和分身回滚不受影响。",
                 actionLabel = "清理",
                 icon = Icons.Default.Delete,
                 onClick = { confirmClearLogs = true },
                 danger = true,
+                showDivider = false,
             )
-            Text(
-                "重置会删除 UClone 工作目录中的所有备份、日志、审计包、切换标记和临时文件，不会删除任何 App 的真实数据目录。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        }
+        SectionCard("危险操作") {
             ToolRow(
                 title = "重置所有 UClone 数据",
-                description = "清空 UClone 工作区中的备份、记录和临时文件，需要两次确认。",
+                description = "清空工作区内全部备份和记录；不删除 App 真实数据，需两次确认。",
                 actionLabel = "重置",
                 icon = Icons.Default.Delete,
                 onClick = { resetConfirmStage = 1 },
                 danger = true,
+                showDivider = false,
             )
         }
     }
@@ -301,6 +305,26 @@ fun SettingsScreen(
             },
             dismissButton = { DialogActionButton("取消", onClick = { resetConfirmStage = 0 }) },
         )
+    }
+}
+
+@Composable
+internal fun WorkspaceOwnershipSummary(report: WorkspaceOwnershipReport) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            "总项数 ${report.totalEntries} · 非 root ${report.nonRootEntries}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            "容量 ${Formatters.kilobytes(report.totalSizeKb)} · 扫描时间 ${Formatters.time(report.scannedAt)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SingleLinePathText("规范路径：${report.canonicalRoot}")
     }
 }
 
