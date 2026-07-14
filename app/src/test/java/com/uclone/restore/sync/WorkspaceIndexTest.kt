@@ -24,6 +24,20 @@ class WorkspaceIndexTest {
     }
 
     @Test
+    fun explicitMainMarkerIsTrackedSeparatelyFromLegacyMissingMarker() {
+        val index = WorkspaceIndexParser.parse(
+            listOf(
+                "MAIN\tcom.example.confirmed",
+                "WORKSPACE_INDEX_OK",
+            ).joinToString("\n"),
+        )
+
+        assertEquals(AppDataState.Main, index.dataState("com.example.confirmed"))
+        assertEquals(true, index.hasConfirmedMainState("com.example.confirmed"))
+        assertEquals(false, index.hasConfirmedMainState("com.example.legacy"))
+    }
+
+    @Test
     fun malformedOrUnreadableWorkspaceFailsClosedAsUnknown() {
         val malformed = WorkspaceIndexParser.parse("SWITCH\tcom.example.app\nWORKSPACE_INDEX_OK")
         val incomplete = WorkspaceIndexParser.parse("SWITCH\tcom.example.app\treturn_point")
@@ -53,6 +67,22 @@ class WorkspaceIndexTest {
     }
 
     @Test
+    fun fixedMainReturnPointRemainsVisibleWhenANewerMainTransactionUndoExists() {
+        val index = WorkspaceIndexParser.parse(
+            listOf(
+                "MAIN_ROLLBACK\tcom.example.app\tpersistent_main\t100\t20\tfixed main\tMAIN\tpersistent_state",
+                "MAIN_ROLLBACK\tcom.example.app\ttransaction_2\t200\t30\tnewer undo\tMAIN\ttransaction_undo",
+                "WORKSPACE_INDEX_OK",
+            ).joinToString("\n"),
+        )
+
+        assertEquals(
+            setOf("persistent_main", "transaction_2"),
+            index.restoreBackups.map { it.rollbackId }.toSet(),
+        )
+    }
+
+    @Test
     fun executableIndexOnlyReportsCloneForACompleteMainReturnPoint() {
         val root = Files.createTempDirectory("uclone-workspace-index")
         val packageName = "com.example.app"
@@ -73,6 +103,42 @@ class WorkspaceIndexTest {
         assertEquals(0, incomplete.exitCode, incomplete.output)
         assertContains(incomplete.output, "UNKNOWN\t$packageName")
         assertEquals(AppDataState.Unknown, WorkspaceIndexParser.parse(incomplete.output).dataState(packageName))
+    }
+
+    @Test
+    fun executableIndexRejectsLegacyPersistentCloneEvenWithoutAStateKind() {
+        val root = Files.createTempDirectory("uclone-workspace-index-legacy-clone")
+        val packageName = "com.example.app"
+        val rollbackId = "persistent_clone"
+        val backup = root.resolve("rollback/$packageName/$rollbackId")
+        createCompleteMainReturn(backup)
+        Files.write(backup.resolve("manifest.json"), "{}\n".toByteArray())
+        val marker = root.resolve("switches/$packageName/active")
+        Files.createDirectories(marker.parent)
+        Files.write(marker, "$rollbackId\n".toByteArray())
+
+        val result = runShell(workspaceIndexScript(root.toString()))
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "UNKNOWN\t$packageName")
+        assertEquals(AppDataState.Unknown, WorkspaceIndexParser.parse(result.output).dataState(packageName))
+    }
+
+    @Test
+    fun executableIndexReportsExplicitMainMarker() {
+        val root = Files.createTempDirectory("uclone-workspace-index-main")
+        val packageName = "com.example.app"
+        val marker = root.resolve("switches/$packageName/active")
+        Files.createDirectories(marker.parent)
+        Files.write(marker, "$MAIN_SWITCH_MARKER\n".toByteArray())
+
+        val result = runShell(workspaceIndexScript(root.toString()))
+        val parsed = WorkspaceIndexParser.parse(result.output)
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "MAIN\t$packageName")
+        assertEquals(true, parsed.hasConfirmedMainState(packageName))
+        assertEquals(AppDataState.Main, parsed.dataState(packageName))
     }
 
     private fun createCompleteMainReturn(backup: Path) {

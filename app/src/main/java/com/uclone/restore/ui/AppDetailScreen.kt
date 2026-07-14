@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.CrossUserInstallMode
+import com.uclone.restore.model.PassiveBackupStateKind
 import com.uclone.restore.model.RiskLevel
 import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.util.Formatters
@@ -39,6 +40,11 @@ import com.uclone.restore.util.Formatters
 @Composable
 fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     val app = state.selectedApp
+    val mainReturnPoint = state.restoreBackups.firstOrNull { backup ->
+        backup.packageName == app?.packageName &&
+            backup.rollbackId == "persistent_main" &&
+            backup.stateKind == PassiveBackupStateKind.MAIN
+    }
     val context = LocalContext.current
     val installTargetUserId = app?.let {
         when {
@@ -138,6 +144,31 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 Text("切换状态记录不完整。请从数据页恢复一份已标识来源的备份后再继续。")
             }
         }
+        SectionCard("固定 MAIN 返回点") {
+            InfoRow("状态", if (mainReturnPoint == null) "未建立" else "已建立")
+            InfoRow("时间", Formatters.time(mainReturnPoint?.createdAt))
+            InfoRow("大小", Formatters.kilobytes(mainReturnPoint?.sizeKb))
+            Text(
+                "还原 MAIN 始终使用这一份固定数据。普通切换不会更新它。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ToolRow(
+                title = "更新固定 MAIN 返回点",
+                description = if (state.selectedPackage?.let(state::hasConfirmedMainState) == true) {
+                    "用 user${state.settings.mainUserId} 当前已确认 MAIN 数据替换返回点。"
+                } else {
+                    "需要先完成一次受 UClone 记录的 MAIN 还原，确认当前数据来源后才能更新。"
+                },
+                actionLabel = "更新",
+                icon = Icons.Default.RestartAlt,
+                enabled = state.selectedDataState == AppDataState.Main &&
+                    state.selectedPackage?.let(state::hasConfirmedMainState) == true &&
+                    !state.busy,
+                onClick = { confirm = ConfirmAction.UPDATE_MAIN_RETURN_POINT },
+                showDivider = false,
+            )
+        }
         SectionCard("主动备份") {
             InfoRow("状态", if (app.lastSnapshotAt == null) "未建立" else "已建立")
             InfoRow("时间", Formatters.time(app.lastSnapshotAt))
@@ -196,8 +227,16 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                     AppDataState.Unknown, null -> "数据状态待确认"
                 },
                 description = when (state.selectedDataState) {
-                    AppDataState.Main -> "保存当前主数据返回点，再把分身数据恢复到主系统。"
-                    is AppDataState.Clone -> "恢复切换前保存的主数据，并清除当前切换标记。"
+                    AppDataState.Main -> if (mainReturnPoint == null) {
+                        "首次建立固定 MAIN 返回点，再从 user${state.settings.cloneUserId} 读取当前分数据。"
+                    } else {
+                        "保留固定 MAIN 返回点，从 user${state.settings.cloneUserId} 读取当前分数据。"
+                    }
+                    is AppDataState.Clone -> if (state.settings.syncCloneDataBeforeMainRestore) {
+                        "先把当前分数据同步回 user${state.settings.cloneUserId}，再恢复固定 MAIN 返回点。"
+                    } else {
+                        "直接恢复固定 MAIN 返回点，不把当前分数据同步回 user${state.settings.cloneUserId}。"
+                    }
                     AppDataState.Unknown, null -> "先恢复一份已标明 MAIN 或 CLONE 来源的备份。"
                 },
                 actionLabel = when (state.selectedDataState) {
@@ -267,6 +306,9 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             action = action,
             highRisk = state.selectedApp?.riskLevel != RiskLevel.NORMAL,
             mainUserId = state.settings.mainUserId,
+            cloneUserId = state.settings.cloneUserId,
+            hasMainReturnPoint = mainReturnPoint != null,
+            syncCloneDataBeforeMainRestore = state.settings.syncCloneDataBeforeMainRestore,
             installTargetLabel = installTargetUserId?.let { "user$it" },
             onDismiss = { confirm = null },
             onConfirm = {
@@ -274,6 +316,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 when (action) {
                     ConfirmAction.SWITCH -> viewModel.switchToCloneStateSelected()
                     ConfirmAction.RESTORE_SWITCH -> viewModel.restoreSwitchMainStateSelected()
+                    ConfirmAction.UPDATE_MAIN_RETURN_POINT -> viewModel.updateMainReturnPointSelected()
                     ConfirmAction.CAPTURE -> viewModel.captureSelected()
                     ConfirmAction.RESTORE -> viewModel.restoreSelected()
                     ConfirmAction.LATEST -> viewModel.restoreLatestSelected()
@@ -322,6 +365,7 @@ private fun InstallToolRow(title: String, description: String, onClick: () -> Un
 private enum class ConfirmAction {
     SWITCH,
     RESTORE_SWITCH,
+    UPDATE_MAIN_RETURN_POINT,
     CAPTURE,
     RESTORE,
     LATEST,
@@ -337,6 +381,9 @@ private fun ConfirmDialog(
     action: ConfirmAction,
     highRisk: Boolean,
     mainUserId: Int,
+    cloneUserId: Int,
+    hasMainReturnPoint: Boolean,
+    syncCloneDataBeforeMainRestore: Boolean,
     installTargetLabel: String?,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
@@ -344,6 +391,7 @@ private fun ConfirmDialog(
     val title = when (action) {
         ConfirmAction.SWITCH -> "切换到分身态"
         ConfirmAction.RESTORE_SWITCH -> "还原主系统态"
+        ConfirmAction.UPDATE_MAIN_RETURN_POINT -> "更新固定 MAIN 返回点"
         ConfirmAction.CAPTURE -> "建立主动备份"
         ConfirmAction.RESTORE -> "用 active 快照恢复 user$mainUserId"
         ConfirmAction.LATEST -> "读取分身最新数据并恢复 user$mainUserId"
@@ -354,8 +402,17 @@ private fun ConfirmDialog(
         ConfirmAction.INSTALL_SYNC -> "安装并同步数据"
     }
     val body = when (action) {
-        ConfirmAction.SWITCH -> "会先把当前 user$mainUserId 数据保存为被动备份，再读取分身最新状态覆盖主系统。完成后按钮会变为还原主系统态。"
-        ConfirmAction.RESTORE_SWITCH -> "会使用切换前保存的 user$mainUserId 被动备份还原主系统，并清除切换标记。"
+        ConfirmAction.SWITCH -> if (hasMainReturnPoint) {
+            "会保留现有固定 MAIN 返回点，并从 user$cloneUserId 读取当前分数据覆盖 user$mainUserId。完成后按钮会变为还原主系统态。"
+        } else {
+            "会先把 user$mainUserId 当前 MAIN 数据建立为固定返回点，再从 user$cloneUserId 读取当前分数据覆盖 user$mainUserId。"
+        }
+        ConfirmAction.RESTORE_SWITCH -> if (syncCloneDataBeforeMainRestore) {
+            "会先把 user$mainUserId 当前分数据同步回 user$cloneUserId；同步成功后恢复固定 MAIN 返回点并清除切换标记。"
+        } else {
+            "会直接恢复固定 MAIN 返回点并清除切换标记。user$mainUserId 中尚未同步的分数据变更不会写回 user$cloneUserId。"
+        }
+        ConfirmAction.UPDATE_MAIN_RETURN_POINT -> "只会读取 UClone 已明确记录为 MAIN 的 user$mainUserId 当前数据，完整验证后替换固定返回点。普通切换不会自动执行此更新。"
         ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 主动备份。旧 active 主动备份会移动到 history。"
         ConfirmAction.RESTORE -> "将使用已保存的 active 主动备份恢复主系统数据。这不会重新读取分身最新数据。"
         ConfirmAction.LATEST -> "将先更新分身主动备份，再恢复到主系统。该动作会覆盖主系统当前 App 数据。"

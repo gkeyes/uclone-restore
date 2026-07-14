@@ -201,8 +201,7 @@ data class UCloneSettings(
     val stopCloneAfterTask: Boolean = true,
     val autoUnlockClone: Boolean = false,
     val allowModuleControl: Boolean = false,
-    val reuseExistingPassiveBackups: Boolean = false,
-    val forceUpdateCloneDataBeforeMainRestore: Boolean = false,
+    val syncCloneDataBeforeMainRestore: Boolean = true,
     val favoritePackages: Set<String> = emptySet(),
     val cloneUnlockCredential: String = "",
 )
@@ -222,6 +221,7 @@ enum class TaskType {
     PUSH_MAIN_TO_CLONE,
     RESTORE_CLONE_ROLLBACK_TO_CLONE,
     RESTORE_SWITCH_MAIN_STATE,
+    UPDATE_MAIN_RETURN_POINT,
     DELETE_SNAPSHOT,
     DELETE_RESTORE_BACKUP,
     PROBE_CLONE_CE,

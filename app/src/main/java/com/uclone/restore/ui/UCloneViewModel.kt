@@ -61,6 +61,7 @@ class UCloneViewModel(
                             restoreBackups = workspace.restoreBackups,
                             cloneRollbackBackups = workspace.cloneRollbackBackups,
                             switchRollbackIds = workspace.switchMarkers,
+                            confirmedMainPackages = workspace.confirmedMainPackages,
                             unknownSwitchPackages = if (workspace.readSucceeded) {
                                 workspace.unknownSwitchPackages
                             } else {
@@ -116,6 +117,11 @@ class UCloneViewModel(
                     apps = apps,
                     rollbackIds = rollbackIds,
                     switchRollbackIds = switchRollbackIds,
+                    confirmedMainPackages = when {
+                        !workspace.readSucceeded -> it.confirmedMainPackages - packageName
+                        packageName in workspace.confirmedMainPackages -> it.confirmedMainPackages + packageName
+                        else -> it.confirmedMainPackages - packageName
+                    },
                     unknownSwitchPackages = when {
                         !workspace.readSucceeded -> it.apps.mapTo(linkedSetOf()) { app -> app.packageName }
                         packageName in workspace.unknownSwitchPackages -> it.unknownSwitchPackages + packageName
@@ -235,6 +241,11 @@ class UCloneViewModel(
     fun restoreSwitchMainStateSelected() {
         val packageName = _state.value.selectedPackage ?: return
         restoreSwitchMainState(packageName)
+    }
+
+    fun updateMainReturnPointSelected() {
+        val packageName = _state.value.selectedPackage ?: return
+        submitTask(UiTaskAction.UPDATE_MAIN_RETURN_POINT, packageName, "正在更新固定 MAIN 返回点")
     }
 
     fun handleLauncherFavoriteShortcut(packageName: String) {
@@ -412,6 +423,7 @@ class UCloneViewModel(
                     restoreBackups = workspace.restoreBackups,
                     cloneRollbackBackups = workspace.cloneRollbackBackups,
                     switchRollbackIds = workspace.switchMarkers,
+                    confirmedMainPackages = workspace.confirmedMainPackages,
                     unknownSwitchPackages = if (workspace.readSucceeded) {
                         workspace.unknownSwitchPackages
                     } else {

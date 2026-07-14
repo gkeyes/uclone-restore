@@ -52,7 +52,7 @@
 
 | ID | Area | Decision | Evidence label | Source/project ID | Responsive/state variants | Acceptance test |
 | --- | --- | --- | --- | --- | --- | --- |
-| VC-001 | Product truth | 全部现有页面和 25 个动作必须可达 | `PROJECT-VERIFIED` | functional inventory/action matrix | 所有 window/state | 自动枚举覆盖 + 手工点击 |
+| VC-001 | Product truth | 全部现有页面和 26 个动作必须可达 | `PROJECT-VERIFIED` | functional inventory/action matrix | 所有 window/state | 自动枚举覆盖 + 手工点击 |
 | VC-002 | Navigation | Compact 使用 5 项等宽悬浮玻璃底栏；诊断从设置进入；详情隐藏底栏并显示返回 | `PROJECT-VERIFIED` | 用户决定 + current code | compact/详情 | 自动导航合同 + 360dp 真机大字体检查 |
 | VC-003 | Layout | 页面使用 inset grouped surface，不允许 card 套 card | `PROJECT-VERIFIED` | 用户决定 + grouped utility direction | compact 单列；wide sidebar | 截图层级审查 |
 | VC-004 | Touch | 所有可点击目标最小 48dp | `OFFICIAL-VERIFIED` | Android API defaults | touch/keyboard/TalkBack | Layout Inspector + 点击 |

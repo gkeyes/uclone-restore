@@ -51,6 +51,7 @@ class ExternalServicePolicyTest {
             assertEquals(null, module.copy(operation = operation).sourceOperationRejection(), operation)
         }
         listOf(
+            ExternalActionContract.OPERATION_UPDATE_MAIN_RETURN_POINT,
             ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST,
             ExternalActionContract.OPERATION_RESTORE_ROLLBACK,
             ExternalActionContract.OPERATION_DELETE_SNAPSHOT,
@@ -76,6 +77,10 @@ class ExternalServicePolicyTest {
         assertEquals(
             "桌面快捷入口不允许执行此操作",
             shortcut.copy(operation = ExternalActionContract.OPERATION_BACKUP_DEFAULT).sourceOperationRejection(),
+        )
+        assertEquals(
+            "桌面快捷入口不允许执行此操作",
+            shortcut.copy(operation = ExternalActionContract.OPERATION_UPDATE_MAIN_RETURN_POINT).sourceOperationRejection(),
         )
     }
 

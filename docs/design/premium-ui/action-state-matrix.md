@@ -9,9 +9,10 @@
 | `CAPTURE` | 建立分身数据主动快照 | App 在 user10 安装；所选 CE 需要分身已解锁；确认来源为分身 | 准备源数据、写入快照 | 显示时间、范围、大小；权限跳过为警告 | 不覆盖现有 active 前必须完成临时写入/提交 |
 | `RESTORE_ACTIVE` | 用主动快照覆盖主系统 App | active 存在；确认“主动快照 -> user0”及本次保护 | 回滚保护、写入、属性、权限、验证 | 数据完成与权限警告分开 | 失败显示是否已自动回滚，不能笼统写“恢复失败” |
 | `RESTORE_CLONE_LATEST` | 从分身最新数据备份并覆盖主系统 App | user10 安装/解锁；确认源与目标 | 源准备后再修改目标 | 显示恢复范围和回滚点 | 源准备失败不得修改 user0 |
-| `SWITCH_TO_CLONE` | 在主系统使用分数据 | 当前状态 MAIN；存在可用分身数据；确认会保存主数据返回点 | user10 -> 临时源 -> user0 | 状态提交后变 CLONE | 失败不得写 CLONE；回滚结果明确 |
+| `SWITCH_TO_CLONE` | 在主系统使用分数据 | 当前状态 MAIN；存在可用分身数据；首次切换会建立固定 MAIN 返回点 | user10 当前数据 -> 临时源 -> user0 | 状态提交后变 CLONE；已有固定 MAIN 不更新 | 失败不得写 CLONE；本次事务回滚结果明确 |
 | `SWITCH_OR_RESTORE` | 切换数据状态 | 根据已确认 MAIN/CLONE 决定；UNKNOWN 不直接执行 | 显示具体子动作，不显示抽象枚举 | 提交后刷新真实状态 | 状态不确定时要求检查而不是猜测 |
-| `RESTORE_MAIN` | 还原主数据 | 当前 CLONE 且有有效 MAIN 返回点；说明返回点 | 可选强制更新分数据后再还原 MAIN | 状态提交后变 MAIN | 更新分数据失败则不开始 MAIN 还原 |
+| `RESTORE_MAIN` | 还原主数据 | 当前 CLONE 且有有效固定 MAIN 返回点 | 开关开启时先同步 user0 当前分数据到 user10，再把固定 MAIN 返回点恢复到 user0；关闭时直接恢复 MAIN | 状态提交后变 MAIN | 同步分数据失败则不开始 MAIN 还原；恢复仍使用本次事务回滚保护 |
+| `UPDATE_MAIN_RETURN_POINT` | 更新固定 MAIN 返回点 | 仅主 App 内部入口；当前状态必须明确为 MAIN | user0 当前 MAIN 数据 -> 临时目录 -> 完整验证 -> 替换固定 MAIN | 状态仍为 MAIN | 替换失败恢复旧返回点；模块和桌面快捷入口拒绝 |
 | `PUSH_MAIN` | 用主系统当前数据更新分身 App | user0/user10 安装；确认覆盖 user10；分身 CE 条件满足 | 源准备、分身回滚、覆盖 user10 | user0 状态 marker 不变 | 安装/权限/文件结果分开；失败不得改变 user0 状态 |
 | `RESTORE_CLONE_ROLLBACK` | 用分身回滚恢复分身 App | 明确 rollback ID、来源和 user10 目标 | 保护/恢复/验证 | 展示恢复的分身回滚 ID | 不得误标为主系统被动备份 |
 | `RESTORE_ROLLBACK` | 用指定主数据备份覆盖主系统 App | 明确 MAIN/CLONE 标签、rollback ID、user0 目标 | 当前保护、恢复、验证 | 状态只能由恢复源和提交结果确定 | 恢复被动备份后必须同步刷新首页状态 |
@@ -55,4 +56,4 @@
 
 ## 5. 覆盖检查
 
-本矩阵覆盖当前 `UiTaskAction.kt` 的 25 个枚举项，不包含未来 0.4 的事务恢复、App gate 或合作式取消动作。
+本矩阵覆盖当前 `UiTaskAction.kt` 的 26 个枚举项，不包含未来 0.4 的事务恢复、App gate 或合作式取消动作。

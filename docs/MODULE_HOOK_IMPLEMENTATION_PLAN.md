@@ -5,6 +5,7 @@
 - 更新日期: 2026-07-09
 
 > 状态说明（2026-07-10）：本文保留最初的中继方案作为设计历史。现行协议以 `docs/EXTERNAL_ACTION_PROTOCOL.md` 为准：`ModuleRelayProvider` 校验 Launcher 调用方后，返回由模块 UID 创建、直接指向 UClone `ExternalActionService` 的一次性前台服务 `PendingIntent`。透明 Activity 中继在 Android 14+ 可能被后台启动策略异步拦截，已停止用于新请求。
+> 现行限制：`UPDATE_MAIN_RETURN_POINT` 只允许主 App 内部提交，模块和 Launcher 桌面快捷入口必须拒绝该操作。
 
 ## 1. 目标
 

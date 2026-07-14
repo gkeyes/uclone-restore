@@ -73,6 +73,7 @@ data class ExternalActionRequest(
             ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
             ExternalActionContract.OPERATION_SWITCH_TO_CLONE,
             ExternalActionContract.OPERATION_RESTORE_MAIN,
+            ExternalActionContract.OPERATION_UPDATE_MAIN_RETURN_POINT,
             ExternalActionContract.OPERATION_BACKUP_DEFAULT,
             ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP,
             ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE,

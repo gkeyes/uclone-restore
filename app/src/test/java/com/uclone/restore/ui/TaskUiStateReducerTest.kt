@@ -73,6 +73,7 @@ class TaskUiStateReducerTest {
                 restoreBackups = emptyList(),
                 cloneRollbackBackups = emptyList(),
                 switchRollbackIds = emptyMap(),
+                confirmedMainPackages = emptySet(),
                 unknownSwitchPackages = emptySet(),
             ),
         )
@@ -83,6 +84,7 @@ class TaskUiStateReducerTest {
         assertEquals(emptyList(), refreshed.restoreBackups)
         assertEquals(emptyList(), refreshed.cloneRollbackBackups)
         assertEquals(emptyMap(), refreshed.switchRollbackIds)
+        assertEquals(emptySet(), refreshed.confirmedMainPackages)
         assertNull(refreshed.apps.single().lastSnapshotAt)
         assertNull(refreshed.apps.single().snapshotSizeKb)
         assertNull(refreshed.apps.single().lastRestoreAt)
@@ -97,6 +99,7 @@ class TaskUiStateReducerTest {
             ExternalActionContract.OPERATION_SWITCH_TO_CLONE,
             ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
             ExternalActionContract.OPERATION_RESTORE_MAIN,
+            ExternalActionContract.OPERATION_UPDATE_MAIN_RETURN_POINT,
             ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE,
             ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK,
             ExternalActionContract.OPERATION_RESTORE_ROLLBACK,

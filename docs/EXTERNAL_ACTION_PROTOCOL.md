@@ -217,7 +217,7 @@ RESTORE_LATEST_CLONE_ROLLBACK
 
 Meanings:
 
-- `SWITCH_OR_RESTORE`: if a switch marker exists, restore main state; otherwise switch to clone state.
+- `SWITCH_OR_RESTORE`: UClone parses the marker value as explicit MAIN, valid CLONE return point, or UNKNOWN; it never decides direction from file existence alone.
 - `SWITCH_TO_CLONE`: force switch current main app data to latest clone state.
 - `RESTORE_MAIN`: restore using the current switch rollback marker.
 - `BACKUP_DEFAULT`: create the default active backup using current UClone settings.

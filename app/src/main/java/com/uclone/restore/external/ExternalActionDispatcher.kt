@@ -39,6 +39,7 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
             container.syncEngine.restoreCloneRollback(request.packageName, settings, report, request.requestId)
         ExternalActionContract.OPERATION_SWITCH_TO_CLONE -> switchToClone(request, settings, report)
         ExternalActionContract.OPERATION_RESTORE_MAIN -> restoreMain(request, settings, report)
+        ExternalActionContract.OPERATION_UPDATE_MAIN_RETURN_POINT -> updateMainReturnPoint(request, settings, report)
         ExternalActionContract.OPERATION_SWITCH_OR_RESTORE -> switchOrRestore(request, settings, report)
         ExternalActionContract.OPERATION_RESTORE_ROLLBACK ->
             container.syncEngine.rollback(request.packageName, requireRollbackId(request), settings, report, request.requestId)
@@ -133,6 +134,28 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
             request.packageName,
             rollbackId,
             ruleFor(request.packageName, settings),
+            settings,
+            report,
+            request.requestId,
+        )
+    }
+
+    private suspend fun updateMainReturnPoint(
+        request: ExternalActionRequest,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+    ): TaskRecord {
+        val workspace = container.syncEngine.loadWorkspaceIndex(settings)
+        check(workspace.hasConfirmedMainState(request.packageName)) {
+            "当前 MAIN 状态缺少明确记录，请先完成一次 MAIN 还原"
+        }
+        when (workspace.dataState(request.packageName)) {
+            AppDataState.Main -> Unit
+            is AppDataState.Clone -> error("当前正在使用分数据，请先还原 MAIN 后再更新返回点")
+            AppDataState.Unknown -> error("数据状态未知，不能更新 MAIN 返回点")
+        }
+        return container.syncEngine.updateMainReturnPoint(
+            request.packageName,
             settings,
             report,
             request.requestId,

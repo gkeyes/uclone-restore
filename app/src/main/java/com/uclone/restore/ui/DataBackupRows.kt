@@ -91,7 +91,9 @@ fun PassiveBackupRow(
         null -> MaterialTheme.ucloneColors.warning
     }
     val retentionLabel = when {
-        backup.isPersistentStateBackup -> "长期状态备份"
+        backup.rollbackId == "persistent_main" -> "固定 MAIN 返回点"
+        backup.rollbackId == "persistent_clone" -> "旧版 CLONE 备份，不参与切换"
+        backup.isPersistentStateBackup -> "旧版长期状态备份"
         backup.isActiveSwitchBackup -> "当前 MAIN 返回点"
         backup.isCloneRollback -> "分身推送回滚"
         else -> "事务被动备份"

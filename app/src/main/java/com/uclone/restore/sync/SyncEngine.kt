@@ -235,17 +235,17 @@ class SyncEngine(
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
     ): TaskRecord {
-        val forceRefresh = settings.forceUpdateCloneDataBeforeMainRestore
+        val syncCloneData = settings.syncCloneDataBeforeMainRestore
         return runScriptTask(
             type = TaskType.RESTORE_SWITCH_MAIN_STATE,
             packageName = packageName,
             settings = settings,
-            labels = if (forceRefresh) {
-                listOf("检查 root", "更新分系统数据", "验证推送结果", "读取主数据返回点", "恢复主系统态", "完成")
+            labels = if (syncCloneData) {
+                listOf("检查 root", "同步当前分数据", "验证同步结果", "读取 MAIN 返回点", "恢复主系统态", "完成")
             } else {
-                listOf("检查 root", "读取主数据返回点", "生成事务回滚", "恢复主系统态", "清除切换标记", "完成")
+                listOf("检查 root", "读取 MAIN 返回点", "生成事务回滚", "恢复主系统态", "清除切换标记", "完成")
             },
-            script = if (forceRefresh) {
+            script = if (syncCloneData) {
                 ShellScripts.pushMainToCloneThenRestoreMain(packageName, rollbackId, rule, settings, appPackage)
             } else {
                 ShellScripts.rollback(packageName, rollbackId, settings, appPackage, clearSwitchMarker = true)
@@ -254,6 +254,21 @@ class SyncEngine(
             requestId = requestId,
         )
     }
+
+    suspend fun updateMainReturnPoint(
+        packageName: String,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.UPDATE_MAIN_RETURN_POINT,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查 MAIN 状态", "读取 user${settings.mainUserId} 当前数据", "验证新返回点", "替换 MAIN 返回点", "完成"),
+        script = ShellScripts.updateMainReturnPoint(packageName, settings, appPackage),
+        report = report,
+        requestId = requestId,
+    )
 
     suspend fun rollback(
         packageName: String,
@@ -595,6 +610,7 @@ private val TRANSACTIONAL_TASK_TYPES = setOf(
     TaskType.PUSH_MAIN_TO_CLONE,
     TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE,
     TaskType.RESTORE_SWITCH_MAIN_STATE,
+    TaskType.UPDATE_MAIN_RETURN_POINT,
     TaskType.INSTALL_AND_SYNC_TO_OTHER_USER,
     TaskType.REPAIR_WORKSPACE_OWNERSHIP,
 )

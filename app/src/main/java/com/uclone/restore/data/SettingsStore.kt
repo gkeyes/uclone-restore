@@ -10,7 +10,7 @@ class SettingsStore private constructor(
     constructor(context: Context) : this(context, AndroidKeystoreCredentialCipher())
 
     private val prefs = context.getSharedPreferences("uclone_settings", Context.MODE_PRIVATE)
-    private val schemaVersion = 10
+    private val schemaVersion = 11
 
     fun load(): UCloneSettings = UCloneSettings(
         mainUserId = prefs.getInt("mainUserId", 0),
@@ -26,8 +26,12 @@ class SettingsStore private constructor(
         stopCloneAfterTask = prefs.getBoolean("stopCloneAfterTask", true),
         autoUnlockClone = prefs.getBoolean("autoUnlockClone", false),
         allowModuleControl = prefs.getBoolean("allowModuleControl", false),
-        reuseExistingPassiveBackups = prefs.getBoolean("reuseExistingPassiveBackups", false),
-        forceUpdateCloneDataBeforeMainRestore = prefs.getBoolean("forceUpdateCloneDataBeforeMainRestore", false),
+        syncCloneDataBeforeMainRestore = migratedCloneSyncSetting(
+            hasCurrentValue = prefs.contains("syncCloneDataBeforeMainRestore"),
+            currentValue = prefs.getBoolean("syncCloneDataBeforeMainRestore", true),
+            hasLegacyValue = prefs.contains("forceUpdateCloneDataBeforeMainRestore"),
+            legacyValue = prefs.getBoolean("forceUpdateCloneDataBeforeMainRestore", false),
+        ),
         favoritePackages = prefs.getStringSet("favoritePackages", emptySet()).orEmpty().toSet(),
         cloneUnlockCredential = loadCredential(),
     )
@@ -47,11 +51,12 @@ class SettingsStore private constructor(
             .putBoolean("stopCloneAfterTask", settings.stopCloneAfterTask)
             .putBoolean("autoUnlockClone", settings.autoUnlockClone)
             .putBoolean("allowModuleControl", settings.allowModuleControl)
-            .putBoolean("reuseExistingPassiveBackups", settings.reuseExistingPassiveBackups)
-            .putBoolean("forceUpdateCloneDataBeforeMainRestore", settings.forceUpdateCloneDataBeforeMainRestore)
+            .putBoolean("syncCloneDataBeforeMainRestore", settings.syncCloneDataBeforeMainRestore)
             .putStringSet("favoritePackages", settings.favoritePackages.toMutableSet())
             .putString(ENCRYPTED_CREDENTIAL_KEY, encryptCredential(settings.cloneUnlockCredential.trim()))
             .remove(LEGACY_CREDENTIAL_KEY)
+            .remove("reuseExistingPassiveBackups")
+            .remove("forceUpdateCloneDataBeforeMainRestore")
             .putInt("settingsSchemaVersion", schemaVersion)
             .apply()
     }
@@ -80,4 +85,15 @@ class SettingsStore private constructor(
         const val LEGACY_CREDENTIAL_KEY = "cloneUnlockCredential"
         const val ENCRYPTED_CREDENTIAL_KEY = "cloneUnlockCredentialEncrypted"
     }
+}
+
+internal fun migratedCloneSyncSetting(
+    hasCurrentValue: Boolean,
+    currentValue: Boolean,
+    hasLegacyValue: Boolean,
+    legacyValue: Boolean,
+): Boolean = when {
+    hasCurrentValue -> currentValue
+    hasLegacyValue -> legacyValue
+    else -> true
 }

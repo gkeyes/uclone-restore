@@ -66,7 +66,7 @@ fun DataScreen(
                     SingleLinePathText("被动备份: $rootDir/rollback/<包名>/<备份ID>")
                     SingleLinePathText("分身回滚: $rootDir/clone_rollback/<包名>/latest")
                     Text(
-                        "主数据 MAIN 与分数据 CLONE 分别标记；长期状态备份与本次事务回滚分开处理。",
+                        "MAIN 使用固定返回点；CLONE 切换直接读取 user${state.settings.cloneUserId} 当前数据。本次事务回滚始终单独建立。",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -97,7 +97,7 @@ fun DataScreen(
             }
         }
         item {
-            SectionLabel("主系统侧备份", "显示 user${state.settings.mainUserId} 中保存过的主数据或分数据状态。")
+            SectionLabel("主系统侧备份", "包含固定 MAIN 返回点、事务回滚和仅供手动恢复的旧版备份。")
         }
         if (passiveBackups.isEmpty()) {
             item {

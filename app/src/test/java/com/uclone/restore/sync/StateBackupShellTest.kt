@@ -12,33 +12,40 @@ import kotlin.test.assertTrue
 
 class StateBackupShellTest {
     @Test
-    fun reuseOnlySelectsAValidatedPersistentStateBackup() {
-        val script = StateBackupShell.functions(reuseExisting = true)
+    fun fixedMainSelectionOnlyUsesAValidatedMainReturnPoint() {
+        val script = StateBackupShell.functions()
 
-        assertContains(script, "UCLONE_REUSE_EXISTING_STATE_BACKUPS=1")
         assertContains(script, "uclone_valid_state_backup")
-        assertContains(script, "state=${'$'}UCLONE_SSB_STATE_KIND path=${'$'}UCLONE_SSB_PERSISTENT_DIR mode=reuse")
+        assertContains(script, "MAIN_RETURN_SELECTED:path=${'$'}UCLONE_SSB_PERSISTENT_DIR mode=fixed")
+        assertContains(script, "[ \"${'$'}UCLONE_SSB_STATE_KIND\" = \"MAIN\" ] || return 1")
         assertContains(script, "stateKind")
+        assertFalse(script.contains("UCLONE_SSB_PERSISTENT_ID=\"persistent_clone\""))
     }
 
     @Test
-    fun switchingKeepsFreshTransactionUndoUntilCommitEvenWhenReuseIsEnabled() {
+    fun switchingKeepsFreshTransactionUndoAndNeverPromotesCloneState() {
         val script = ShellScripts.switchFromCloneLatest(
             "com.example.app",
             AppRule("com.example.app"),
-            UCloneSettings(reuseExistingPassiveBackups = true),
+            UCloneSettings(),
             "com.uclone.restore",
         )
 
         assertContains(script, """\"backupKind\":\"transaction_undo\"""")
         assertContains(script, "ROLLBACK_READY=1")
         assertContains(script, "TRANSACTION_COMMITTED=1")
-        assertContains(script, "STATE_BACKUP_COMMITTED:state=${'$'}CURRENT_TARGET_STATE")
+        assertContains(script, "MAIN_RETURN_READY:path=${'$'}UCLONE_STATE_BACKUP_PATH")
+        assertContains(script, "MAIN_RETURN_COMMITTED:path=${'$'}UCLONE_STATE_BACKUP_PATH")
+        assertContains(script, "[ \"${'$'}CURRENT_TARGET_STATE\" = \"MAIN\" ] && [ \"${'$'}NEXT_MAIN_STATE\" = \"CLONE\" ]")
+        assertContains(script, "CLONE_TRANSACTION_UNDO_RETAINED:path=${'$'}ORIGINAL_TRANSACTION_DIR")
         assertContains(script, "SWITCH_MARKER_STAGED=UNKNOWN")
         assertTrue(script.indexOf("ROLLBACK_READY=1") < script.indexOf("uclone_stage_begin RESTORE_DATA"))
         assertTrue(script.lastIndexOf("uclone_stage_begin RESTORE_DATA") < script.lastIndexOf("TRANSACTION_COMMITTED=1"))
-        assertTrue(script.lastIndexOf("TRANSACTION_COMMITTED=1") < script.lastIndexOf("uclone_promote_transaction_state_backup"))
-        assertTrue(script.lastIndexOf("TRANSACTION_COMMITTED=1") < script.lastIndexOf("DATA_STATE_COMMITTED=CLONE"))
+        assertTrue(script.lastIndexOf("uclone_promote_transaction_state_backup") < script.lastIndexOf("TRANSACTION_COMMITTED=1"))
+        assertTrue(script.lastIndexOf("DATA_STATE_COMMITTED=CLONE") < script.lastIndexOf("TRANSACTION_COMMITTED=1"))
+        assertContains(script, "ERR_STATE_BACKUP_PROMOTION_FAILED")
+        assertContains(script, "ERR_MAIN_RETURN_AUTO_INIT_FORBIDDEN")
+        assertContains(script, "MAIN_RETURN_PROMOTION_REVERTED")
         assertFalse(script.contains("ROLLBACK_ID=\"${'$'}UCLONE_STATE_BACKUP_ID\""))
     }
 
@@ -71,7 +78,7 @@ class StateBackupShellTest {
                 ROOT=${shellQuote(root.toString())}
                 PKG=com.example.app
                 TS=20260713-120000
-                ${StateBackupShell.functions(reuseExisting = true)}
+                ${StateBackupShell.functions()}
                 if uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/complete" MAIN; then echo COMPLETE=VALID; else echo COMPLETE=INVALID; fi
                 if uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/incomplete" MAIN; then echo INCOMPLETE=VALID; else echo INCOMPLETE=INVALID; fi
             """.trimIndent(),
@@ -96,15 +103,15 @@ class StateBackupShellTest {
                 ROOT=${shellQuote(root.toString())}
                 PKG=com.example.app
                 TS=20260713-120001
-                ${StateBackupShell.functions(reuseExisting = false)}
-                TRANSACTION_COMMITTED=0
+                ${StateBackupShell.functions()}
+                UCLONE_READY_TO_COMMIT=0
                 if uclone_promote_transaction_state_backup "${'$'}ROOT/rollback/${'$'}PKG/transaction_1" transaction_1 MAIN 0; then
                   echo BEFORE_COMMIT=UNEXPECTED
                 else
                   echo BEFORE_COMMIT=BLOCKED
                 fi
                 [ -d "${'$'}ROOT/rollback/${'$'}PKG/transaction_1" ] && echo TRANSACTION_BEFORE_COMMIT=PRESENT
-                TRANSACTION_COMMITTED=1
+                UCLONE_READY_TO_COMMIT=1
                 uclone_promote_transaction_state_backup "${'$'}ROOT/rollback/${'$'}PKG/transaction_1" transaction_1 MAIN 0 || exit 9
                 [ ! -e "${'$'}ROOT/rollback/${'$'}PKG/transaction_1" ] && echo TRANSACTION_AFTER_COMMIT=MOVED
                 [ -d "${'$'}ROOT/rollback/${'$'}PKG/persistent_main" ] && echo PERSISTENT_AFTER_COMMIT=PRESENT
@@ -126,6 +133,7 @@ class StateBackupShellTest {
     fun mainStateClassificationFailsClosedForEveryNonRegularOrInvalidMarker() {
         val root = Files.createTempDirectory("uclone-state-classification")
         createStateBackup(root, "persistent_main", "MAIN", PARTS)
+        createStateBackup(root, "persistent_clone", null, PARTS)
 
         val result = runShell(
             """
@@ -133,7 +141,7 @@ class StateBackupShellTest {
                 ROOT=${shellQuote(root.toString())}
                 PKG=com.example.app
                 TS=20260713-120002
-                ${StateBackupShell.functions(reuseExisting = true)}
+                ${StateBackupShell.functions()}
                 MARKER_DIR="${'$'}ROOT/switches/${'$'}PKG"
                 MARKER="${'$'}MARKER_DIR/active"
                 mkdir -p "${'$'}MARKER_DIR"
@@ -149,6 +157,17 @@ class StateBackupShellTest {
                 echo "INVALID=${'$'}(uclone_current_main_state)"
                 printf '%s\n' 'persistent_main' > "${'$'}MARKER"
                 echo "VALID=${'$'}(uclone_current_main_state)"
+                printf '%s\n' 'persistent_clone' > "${'$'}MARKER"
+                echo "LEGACY_CLONE=${'$'}(uclone_current_main_state)"
+                printf '%s\n' "${'$'}UCLONE_MAIN_STATE_MARKER" > "${'$'}MARKER"
+                echo "EXPLICIT_MAIN=${'$'}(uclone_current_main_state)"
+                if uclone_confirmed_main_state; then echo MAIN_PROOF=CONFIRMED; else echo MAIN_PROOF=MISSING; fi
+                mv "${'$'}MARKER" "${'$'}MARKER.real"
+                ln -s "${'$'}MARKER.real" "${'$'}MARKER"
+                echo "SYMLINK_MAIN=${'$'}(uclone_current_main_state)"
+                if uclone_confirmed_main_state; then echo SYMLINK_PROOF=UNEXPECTED; else echo SYMLINK_PROOF=BLOCKED; fi
+                rm -f "${'$'}MARKER"
+                if uclone_confirmed_main_state; then echo LEGACY_PROOF=UNEXPECTED; else echo LEGACY_PROOF=MISSING; fi
             """.trimIndent(),
         )
 
@@ -158,18 +177,133 @@ class StateBackupShellTest {
         assertContains(result.output, "DIRECTORY=UNKNOWN")
         assertContains(result.output, "INVALID=UNKNOWN")
         assertContains(result.output, "VALID=CLONE")
+        assertContains(result.output, "LEGACY_CLONE=UNKNOWN")
+        assertContains(result.output, "EXPLICIT_MAIN=MAIN")
+        assertContains(result.output, "MAIN_PROOF=CONFIRMED")
+        assertContains(result.output, "SYMLINK_MAIN=UNKNOWN")
+        assertContains(result.output, "SYMLINK_PROOF=BLOCKED")
+        assertContains(result.output, "LEGACY_PROOF=MISSING")
+    }
+
+    @Test
+    fun fixedMainSelectorRejectsCloneAndManualUpdateValidatesBeforeReplacement() {
+        val root = Files.createTempDirectory("uclone-main-selector")
+        createStateBackup(root, "persistent_main", "MAIN", PARTS)
+        val selection = runShell(
+            """
+                set -u
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                TS=20260713-120003
+                ${StateBackupShell.functions()}
+                if uclone_select_transaction_state_backup missing tx MAIN; then
+                  echo MAIN_SELECTION=${'$'}UCLONE_STATE_BACKUP_ID
+                fi
+                if uclone_select_transaction_state_backup missing tx CLONE; then
+                  echo CLONE_SELECTION=UNEXPECTED
+                else
+                  echo CLONE_SELECTION=BLOCKED
+                fi
+            """.trimIndent(),
+        )
+        assertEquals(0, selection.exitCode, selection.output)
+        assertContains(selection.output, "MAIN_SELECTION=persistent_main")
+        assertContains(selection.output, "CLONE_SELECTION=BLOCKED")
+
+        val updateScript = ShellScripts.updateMainReturnPoint(
+            packageName = "com.example.app",
+            settings = UCloneSettings(),
+            appPackage = "com.uclone.restore",
+        )
+        assertContains(updateScript, "ERR_MAIN_RETURN_UPDATE_STATE:expected=CONFIRMED_MAIN")
+        assertContains(updateScript, "uclone_confirmed_main_state")
+        assertContains(updateScript, "ERR_UNSAFE_WORKSPACE_ROOT")
+        assertContains(updateScript, "ERR_WORKSPACE_SYMLINK")
+        assertContains(updateScript, "ERR_UNTRUSTED_WORKSPACE")
+        assertContains(updateScript, "uclone_valid_state_backup \"${'$'}TMP\" MAIN")
+        assertContains(updateScript, "mv \"${'$'}FINAL\" \"${'$'}PREVIOUS\"")
+        assertContains(updateScript, "mv \"${'$'}TMP\" \"${'$'}FINAL\"")
+        assertTrue(
+            updateScript.indexOf("uclone_valid_state_backup \"${'$'}TMP\" MAIN") <
+                updateScript.indexOf("mv \"${'$'}FINAL\" \"${'$'}PREVIOUS\""),
+        )
+    }
+
+    @Test
+    fun firstSwitchOnlySelectsACompleteTransactionAsTheInitialMainReturnPoint() {
+        val root = Files.createTempDirectory("uclone-initial-main-selector")
+        createStateBackup(root, "transaction_complete", "MAIN", PARTS)
+        createStateBackup(root, "transaction_incomplete", "MAIN", PARTS - "obb")
+
+        val selection = runShell(
+            """
+                set -u
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                TS=20260713-120004
+                ${StateBackupShell.functions()}
+                if uclone_select_transaction_state_backup "${'$'}ROOT/rollback/${'$'}PKG/transaction_complete" transaction_complete MAIN; then
+                  echo COMPLETE_SELECTION=${'$'}UCLONE_STATE_BACKUP_ID
+                else
+                  echo COMPLETE_SELECTION=REJECTED
+                fi
+                if uclone_select_transaction_state_backup "${'$'}ROOT/rollback/${'$'}PKG/transaction_incomplete" transaction_incomplete MAIN; then
+                  echo INCOMPLETE_SELECTION=UNEXPECTED
+                else
+                  echo INCOMPLETE_SELECTION=REJECTED
+                fi
+            """.trimIndent(),
+        )
+
+        assertEquals(0, selection.exitCode, selection.output)
+        assertContains(selection.output, "COMPLETE_SELECTION=transaction_complete")
+        assertContains(selection.output, "INCOMPLETE_SELECTION=REJECTED")
+    }
+
+    @Test
+    fun promotedReturnPointCanBeRevertedBeforeStatePublication() {
+        val root = Files.createTempDirectory("uclone-promotion-revert")
+        createStateBackup(root, "persistent_main", "MAIN", PARTS)
+        createStateBackup(root, "transaction_1", "MAIN", PARTS)
+        Files.write(
+            root.resolve("rollback/com.example.app/transaction_1/manifest.json"),
+            "{\"stateKind\":\"MAIN\",\"backupKind\":\"transaction_undo\"}\n".toByteArray(),
+        )
+
+        val result = runShell(
+            """
+                set -u
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                TS=20260713-120005
+                RUN_ID=20260713-120005_42
+                ${StateBackupShell.functions()}
+                UCLONE_READY_TO_COMMIT=1
+                uclone_promote_transaction_state_backup "${'$'}ROOT/rollback/${'$'}PKG/transaction_1" transaction_1 MAIN 0 || exit 9
+                uclone_revert_promoted_state_backup "${'$'}ROOT/rollback/${'$'}PKG/transaction_1" || exit 10
+                [ -d "${'$'}ROOT/rollback/${'$'}PKG/persistent_main" ] && echo FIXED=RESTORED
+                [ -d "${'$'}ROOT/rollback/${'$'}PKG/transaction_1" ] && echo TRANSACTION=RESTORED
+                grep -F '"backupKind":"transaction_undo"' "${'$'}ROOT/rollback/${'$'}PKG/transaction_1/manifest.json" >/dev/null && echo MANIFEST=RESTORED
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "FIXED=RESTORED")
+        assertContains(result.output, "TRANSACTION=RESTORED")
+        assertContains(result.output, "MANIFEST=RESTORED")
     }
 
     private fun createStateBackup(
         root: Path,
         id: String,
-        stateKind: String,
+        stateKind: String?,
         parts: Set<String>,
     ) {
         val backup = root.resolve("rollback/com.example.app/$id")
         val stateDirectory = backup.resolve(".state")
         Files.createDirectories(stateDirectory)
-        Files.write(backup.resolve("manifest.json"), "{\"stateKind\":\"$stateKind\"}\n".toByteArray())
+        val manifest = stateKind?.let { "{\"stateKind\":\"$it\"}\n" } ?: "{}\n"
+        Files.write(backup.resolve("manifest.json"), manifest.toByteArray())
         parts.forEach { part -> Files.write(stateDirectory.resolve(part), "absent\n".toByteArray()) }
     }
 

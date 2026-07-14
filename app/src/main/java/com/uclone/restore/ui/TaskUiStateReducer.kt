@@ -13,6 +13,7 @@ internal data class TaskRefreshSnapshot(
     val restoreBackups: List<RestoreBackupEntry>,
     val cloneRollbackBackups: List<RestoreBackupEntry>,
     val switchRollbackIds: Map<String, String>,
+    val confirmedMainPackages: Set<String>,
     val unknownSwitchPackages: Set<String>,
 )
 
@@ -48,6 +49,7 @@ internal object TaskUiStateReducer {
             restoreBackups = snapshot.restoreBackups,
             cloneRollbackBackups = snapshot.cloneRollbackBackups,
             switchRollbackIds = snapshot.switchRollbackIds,
+            confirmedMainPackages = snapshot.confirmedMainPackages,
             unknownSwitchPackages = snapshot.unknownSwitchPackages,
             message = message,
         )

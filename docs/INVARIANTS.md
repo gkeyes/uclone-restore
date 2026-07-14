@@ -1,7 +1,12 @@
 # Invariants
 
 - No target App data is modified before source validation and rollback preparation succeed.
-- A persistent MAIN/CLONE backup is not the current transaction undo.
+- The fixed MAIN return point is not the current transaction undo.
+- Every mutation uses a newly created collision-free undo until data and state-marker commit; only after commit may that temporary undo be promoted or pruned.
+- Only the normal MAIN-to-CLONE switch may initialize a missing fixed MAIN return point. Generic restore and rollback operations never initialize or replace it.
+- Manual fixed-MAIN replacement requires the explicit confirmed-MAIN marker written by a successful MAIN restore; legacy marker absence is not sufficient proof.
+- Normal CLONE switching always reads current user10 data and never selects a legacy persistent CLONE backup.
+- An existing valid MAIN return point changes only through the explicit update action.
 - Switch, restore, and push remain distinct one-way operations.
 - App state changes only after the corresponding data operation commits.
 - Permission/AppOps capture failure cannot revoke or reset target state.

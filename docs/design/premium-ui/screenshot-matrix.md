@@ -31,7 +31,7 @@
 | M-21 | compact portrait | dark | large | TalkBack | Diagnostics/query failure | 待采集 | 重试、查看失败技术值 | `UNVERIFIED` | UNKNOWN 不显示 READY；不新增复制/导出动作 |
 | M-22 | compact portrait | light | default | touch | Data/stale workspace index candidate | 待采集 | 尝试恢复/删除后重新检测 | `UNVERIFIED` | 需先批准 freshness 状态合同；不属于首批 UI-only |
 | M-23 | compact portrait | dark | large | TalkBack | Task/permission capture denied | 待采集 | 打开 `SUCCESS_WITH_WARNINGS` 明细 | `UNVERIFIED` | 文件完成与权限跳过同时可理解 |
-| M-24 | compact portrait | light | maximum | TalkBack | Settings/long zh-CN copy | 待采集 | 浏览强制更新分数据和复用备份说明 | `UNVERIFIED` | 长文案不缩字、不遮挡控件 |
+| M-24 | compact portrait | light | maximum | TalkBack | Settings/long zh-CN copy | 待采集 | 浏览固定 MAIN、实时 CLONE 来源和还原前同步说明 | `UNVERIFIED` | 长文案不缩字、不遮挡控件 |
 
 ## 2. 任务状态矩阵
 

@@ -10,6 +10,7 @@ internal fun taskTypeForOperation(operation: String): TaskType = when (operation
     ExternalActionContract.OPERATION_SWITCH_TO_CLONE,
     -> TaskType.SWITCH_TO_CLONE_STATE
     ExternalActionContract.OPERATION_RESTORE_MAIN -> TaskType.RESTORE_SWITCH_MAIN_STATE
+    ExternalActionContract.OPERATION_UPDATE_MAIN_RETURN_POINT -> TaskType.UPDATE_MAIN_RETURN_POINT
     ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE -> TaskType.PUSH_MAIN_TO_CLONE
     ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK -> TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE
     ExternalActionContract.OPERATION_RESTORE_ROLLBACK -> TaskType.ROLLBACK_MAIN_DATA

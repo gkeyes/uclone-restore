@@ -21,7 +21,7 @@
 - `PROJECT-VERIFIED`：功能、状态和数据源已从当前分支核对。
 - `OFFICIAL-VERIFIED`：所列 Apple/Android 官方来源在本轮打开或由本地官方 manifest 核验。
 - `IMPLEMENTED`：Backdrop 1.0.2 光学底栏、五项顶级导航、连续分组页面和操作层级；内容树中的工具和主动作使用同尺寸静态半透明材质，避免循环 Backdrop。
-- `AUTOMATED-VERIFIED`：导航归属、完整 25 项动作集合、48dp 触控、禁用/危险语义和光学底栏渲染已进入 JVM/Android 自动测试，Android 测试由 GitHub 模拟器执行。
+- `AUTOMATED-VERIFIED`：导航归属、完整 26 项动作集合、48dp 触控、禁用/危险语义和光学底栏渲染已进入 JVM/Android 自动测试，Android 测试由 GitHub 模拟器执行。
 - `UNVERIFIED`：当前提交对应的真机截图、深色、大字体、TalkBack、性能和真实交互。
 
 真机 `UNVERIFIED` 项只能由当前提交对应的 GitHub 固定签名 APK 关闭；旧 APK 和旧截图不得复用为证据。

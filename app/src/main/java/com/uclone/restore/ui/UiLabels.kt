@@ -14,6 +14,7 @@ internal val TaskType.displayName: String
         TaskType.PUSH_MAIN_TO_CLONE -> "推送到分身"
         TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE -> "恢复分身回滚"
         TaskType.RESTORE_SWITCH_MAIN_STATE -> "还原主系统态"
+        TaskType.UPDATE_MAIN_RETURN_POINT -> "更新 MAIN 返回点"
         TaskType.DELETE_SNAPSHOT -> "删除主动快照"
         TaskType.DELETE_RESTORE_BACKUP -> "删除被动备份"
         TaskType.PROBE_CLONE_CE -> "检测分身数据状态"

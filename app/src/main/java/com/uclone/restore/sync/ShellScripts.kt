@@ -477,11 +477,194 @@ object ShellScripts {
         echo "SNAPSHOT_SOURCE_USER=${'$'}DETECTED_USER"
     """.trimIndent()
 
+    fun updateMainReturnPoint(
+        packageName: String,
+        settings: UCloneSettings,
+        appPackage: String,
+    ): String = """
+        set -u
+        ROOT=${shellQuote(settings.rootDir)}
+        PKG=${shellQuote(packageName)}
+        APP_PKG=${shellQuote(appPackage)}
+        MAIN_USER=${settings.mainUserId}
+        TS=${'$'}(date +%Y%m%d-%H%M%S)
+        BASE="${'$'}ROOT/rollback/${'$'}PKG"
+        FINAL="${'$'}BASE/persistent_main"
+        PREVIOUS="${'$'}BASE/persistent_main.previous"
+        TMP="${'$'}ROOT/tmp/main_return_${'$'}{PKG}_${'$'}{TS}_${'$'}${'$'}"
+        ${metricsScript()}
+        ${storagePreflightScript()}
+        ${PermissionStateShell.functions()}
+        ${StateBackupShell.functions()}
+        uclone_stage_begin PRECHECK
+        [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC" >&2; exit 41; }
+        case "${'$'}ROOT" in "/"*) ;; *) echo "ERR_UNSAFE_WORKSPACE_ROOT:${'$'}ROOT" >&2; exit 71 ;; esac
+        case "${'$'}ROOT" in /|/data|/data/adb) echo "ERR_UNSAFE_WORKSPACE_ROOT:${'$'}ROOT" >&2; exit 71 ;; esac
+        [ ! -L "${'$'}ROOT" ] || { echo "ERR_WORKSPACE_SYMLINK:${'$'}ROOT" >&2; exit 71; }
+        ROOT_REAL=${'$'}(readlink -f "${'$'}ROOT" 2>/dev/null || true)
+        [ -n "${'$'}ROOT_REAL" ] && [ "${'$'}ROOT_REAL" = "${'$'}ROOT" ] || {
+          echo "ERR_UNSAFE_WORKSPACE_ROOT:${'$'}ROOT" >&2
+          exit 71
+        }
+        if [ "${'$'}ROOT_REAL" != "/data/adb/uclone" ]; then
+          IDENTITY="${'$'}ROOT_REAL/config/workspace.identity"
+          [ -f "${'$'}IDENTITY" ] && [ ! -L "${'$'}IDENTITY" ] &&
+            [ "${'$'}(sed -n '1p' "${'$'}IDENTITY" 2>/dev/null | tr -d '\r')" = "com.uclone.restore.workspace.v1" ] || {
+              echo "ERR_UNTRUSTED_WORKSPACE:${'$'}ROOT_REAL" >&2
+              exit 71
+            }
+        fi
+        validate_main_return_workspace_path() {
+          MANAGED_NAME="${'$'}1"
+          case "${'$'}MANAGED_NAME" in rollback|tmp|switches) ;; *) return 1 ;; esac
+          MANAGED_PATH="${'$'}ROOT_REAL/${'$'}MANAGED_NAME"
+          [ ! -e "${'$'}MANAGED_PATH" ] && [ ! -L "${'$'}MANAGED_PATH" ] && return 0
+          [ -d "${'$'}MANAGED_PATH" ] && [ ! -L "${'$'}MANAGED_PATH" ] || {
+            echo "ERR_WORKSPACE_SYMLINK:${'$'}MANAGED_PATH" >&2
+            return 1
+          }
+          MANAGED_REAL=${'$'}(readlink -f "${'$'}MANAGED_PATH" 2>/dev/null || true)
+          [ "${'$'}MANAGED_REAL" = "${'$'}ROOT_REAL/${'$'}MANAGED_NAME" ] || {
+            echo "ERR_UNSAFE_WORKSPACE_PATH:${'$'}MANAGED_PATH" >&2
+            return 1
+          }
+        }
+        for MANAGED_NAME in rollback tmp switches; do
+          validate_main_return_workspace_path "${'$'}MANAGED_NAME" || exit 71
+        done
+        CURRENT_STATE=${'$'}(uclone_current_main_state)
+        uclone_confirmed_main_state || {
+          echo "ERR_MAIN_RETURN_UPDATE_STATE:expected=CONFIRMED_MAIN actual=${'$'}CURRENT_STATE" >&2
+          exit 74
+        }
+        cmd package list packages --user "${'$'}MAIN_USER" 2>/dev/null | grep -qx "package:${'$'}PKG" || {
+          echo "ERR_PACKAGE_NOT_LISTED:${'$'}MAIN_USER:${'$'}PKG" >&2
+          exit 43
+        }
+        mkdir -p "${'$'}ROOT/rollback" "${'$'}ROOT/tmp" "${'$'}BASE" || exit 53
+        validate_main_return_workspace_path rollback || exit 71
+        validate_main_return_workspace_path tmp || exit 71
+        [ ! -L "${'$'}BASE" ] || { echo "ERR_MAIN_RETURN_SYMLINK:${'$'}BASE" >&2; exit 73; }
+        BASE_REAL=${'$'}(readlink -f "${'$'}BASE" 2>/dev/null || true)
+        [ "${'$'}BASE_REAL" = "${'$'}ROOT_REAL/rollback/${'$'}PKG" ] || {
+          echo "ERR_MAIN_RETURN_BAD_PATH:${'$'}BASE" >&2
+          exit 73
+        }
+        for MANAGED_PATH in "${'$'}FINAL" "${'$'}PREVIOUS"; do
+          [ ! -L "${'$'}MANAGED_PATH" ] || { echo "ERR_MAIN_RETURN_SYMLINK:${'$'}MANAGED_PATH" >&2; exit 73; }
+          [ ! -e "${'$'}MANAGED_PATH" ] || [ -d "${'$'}MANAGED_PATH" ] || {
+            echo "ERR_MAIN_RETURN_BAD_PATH:${'$'}MANAGED_PATH" >&2
+            exit 73
+          }
+        done
+        UCLONE_ESTIMATED_KB=0
+        uclone_add_dir_kb "/data/user/${'$'}MAIN_USER/${'$'}PKG"
+        uclone_add_dir_kb "/data/user_de/${'$'}MAIN_USER/${'$'}PKG"
+        uclone_add_dir_kb "/data/media/${'$'}MAIN_USER/Android/data/${'$'}PKG"
+        uclone_add_dir_kb "/data/media/${'$'}MAIN_USER/Android/media/${'$'}PKG"
+        uclone_add_dir_kb "/data/media/${'$'}MAIN_USER/Android/obb/${'$'}PKG"
+        uclone_require_space "${'$'}UCLONE_ESTIMATED_KB" "update_main_return_point"
+        uclone_stage_end
+        cleanup_main_return_update() {
+          case "${'$'}{TMP:-}" in
+            "${'$'}ROOT"/tmp/main_return_"${'$'}PKG"_*) rm -rf "${'$'}TMP" 2>/dev/null || true ;;
+          esac
+          if [ ! -e "${'$'}FINAL" ] && [ -d "${'$'}PREVIOUS" ] && [ ! -L "${'$'}PREVIOUS" ]; then
+            mv "${'$'}PREVIOUS" "${'$'}FINAL" >/dev/null 2>&1 || true
+          fi
+        }
+        trap cleanup_main_return_update EXIT
+        count_items() {
+          find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '
+        }
+        backup_main_part() {
+          SRC="${'$'}1"
+          PART_NAME="${'$'}2"
+          DST="${'$'}TMP/${'$'}PART_NAME"
+          mkdir -p "${'$'}TMP/.state" || exit 54
+          if [ ! -d "${'$'}SRC" ]; then
+            printf '%s\n' absent > "${'$'}TMP/.state/${'$'}PART_NAME" || exit 54
+            echo "MAIN_RETURN_PART:${'$'}PART_NAME state=absent"
+            return 0
+          fi
+          [ ! -L "${'$'}SRC" ] || { echo "ERR_MAIN_RETURN_SOURCE_SYMLINK:${'$'}SRC" >&2; exit 73; }
+          SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+          UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
+          if [ "${'$'}SRC_ITEMS" -le 0 ]; then
+            printf '%s\n' empty > "${'$'}TMP/.state/${'$'}PART_NAME" || exit 54
+            echo "MAIN_RETURN_PART:${'$'}PART_NAME state=empty"
+            return 0
+          fi
+          mkdir -p "${'$'}DST" || exit 54
+          (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && tar -xopf -) || exit 55
+          DST_ITEMS=${'$'}(count_items "${'$'}DST")
+          [ "${'$'}DST_ITEMS" -gt 0 ] || { echo "ERR_MAIN_RETURN_COPY_EMPTY:${'$'}SRC" >&2; exit 63; }
+          printf '%s\n' data > "${'$'}TMP/.state/${'$'}PART_NAME" || exit 54
+          PART_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
+          UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + DST_ITEMS))
+          uclone_add_written_kb "${'$'}PART_SIZE_KB"
+          echo "MAIN_RETURN_PART:${'$'}PART_NAME state=data items=${'$'}DST_ITEMS sizeKb=${'$'}PART_SIZE_KB"
+        }
+        uclone_stage_begin SOURCE_PREPARE
+        rm -rf "${'$'}TMP"
+        mkdir -p "${'$'}TMP" || exit 54
+        am force-stop --user "${'$'}MAIN_USER" "${'$'}PKG" >/dev/null 2>&1 || {
+          echo "ERR_FORCE_STOP_FAILED:${'$'}MAIN_USER:${'$'}PKG" >&2
+          exit 76
+        }
+        backup_main_part "/data/user/${'$'}MAIN_USER/${'$'}PKG" ce
+        backup_main_part "/data/user_de/${'$'}MAIN_USER/${'$'}PKG" de
+        backup_main_part "/data/media/${'$'}MAIN_USER/Android/data/${'$'}PKG" external
+        backup_main_part "/data/media/${'$'}MAIN_USER/Android/media/${'$'}PKG" media
+        backup_main_part "/data/media/${'$'}MAIN_USER/Android/obb/${'$'}PKG" obb
+        ${if (settings.includePermissions) "uclone_capture_permission_state \"${'$'}TMP/permissions\" \"${'$'}MAIN_USER\" || echo \"WARN_PERMISSION_CAPTURE_SKIPPED:${'$'}MAIN_USER\"" else ":"}
+        SIZE_KB=${'$'}(du -sk "${'$'}TMP" 2>/dev/null | awk '{print ${'$'}1}')
+        printf '%s\n' "{\"packageName\":\"${packageName}\",\"rollbackId\":\"persistent_main\",\"createdAt\":\"${'$'}TS\",\"reason\":\"用户更新固定 MAIN 返回点\",\"sourceUser\":\"${'$'}MAIN_USER\",\"targetUser\":\"${'$'}MAIN_USER\",\"stateKind\":\"MAIN\",\"backupKind\":\"persistent_state\",\"sizeKb\":\"${'$'}SIZE_KB\"}" > "${'$'}TMP/manifest.json" || exit 53
+        chmod 700 "${'$'}TMP" >/dev/null 2>&1 || true
+        chmod 600 "${'$'}TMP/manifest.json" "${'$'}TMP/.state/"* >/dev/null 2>&1 || true
+        sync
+        uclone_record_temp_path "${'$'}TMP"
+        uclone_stage_end
+        uclone_stage_begin VERIFY
+        uclone_valid_state_backup "${'$'}TMP" MAIN || {
+          echo "ERR_MAIN_RETURN_VERIFY_FAILED:${'$'}TMP" >&2
+          exit 64
+        }
+        echo "MAIN_RETURN_VERIFIED:path=${'$'}TMP sizeKb=${'$'}SIZE_KB"
+        uclone_stage_end
+        uclone_stage_begin COMMIT
+        rm -rf "${'$'}PREVIOUS" || exit 53
+        HAD_PREVIOUS=0
+        if [ -d "${'$'}FINAL" ]; then
+          mv "${'$'}FINAL" "${'$'}PREVIOUS" || exit 53
+          HAD_PREVIOUS=1
+        fi
+        if ! mv "${'$'}TMP" "${'$'}FINAL"; then
+          [ "${'$'}HAD_PREVIOUS" = "0" ] || mv "${'$'}PREVIOUS" "${'$'}FINAL" >/dev/null 2>&1 || true
+          echo "ERR_MAIN_RETURN_COMMIT_FAILED:${'$'}FINAL" >&2
+          exit 53
+        fi
+        TMP=""
+        sync
+        if ! uclone_valid_state_backup "${'$'}FINAL" MAIN; then
+          rm -rf "${'$'}FINAL"
+          [ "${'$'}HAD_PREVIOUS" = "0" ] || mv "${'$'}PREVIOUS" "${'$'}FINAL" >/dev/null 2>&1 || true
+          echo "ERR_MAIN_RETURN_COMMIT_VERIFY_FAILED:${'$'}FINAL" >&2
+          exit 64
+        fi
+        rm -rf "${'$'}PREVIOUS" || echo "WARN_MAIN_RETURN_PREVIOUS_CLEANUP_FAILED:${'$'}PREVIOUS"
+        sync
+        uclone_stage_end
+        trap - EXIT
+        uclone_emit_metrics
+        echo "MAIN_RETURN_POINT_UPDATED:path=${'$'}FINAL sizeKb=${'$'}SIZE_KB"
+    """.trimIndent()
+
     fun restore(packageName: String, settings: UCloneSettings, appPackage: String): String = restoreBody(
         packageName = packageName,
         settings = settings,
         appPackage = appPackage,
-        rollbackName = """${'$'}TS""",
+        rollbackName = """${'$'}RUN_ID""",
         rollbackReason = "恢复到主系统前生成",
     )
 
@@ -510,7 +693,7 @@ object ShellScripts {
         packageName = packageName,
         settings = settings,
         appPackage = appPackage,
-        rollbackName = """${'$'}TS""",
+        rollbackName = """${'$'}RUN_ID""",
         rollbackReason = "切换到分身态前生成",
         sourceKind = RestoreSourceKind.SWITCH_TEMP,
         prepareSourceScript = switchTempSourceScript(rule, settings),
@@ -878,7 +1061,7 @@ object ShellScripts {
             ROOT=${shellQuote(settings.rootDir)}
             PKG=${shellQuote(packageName)}
             FORCE_EXPECTED_MAIN_RETURN=${shellQuote(rollbackId)}
-            ${StateBackupShell.functions(reuseExisting = false)}
+            ${StateBackupShell.functions()}
             echo "FORCE_CLONE_REFRESH_BEGIN package=${shellQuote(packageName)}"
             FORCE_CURRENT_STATE=${'$'}(uclone_current_main_state)
             [ "${'$'}FORCE_CURRENT_STATE" = "CLONE" ] || {
@@ -1294,7 +1477,7 @@ object ShellScripts {
             packageName = packageName,
             settings = settings,
             appPackage = appPackage,
-            rollbackName = """rollback_${'$'}TS""",
+            rollbackName = """rollback_${'$'}RUN_ID""",
             rollbackReason = if (clearSwitchMarker) "还原主系统态前生成" else "恢复主系统备份前生成",
             sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId",
             sourceRollbackId = rollbackId,
@@ -1310,7 +1493,7 @@ object ShellScripts {
         packageName = packageName,
         settings = settings,
         appPackage = appPackage,
-        rollbackName = """restore_${'$'}TS""",
+        rollbackName = """restore_${'$'}RUN_ID""",
         rollbackReason = "恢复分身回滚前生成",
         sourcePrefix = "${settings.rootDir}/clone_rollback/$packageName/latest",
         sourceKind = RestoreSourceKind.CLONE_ROLLBACK,
@@ -1624,6 +1807,7 @@ object ShellScripts {
             APP_PKG=${shellQuote(appPackage)}
             DST_USER=$targetUserId
             TS=${'$'}(date +%Y%m%d-%H%M%S)
+            RUN_ID="${'$'}{TS}_${'$'}${'$'}"
             $activeAssignment
             SOURCE_KIND=${shellQuote(sourceKindToken)}
             SOURCE_ROLLBACK_ID=${shellQuote(sourceRollbackId.orEmpty())}
@@ -1635,7 +1819,7 @@ object ShellScripts {
             ${metricsScript()}
             ${storagePreflightScript()}
             ${PermissionStateShell.functions()}
-            ${StateBackupShell.functions(settings.reuseExistingPassiveBackups)}
+            ${StateBackupShell.functions()}
             uclone_stage_begin PRECHECK
             [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
             [ -n "${'$'}ROOT" ] && [ "${'$'}ROOT" != "/" ] || { echo "ERR_BAD_ROOT:${'$'}ROOT" >&2; exit 71; }
@@ -1697,6 +1881,15 @@ object ShellScripts {
             NEXT_MAIN_STATE="${'$'}SOURCE_STATE"
             [ "${'$'}EXPLICIT_SWITCH_TO_CLONE" != "1" ] || NEXT_MAIN_STATE=CLONE
             [ "${'$'}EXPLICIT_RESTORE_MAIN" != "1" ] || NEXT_MAIN_STATE=MAIN
+            if [ "${'$'}MANAGE_MAIN_STATE" = "1" ] &&
+               [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] &&
+               [ "${'$'}NEXT_MAIN_STATE" = "CLONE" ] &&
+               [ "${'$'}EXPLICIT_SWITCH_TO_CLONE" != "1" ]; then
+              uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/persistent_main" MAIN || {
+                echo "ERR_MAIN_RETURN_MISSING:normal_switch_required" >&2
+                exit 53
+              }
+            fi
             echo "DATA_STATE_TRANSITION:current=${'$'}CURRENT_TARGET_STATE source=${'$'}SOURCE_STATE next=${'$'}NEXT_MAIN_STATE"
             UID_VALUE=${'$'}(cmd package list packages -U --user "${'$'}DST_USER" | awk -v p="package:${'$'}PKG" '${'$'}1==p { sub("uid:","",${'$'}2); print ${'$'}2; exit }')
             [ -n "${'$'}UID_VALUE" ] || { echo "ERR_TARGET_UID_MISSING" >&2; exit 52; }
@@ -1938,17 +2131,20 @@ object ShellScripts {
               done || exit 70
               if [ -f "${'$'}SWITCH_MARKER_FOR_PRUNE" ]; then
                 SWITCH_ID_AFTER_PRUNE=${'$'}(sed -n '1p' "${'$'}SWITCH_MARKER_FOR_PRUNE" | tr -d '\r')
-                if [ "${'$'}SWITCH_ID_AFTER_PRUNE" = "${'$'}UCLONE_UNKNOWN_STATE_MARKER" ]; then
-                  :
-                elif [ ! -f "${'$'}ROLLBACK_PARENT/${'$'}SWITCH_ID_AFTER_PRUNE/manifest.json" ]; then
-                  case "${'$'}SWITCH_MARKER_FOR_PRUNE" in
-                    "${'$'}ROOT"/switches/"${'$'}PKG"/active)
-                      write_switch_marker_atomic "${'$'}SWITCH_MARKER_FOR_PRUNE" "${'$'}UCLONE_UNKNOWN_STATE_MARKER" || exit 70
-                      echo "SWITCH_MARKER_UNKNOWN=${'$'}SWITCH_MARKER_FOR_PRUNE"
-                      ;;
-                    *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER_FOR_PRUNE" >&2; exit 70 ;;
-                  esac
-                fi
+                case "${'$'}SWITCH_ID_AFTER_PRUNE" in
+                  "${'$'}UCLONE_UNKNOWN_STATE_MARKER"|"${'$'}UCLONE_MAIN_STATE_MARKER") : ;;
+                  *)
+                    if [ ! -f "${'$'}ROLLBACK_PARENT/${'$'}SWITCH_ID_AFTER_PRUNE/manifest.json" ]; then
+                      case "${'$'}SWITCH_MARKER_FOR_PRUNE" in
+                        "${'$'}ROOT"/switches/"${'$'}PKG"/active)
+                          write_switch_marker_atomic "${'$'}SWITCH_MARKER_FOR_PRUNE" "${'$'}UCLONE_UNKNOWN_STATE_MARKER" || exit 70
+                          echo "SWITCH_MARKER_UNKNOWN=${'$'}SWITCH_MARKER_FOR_PRUNE"
+                          ;;
+                        *) echo "ERR_BAD_SWITCH_MARKER:${'$'}SWITCH_MARKER_FOR_PRUNE" >&2; exit 70 ;;
+                      esac
+                    fi
+                    ;;
+                esac
               fi
             }
             stop_clone_user_after_switch_restore() {
@@ -1967,6 +2163,11 @@ object ShellScripts {
               """.trimIndent()}
             }
             uclone_stage_begin ROLLBACK_BACKUP
+            if [ -e "${'$'}ROLLBACK" ] || [ -L "${'$'}ROLLBACK" ]; then
+              echo "ERR_ROLLBACK_ID_COLLISION:${'$'}ROLLBACK" >&2
+              exit 54
+            fi
+            mkdir -p "${'$'}ROLLBACK/.state" || exit 54
             backup_dir "/data/user/${'$'}DST_USER/${'$'}PKG" "${'$'}ROLLBACK/ce" "ce"
             backup_dir "/data/user_de/${'$'}DST_USER/${'$'}PKG" "${'$'}ROLLBACK/de" "de"
             backup_dir "/data/media/${'$'}DST_USER/Android/data/${'$'}PKG" "${'$'}ROLLBACK/external" "external"
@@ -2006,34 +2207,39 @@ object ShellScripts {
             TRANSACTION_UNDO_DISPOSITION=retained
             FINAL_STATE_PUBLISHED=1
             ${if (targetUserId == settings.mainUserId && rollbackRootName == "rollback") """
-            if [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] || [ "${'$'}CURRENT_TARGET_STATE" = "CLONE" ]; then
+            if [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] && [ "${'$'}NEXT_MAIN_STATE" = "CLONE" ]; then
               uclone_select_transaction_state_backup "${'$'}ORIGINAL_TRANSACTION_DIR" "${'$'}ORIGINAL_TRANSACTION_ID" "${'$'}CURRENT_TARGET_STATE" || exit 53
+              if [ "${'$'}EXPLICIT_SWITCH_TO_CLONE" != "1" ] && [ "${'$'}UCLONE_STATE_BACKUP_REUSED" != "1" ]; then
+                echo "ERR_MAIN_RETURN_AUTO_INIT_FORBIDDEN" >&2
+                exit 53
+              fi
             fi
             """.trimIndent() else ":"}
             sync
             force_stop_package_users || exit 76
-            TRANSACTION_COMMITTED=1
+            UCLONE_READY_TO_COMMIT=1
             ${if (targetUserId == settings.mainUserId && rollbackRootName == "rollback") """
-            if [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] || [ "${'$'}CURRENT_TARGET_STATE" = "CLONE" ]; then
+            if [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] && [ "${'$'}NEXT_MAIN_STATE" = "CLONE" ]; then
               if [ "${'$'}UCLONE_STATE_BACKUP_REUSED" != "1" ]; then
-                if uclone_promote_transaction_state_backup "${'$'}ORIGINAL_TRANSACTION_DIR" "${'$'}ORIGINAL_TRANSACTION_ID" "${'$'}CURRENT_TARGET_STATE" "${'$'}DST_USER"; then
+                if [ "${'$'}EXPLICIT_SWITCH_TO_CLONE" = "1" ] &&
+                   uclone_promote_transaction_state_backup "${'$'}ORIGINAL_TRANSACTION_DIR" "${'$'}ORIGINAL_TRANSACTION_ID" "${'$'}CURRENT_TARGET_STATE" "${'$'}DST_USER"; then
                   TRANSACTION_UNDO_DISPOSITION=promoted_to_state_backup
-                  rm -rf "${'$'}UCLONE_STATE_BACKUP_PATH.previous" >/dev/null 2>&1 || echo "WARN_STATE_BACKUP_PREVIOUS_CLEANUP:${'$'}UCLONE_STATE_BACKUP_PATH.previous"
+                  ROLLBACK="${'$'}UCLONE_STATE_BACKUP_PATH"
                 else
-                  UCLONE_STATE_BACKUP_ID="${'$'}ORIGINAL_TRANSACTION_ID"
-                  UCLONE_STATE_BACKUP_PATH="${'$'}ORIGINAL_TRANSACTION_DIR"
-                  echo "WARN_STATE_BACKUP_PROMOTION_FAILED:state=${'$'}CURRENT_TARGET_STATE path=${'$'}ORIGINAL_TRANSACTION_DIR"
+                  echo "ERR_STATE_BACKUP_PROMOTION_FAILED:state=${'$'}CURRENT_TARGET_STATE path=${'$'}ORIGINAL_TRANSACTION_DIR" >&2
+                  exit 53
                 fi
               fi
-              echo "STATE_BACKUP_COMMITTED:state=${'$'}CURRENT_TARGET_STATE path=${'$'}UCLONE_STATE_BACKUP_PATH reused=${'$'}UCLONE_STATE_BACKUP_REUSED"
+              echo "MAIN_RETURN_READY:path=${'$'}UCLONE_STATE_BACKUP_PATH reused=${'$'}UCLONE_STATE_BACKUP_REUSED"
+            elif [ "${'$'}CURRENT_TARGET_STATE" = "CLONE" ]; then
+              echo "CLONE_TRANSACTION_UNDO_RETAINED:path=${'$'}ORIGINAL_TRANSACTION_DIR"
             fi
             SWITCH_DIR="${'$'}ROOT/switches/${'$'}PKG"
             SWITCH_MARKER="${'$'}SWITCH_DIR/active"
             case "${'$'}NEXT_MAIN_STATE" in
               MAIN)
-                if rm -f "${'$'}SWITCH_MARKER" "${'$'}SWITCH_MARKER.tmp_${'$'}TS"; then
-                  sync
-                  echo "DATA_STATE_COMMITTED=MAIN marker=cleared"
+                if write_switch_marker_atomic "${'$'}SWITCH_MARKER" "${'$'}UCLONE_MAIN_STATE_MARKER"; then
+                  echo "DATA_STATE_COMMITTED=MAIN marker=confirmed"
                 else
                   FINAL_STATE_PUBLISHED=0
                   echo "WARN_DATA_STATE_MARKER_COMMIT_FAILED:state=MAIN" >&2
@@ -2068,7 +2274,29 @@ object ShellScripts {
                 fi
                 ;;
             esac
-            if [ "${'$'}UCLONE_STATE_BACKUP_REUSED" = "1" ] && [ "${'$'}FINAL_STATE_PUBLISHED" = "1" ]; then
+            """.trimIndent() else ":"}
+            if [ "${'$'}FINAL_STATE_PUBLISHED" != "1" ]; then
+              if [ "${'$'}TRANSACTION_UNDO_DISPOSITION" = "promoted_to_state_backup" ]; then
+                if uclone_revert_promoted_state_backup "${'$'}ORIGINAL_TRANSACTION_DIR"; then
+                  ROLLBACK="${'$'}ORIGINAL_TRANSACTION_DIR"
+                  TRANSACTION_UNDO_DISPOSITION=promotion_reverted
+                  echo "MAIN_RETURN_PROMOTION_REVERTED:path=${'$'}ORIGINAL_TRANSACTION_DIR"
+                else
+                  echo "ERR_MAIN_RETURN_PROMOTION_REVERT_FAILED:path=${'$'}ORIGINAL_TRANSACTION_DIR" >&2
+                fi
+              fi
+              exit 70
+            fi
+            TRANSACTION_COMMITTED=1
+            ${if (targetUserId == settings.mainUserId && rollbackRootName == "rollback") """
+            if [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] && [ "${'$'}NEXT_MAIN_STATE" = "CLONE" ]; then
+              echo "MAIN_RETURN_COMMITTED:path=${'$'}UCLONE_STATE_BACKUP_PATH reused=${'$'}UCLONE_STATE_BACKUP_REUSED"
+            fi
+            if [ "${'$'}TRANSACTION_UNDO_DISPOSITION" = "promoted_to_state_backup" ]; then
+              rm -f "${'$'}{UCLONE_PROMOTION_ORIGINAL_MANIFEST:-}" >/dev/null 2>&1 || true
+              rm -rf "${'$'}UCLONE_STATE_BACKUP_PATH.previous" >/dev/null 2>&1 || echo "WARN_STATE_BACKUP_PREVIOUS_CLEANUP:${'$'}UCLONE_STATE_BACKUP_PATH.previous"
+            fi
+            if [ "${'$'}UCLONE_STATE_BACKUP_REUSED" = "1" ]; then
               if rm -rf "${'$'}ORIGINAL_TRANSACTION_DIR"; then
                 TRANSACTION_UNDO_DISPOSITION=cleaned_after_commit
               else

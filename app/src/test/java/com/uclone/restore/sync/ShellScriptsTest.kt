@@ -110,6 +110,7 @@ class ShellScriptsTest {
         val rule = AppRule(packageName = "com.example.app")
         val scripts = listOf(
             ShellScripts.capture("com.example.app", rule, settings, appPackage),
+            ShellScripts.updateMainReturnPoint("com.example.app", settings, appPackage),
             ShellScripts.restore("com.example.app", settings, appPackage),
             ShellScripts.switchFromCloneLatest("com.example.app", rule, settings, appPackage),
             ShellScripts.pushMainToClone("com.example.app", rule, settings, appPackage),
@@ -373,7 +374,14 @@ class ShellScriptsTest {
         assertContains(script, "SWITCH_SOURCE_READY=${'$'}SWITCH_TEMP")
         assertContains(script, "stage_switch_marker_unknown || exit 70")
         assertContains(script, "DATA_STATE_COMMITTED=CLONE mainReturnPoint=${'$'}NEXT_MAIN_RETURN_ID")
-        assertTrue(script.lastIndexOf("TRANSACTION_COMMITTED=1") < script.lastIndexOf("DATA_STATE_COMMITTED=CLONE"))
+        assertContains(script, "RUN_ID=\"${'$'}{TS}_${'$'}${'$'}\"")
+        assertContains(script, "ERR_ROLLBACK_ID_COLLISION")
+        assertContains(script, "ERR_MAIN_RETURN_AUTO_INIT_FORBIDDEN")
+        assertContains(script, "uclone_revert_promoted_state_backup")
+        assertContains(script, "DATA_STATE_COMMITTED=MAIN marker=confirmed")
+        assertContains(script, "\"${'$'}UCLONE_UNKNOWN_STATE_MARKER\"|\"${'$'}UCLONE_MAIN_STATE_MARKER\"")
+        assertTrue(script.indexOf("ERR_ROLLBACK_ID_COLLISION") < script.indexOf("backup_dir \"/data/user/${'$'}DST_USER/${'$'}PKG\""))
+        assertTrue(script.lastIndexOf("DATA_STATE_COMMITTED=CLONE") < script.lastIndexOf("TRANSACTION_COMMITTED=1"))
         assertFalse(script.contains("SNAPSHOT_ACTIVE="))
         assertFalse(script.contains("mv \"${'$'}TMP\" \"${'$'}BASE/active\""))
     }

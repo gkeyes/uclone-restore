@@ -14,15 +14,15 @@
 
 | 状态 | 成立条件 | 用户文案 | 主动作 | 不允许的推断 | 等级 |
 | --- | --- | --- | --- | --- | --- |
-| `MAIN` | 工作区索引读取成功，包不在 UNKNOWN 集合，且没有 switch marker | 主数据正在使用 | 切换到分数据 | 当前代码会把“无 marker”映射为 MAIN，但这不构成数据来源已被正向证明 | `PROJECT-VERIFIED` |
+| `MAIN` | 显式 MAIN marker，或兼容旧工作区时没有 switch marker | 主数据正在使用 | 切换到分数据 | 只有显式 MAIN marker 能授权“替换固定 MAIN 返回点”；旧工作区的无 marker 不能授权该危险操作 | `PROJECT-VERIFIED` |
 | `CLONE` | user0 已知为分数据，且存在有效 MAIN 返回点 | 分数据正在使用 | 还原主数据 | 不能等同 user10 正在运行 | `PROJECT-VERIFIED` |
 | `UNKNOWN` | 工作区读取失败，或包在 UNKNOWN marker 集合中 | 当前数据来源待确认 | 检查状态/进入详情 | 不得直接显示切换或还原为确定动作 | `PROJECT-VERIFIED` |
 
 ### 已确认的需求差异
 
-`需求.md` 要求“无法证明的数据来源必须是 UNKNOWN，刷新或显示重置不得制造 MAIN”。当前生产映射仍以“没有 switch marker”作为 MAIN 默认值。这是 `PROJECT-VERIFIED` 的需求/实现差异，不是视觉设计选择。
+`需求.md` 要求“无法证明的数据来源必须是 UNKNOWN，刷新或显示重置不得制造 MAIN”。当前生产映射为兼容旧工作区，仍以“没有 switch marker”作为普通切换的 MAIN 默认值；成功还原 MAIN 会写入显式 MAIN marker。固定 MAIN 的手动替换只接受这一显式证据。
 
-本设计分支只记录差异：第一批 UI-only 实现继续消费现有 `AppDataState`，不得偷偷改变状态判定；状态逻辑修复必须独立计划、增加回归测试并经真机验证后实施。
+全局移除旧工作区的乐观 MAIN 默认仍需独立迁移和真机验证；本轮只为新增的危险替换动作增加 fail-closed 证据，不改变旧工作区的普通切换兼容行为。
 
 ## 3. 分身用户生命周期
 

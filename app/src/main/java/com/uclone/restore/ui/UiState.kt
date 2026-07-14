@@ -23,6 +23,7 @@ data class UiState(
     val restoreBackups: List<RestoreBackupEntry> = emptyList(),
     val cloneRollbackBackups: List<RestoreBackupEntry> = emptyList(),
     val switchRollbackIds: Map<String, String> = emptyMap(),
+    val confirmedMainPackages: Set<String> = emptySet(),
     val unknownSwitchPackages: Set<String> = emptySet(),
     val workspaceOwnership: WorkspaceOwnershipReport? = null,
     val message: String? = null,
@@ -47,6 +48,9 @@ data class UiState(
 
     fun dataStateFor(packageName: String): AppDataState = when {
         packageName in unknownSwitchPackages -> AppDataState.Unknown
+        packageName in confirmedMainPackages -> AppDataState.Main
         else -> switchRollbackIds[packageName]?.let(AppDataState::Clone) ?: AppDataState.Main
     }
+
+    fun hasConfirmedMainState(packageName: String): Boolean = packageName in confirmedMainPackages
 }

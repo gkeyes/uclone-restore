@@ -97,6 +97,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             action = action,
             mainUserId = state.settings.mainUserId,
             cloneUserId = state.settings.cloneUserId,
+            syncCloneDataBeforeMainRestore = state.settings.syncCloneDataBeforeMainRestore,
             onDismiss = { confirm = null },
             onConfirm = {
                 confirm = null
@@ -296,6 +297,7 @@ private fun HomeConfirmDialog(
     action: HomeConfirm,
     mainUserId: Int,
     cloneUserId: Int,
+    syncCloneDataBeforeMainRestore: Boolean,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
@@ -306,8 +308,12 @@ private fun HomeConfirmDialog(
     }
     val body = when (action) {
         is HomeConfirm.Push -> "来源：user$mainUserId 当前 ${action.label} 数据。\n目标：user$cloneUserId 分身 App 数据。\n保护：执行前保存分身回滚。\n后果：覆盖分身当前数据，不改变首页切换标记。"
-        is HomeConfirm.Switch -> "来源：user$cloneUserId 分身最新 ${action.label} 数据。\n目标：user$mainUserId App 数据。\n保护：先保存当前主数据返回点。\n后果：主系统将进入分数据 CLONE 状态。"
-        is HomeConfirm.Restore -> "来源：切换前保存的 MAIN 返回点。\n目标：user$mainUserId App 数据。\n保护：本次任务仍会建立事务回滚。\n后果：清除首页还原标记。"
+        is HomeConfirm.Switch -> "来源：user$cloneUserId 当前 ${action.label} 数据。\n目标：user$mainUserId App 数据。\nMAIN 返回点：首次切换时建立，已有时保持不变。\n后果：主系统将进入分数据 CLONE 状态。"
+        is HomeConfirm.Restore -> if (syncCloneDataBeforeMainRestore) {
+            "先把 user$mainUserId 当前分数据同步回 user$cloneUserId，再恢复固定 MAIN 返回点。\n保护：同步失败时不会开始还原；恢复前仍会建立本次事务回滚。"
+        } else {
+            "直接恢复固定 MAIN 返回点。\n注意：user$mainUserId 中尚未同步的分数据变更不会写回 user$cloneUserId。\n保护：恢复前仍会建立本次事务回滚。"
+        }
     }
     AlertDialog(
         onDismissRequest = onDismiss,

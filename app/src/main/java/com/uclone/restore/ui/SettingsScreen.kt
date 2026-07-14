@@ -113,24 +113,29 @@ fun SettingsScreen(
                 draft = draft.copy(stopCloneAfterTask = it)
             }
         }
-        SectionCard("状态备份") {
+        SectionCard("切换数据来源") {
+            InfoRow("MAIN 恢复来源", "固定 MAIN 返回点")
+            Text(
+                "首次从 MAIN 切换到 CLONE 时建立；之后不会自动更新，只能在 App 详情中手动更新。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            InfoRow("CLONE 切换来源", "user${draft.cloneUserId} 当前数据")
+            Text(
+                "每次切换到 CLONE 都直接读取分身系统当前数据，不使用旧版 CLONE 长期备份。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             ToggleRow(
-                label = "已有主/分状态备份时不再更新",
-                checked = draft.reuseExistingPassiveBackups,
-                description = if (draft.reuseExistingPassiveBackups) {
-                    "开启后，已有 MAIN 或 CLONE 长期状态备份会继续保留。每次操作仍会先建立本次专用回滚，失败时不会使用旧备份代替操作前数据。"
+                label = "还原 MAIN 前同步当前分数据",
+                checked = draft.syncCloneDataBeforeMainRestore,
+                description = if (draft.syncCloneDataBeforeMainRestore) {
+                    "先把 user${draft.mainUserId} 正在使用的 CLONE 数据同步回 user${draft.cloneUserId}，成功后再恢复固定 MAIN 返回点；同步失败时不会开始还原。"
                 } else {
-                    "关闭时，每次成功切换、还原或推送都会用操作前的最新数据更新对应 MAIN/CLONE 长期状态备份。"
+                    "直接恢复固定 MAIN 返回点。user${draft.mainUserId} 中尚未同步的 CLONE 变更不会写回分身系统。"
                 },
             ) {
-                draft = draft.copy(reuseExistingPassiveBackups = it)
-            }
-            ToggleRow(
-                label = "还原主系统前强制更新分数据",
-                checked = draft.forceUpdateCloneDataBeforeMainRestore,
-                description = "仅在 user${draft.mainUserId} 已确认处于 CLONE 状态时生效：先把当前分数据推送到 user${draft.cloneUserId}，成功后再恢复 MAIN 返回点。推送失败时不会开始还原。",
-            ) {
-                draft = draft.copy(forceUpdateCloneDataBeforeMainRestore = it)
+                draft = draft.copy(syncCloneDataBeforeMainRestore = it)
             }
         }
         SectionCard("模块控制") {
