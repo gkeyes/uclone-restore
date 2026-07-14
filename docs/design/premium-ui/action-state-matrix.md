@@ -11,7 +11,7 @@
 | `RESTORE_CLONE_LATEST` | 从分身最新数据备份并覆盖主系统 App | user10 安装/解锁；确认源与目标 | 源准备后再修改目标 | 显示恢复范围和回滚点 | 源准备失败不得修改 user0 |
 | `SWITCH_TO_CLONE` | 在主系统使用分数据 | 当前状态 MAIN；存在可用分身数据；首次切换会建立固定 MAIN 返回点 | user10 当前数据 -> 临时源 -> user0 | 状态提交后变 CLONE；已有固定 MAIN 不更新 | 失败不得写 CLONE；本次事务回滚结果明确 |
 | `SWITCH_OR_RESTORE` | 切换数据状态 | 根据已确认 MAIN/CLONE 决定；UNKNOWN 不直接执行 | 显示具体子动作，不显示抽象枚举 | 提交后刷新真实状态 | 状态不确定时要求检查而不是猜测 |
-| `RESTORE_MAIN` | 还原主数据 | 当前 CLONE 且有有效固定 MAIN 返回点 | 开关开启时先同步 user0 当前分数据到 user10，再把固定 MAIN 返回点恢复到 user0；关闭时直接恢复 MAIN | 状态提交后变 MAIN | 同步分数据失败则不开始 MAIN 还原；恢复仍使用本次事务回滚保护 |
+| `RESTORE_MAIN` | 还原主数据 | 当前 CLONE 且有有效固定 MAIN 返回点；确认全局 `SAFE` 或 `DANGEROUS_FAST` 模式 | `SAFE`：user0 CLONE -> 本地检查点 -> user10 -> 固定 MAIN -> user0，共三次完整写入。`DANGEROUS_FAST`：user0 CLONE -> user10 -> 固定 MAIN -> user0，共两次完整写入且无本地检查点 | 状态提交后变 MAIN；固定 MAIN 不自动更新 | user10 同步失败不开始 MAIN 还原；部分写入报告 `RECOVERY_REQUIRED`。`SAFE` 的 MAIN 还原失败可用本次检查点回滚；`DANGEROUS_FAST` 失败后进入 UNKNOWN 并人工处理 |
 | `UPDATE_MAIN_RETURN_POINT` | 更新固定 MAIN 返回点 | 仅主 App 内部入口；当前状态必须明确为 MAIN | user0 当前 MAIN 数据 -> 临时目录 -> 完整验证 -> 替换固定 MAIN | 状态仍为 MAIN | 替换失败恢复旧返回点；模块和桌面快捷入口拒绝 |
 | `PUSH_MAIN` | 用主系统当前数据更新分身 App | user0/user10 安装；确认覆盖 user10；分身 CE 条件满足 | 源准备、分身回滚、覆盖 user10 | user0 状态 marker 不变 | 安装/权限/文件结果分开；失败不得改变 user0 状态 |
 | `RESTORE_CLONE_ROLLBACK` | 用分身回滚恢复分身 App | 明确 rollback ID、来源和 user10 目标 | 保护/恢复/验证 | 展示恢复的分身回滚 ID | 不得误标为主系统被动备份 |

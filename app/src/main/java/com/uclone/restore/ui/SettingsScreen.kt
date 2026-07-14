@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.WorkspaceOwnershipReport
 import com.uclone.restore.util.Formatters
 
@@ -47,6 +48,7 @@ fun SettingsScreen(
     var confirmClearLogs by remember { mutableStateOf(false) }
     var resetConfirmStage by remember { mutableStateOf(0) }
     var confirmOwnershipRepair by remember { mutableStateOf(false) }
+    var confirmDangerousSwitch by remember { mutableStateOf(false) }
     Column(
         modifier
             .fillMaxSize()
@@ -113,7 +115,7 @@ fun SettingsScreen(
                 draft = draft.copy(stopCloneAfterTask = it)
             }
         }
-        SectionCard("切换数据来源") {
+        SectionCard("切换模式") {
             InfoRow("MAIN 恢复来源", "固定 MAIN 返回点")
             Text(
                 "首次从 MAIN 切换到 CLONE 时建立；之后不会自动更新，只能在 App 详情中手动更新。",
@@ -127,15 +129,19 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             ToggleRow(
-                label = "还原 MAIN 前同步当前分数据",
-                checked = draft.syncCloneDataBeforeMainRestore,
-                description = if (draft.syncCloneDataBeforeMainRestore) {
-                    "先把 user${draft.mainUserId} 正在使用的 CLONE 数据同步回 user${draft.cloneUserId}，成功后再恢复固定 MAIN 返回点；同步失败时不会开始还原。"
+                label = "危险快速返回",
+                checked = draft.switchSafetyMode == SwitchSafetyMode.DANGEROUS_FAST,
+                description = if (draft.switchSafetyMode == SwitchSafetyMode.DANGEROUS_FAST) {
+                    "CLONE → MAIN 为 2 次完整写入：直接同步当前分数据到 user${draft.cloneUserId}，再恢复固定 MAIN。不建立本地 CLONE 检查点；恢复失败时会标记为未知并要求人工处理。"
                 } else {
-                    "直接恢复固定 MAIN 返回点。user${draft.mainUserId} 中尚未同步的 CLONE 变更不会写回分身系统。"
+                    "安全模式。MAIN → CLONE 为 2 次完整写入；CLONE → MAIN 为 3 次：保存本地 CLONE 检查点、同步 user${draft.cloneUserId}、恢复固定 MAIN。"
                 },
             ) {
-                draft = draft.copy(syncCloneDataBeforeMainRestore = it)
+                if (it) {
+                    confirmDangerousSwitch = true
+                } else {
+                    draft = draft.copy(switchSafetyMode = SwitchSafetyMode.SAFE)
+                }
             }
         }
         SectionCard("模块控制") {
@@ -312,6 +318,30 @@ fun SettingsScreen(
                 )
             },
             dismissButton = { DialogActionButton("取消", onClick = { resetConfirmStage = 0 }) },
+        )
+    }
+    if (confirmDangerousSwitch) {
+        AlertDialog(
+            onDismissRequest = { confirmDangerousSwitch = false },
+            title = { Text("启用危险快速返回") },
+            text = {
+                Text(
+                    "该模式只改变 CLONE → MAIN：会省去一次本地 CLONE 检查点复制。若固定 MAIN 恢复失败，user0 没有本次操作前的本地回滚，只能保持未知状态并人工处理。",
+                )
+            },
+            confirmButton = {
+                DialogActionButton(
+                    text = "确认启用",
+                    onClick = {
+                        confirmDangerousSwitch = false
+                        draft = draft.copy(switchSafetyMode = SwitchSafetyMode.DANGEROUS_FAST)
+                    },
+                    danger = true,
+                )
+            },
+            dismissButton = {
+                DialogActionButton("取消", onClick = { confirmDangerousSwitch = false })
+            },
         )
     }
 }

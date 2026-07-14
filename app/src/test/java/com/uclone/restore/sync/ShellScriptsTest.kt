@@ -2,6 +2,7 @@ package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.CrossUserInstallMode
+import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.UCloneSettings
 import java.nio.file.Files
 import kotlin.test.Test
@@ -119,6 +120,13 @@ class ShellScriptsTest {
                 "persistent_main",
                 rule,
                 settings,
+                appPackage,
+            ),
+            ShellScripts.pushMainToCloneThenRestoreMain(
+                "com.example.app",
+                "persistent_main",
+                rule,
+                settings.copy(switchSafetyMode = SwitchSafetyMode.DANGEROUS_FAST),
                 appPackage,
             ),
             ShellScripts.rollback("com.example.app", "20260710-010203", settings, appPackage),
@@ -361,7 +369,7 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun switchFromCloneLatest_usesTemporaryCloneSourceWithoutActivatingSnapshot() {
+    fun switchFromCloneLatest_usesStateAwareLiveCloneSourceWithoutActivatingSnapshot() {
         val script = ShellScripts.switchFromCloneLatest(
             "com.example.app",
             AppRule(packageName = "com.example.app"),
@@ -370,11 +378,17 @@ class ShellScriptsTest {
         )
 
         assertContains(script, "SOURCE_KIND='switch_temp'")
-        assertContains(script, "ACTIVE=\"${'$'}ROOT/tmp/switch_${'$'}{PKG}_${'$'}TS\"")
-        assertContains(script, "SWITCH_SOURCE_READY=${'$'}SWITCH_TEMP")
+        assertContains(script, "ACTIVE=\"${'$'}ROOT/tmp/switch_${'$'}{PKG}_${'$'}RUN_ID\"")
+        assertContains(script, "SWITCH_SOURCE_READY=${'$'}SWITCH_TEMP mode=live")
+        assertContains(script, "LIVE_SOURCE_STATE:${'$'}LINK_NAME state=data")
+        assertContains(script, "DIRECT_SOURCE_STATE:${'$'}PREPARED_NAME state=${'$'}PREPARED_STATE")
+        assertContains(script, "RESTORED_STATE:${'$'}PART_NAME state=absent")
+        assertContains(script, "UCLONE_COPY_PASS_CONTRACT:expected=2")
         assertContains(script, "stage_switch_marker_unknown || exit 70")
         assertContains(script, "DATA_STATE_COMMITTED=CLONE mainReturnPoint=${'$'}NEXT_MAIN_RETURN_ID")
         assertContains(script, "RUN_ID=\"${'$'}{TS}_${'$'}${'$'}\"")
+        assertContains(script, "ERR_SWITCH_TEMP_COLLISION:${'$'}SWITCH_TEMP")
+        assertContains(script, "SWITCH_TEMP_CREATED=1")
         assertContains(script, "ERR_ROLLBACK_ID_COLLISION")
         assertContains(script, "ERR_MAIN_RETURN_AUTO_INIT_FORBIDDEN")
         assertContains(script, "uclone_revert_promoted_state_backup")
@@ -384,6 +398,7 @@ class ShellScriptsTest {
         assertTrue(script.lastIndexOf("DATA_STATE_COMMITTED=CLONE") < script.lastIndexOf("TRANSACTION_COMMITTED=1"))
         assertFalse(script.contains("SNAPSHOT_ACTIVE="))
         assertFalse(script.contains("mv \"${'$'}TMP\" \"${'$'}BASE/active\""))
+        assertFalse(script.contains("SWITCH_TEMP.try_"))
     }
 
     @Test
@@ -478,7 +493,7 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun switchFromCloneLatest_requiresUnlockedCloneUserAndCeDataByDefault() {
+    fun switchFromCloneLatest_requiresUnlockedCloneUserAndRecordsExactCeStateByDefault() {
         val script = ShellScripts.switchFromCloneLatest(
             "com.example.app",
             AppRule(packageName = "com.example.app"),
@@ -492,7 +507,8 @@ class ShellScriptsTest {
         assertFalse(script.contains("start-user -w"))
         assertContains(script, "/system/bin/cmd lock_settings verify --old")
         assertContains(script, "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE")
-        assertContains(script, "ERR_SWITCH_CE_MISSING:${'$'}TRY_USER")
+        assertContains(script, "ERR_SWITCH_CE_STATE:${'$'}TRY_USER:${'$'}SWITCH_CE_STATE")
+        assertContains(script, "data|empty|absent)")
         assertContains(script, "SWITCH_REQUIRE_CE=1")
     }
 

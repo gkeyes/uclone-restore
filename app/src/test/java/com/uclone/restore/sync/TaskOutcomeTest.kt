@@ -22,6 +22,30 @@ class TaskOutcomeTest {
     }
 
     @Test
+    fun partialCloneSyncRequiresRecoveryWithoutClaimingRollbackFailure() {
+        val output = "RECOVERY_REQUIRED:mode=SAFE target=user10 reason=partial_sync"
+        val result = ShellResult(91, "", output)
+
+        assertEquals(TaskStatus.FAILED_FATAL, TaskOutcome.status(result))
+        assertEquals(
+            "分数据同步中断，user10 目标可能不完整；user0 仍保留当前 CLONE 数据，MAIN 还原尚未开始，请重新同步并查看日志",
+            TaskOutcome.failureMessage(TaskStatus.FAILED_FATAL, output),
+        )
+    }
+
+    @Test
+    fun dangerousMainRestoreFailureExplainsThatNoLocalRollbackExists() {
+        val output = "RECOVERY_REQUIRED:mode=DANGEROUS_FAST rollback=unavailable marker=UNKNOWN"
+        val result = ShellResult(91, "", output)
+
+        assertEquals(TaskStatus.FAILED_FATAL, TaskOutcome.status(result))
+        assertEquals(
+            "危险快速返回在恢复 MAIN 时失败；本次没有本地 CLONE 检查点，user0 状态已标记为未知，请勿启动目标 App，并查看日志",
+            TaskOutcome.failureMessage(TaskStatus.FAILED_FATAL, output),
+        )
+    }
+
+    @Test
     fun unixSignalExitIsInterruptedUnlessRollbackFailureIsFatal() {
         assertEquals(TaskStatus.INTERRUPTED, TaskOutcome.status(ShellResult(138, "", "User signal 1")))
         assertEquals(

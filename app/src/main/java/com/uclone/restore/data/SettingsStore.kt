@@ -1,6 +1,7 @@
 package com.uclone.restore.data
 
 import android.content.Context
+import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.UCloneSettings
 
 class SettingsStore private constructor(
@@ -10,7 +11,7 @@ class SettingsStore private constructor(
     constructor(context: Context) : this(context, AndroidKeystoreCredentialCipher())
 
     private val prefs = context.getSharedPreferences("uclone_settings", Context.MODE_PRIVATE)
-    private val schemaVersion = 11
+    private val schemaVersion = 12
 
     fun load(): UCloneSettings = UCloneSettings(
         mainUserId = prefs.getInt("mainUserId", 0),
@@ -26,12 +27,7 @@ class SettingsStore private constructor(
         stopCloneAfterTask = prefs.getBoolean("stopCloneAfterTask", true),
         autoUnlockClone = prefs.getBoolean("autoUnlockClone", false),
         allowModuleControl = prefs.getBoolean("allowModuleControl", false),
-        syncCloneDataBeforeMainRestore = migratedCloneSyncSetting(
-            hasCurrentValue = prefs.contains("syncCloneDataBeforeMainRestore"),
-            currentValue = prefs.getBoolean("syncCloneDataBeforeMainRestore", true),
-            hasLegacyValue = prefs.contains("forceUpdateCloneDataBeforeMainRestore"),
-            legacyValue = prefs.getBoolean("forceUpdateCloneDataBeforeMainRestore", false),
-        ),
+        switchSafetyMode = migratedSwitchSafetyMode(prefs.getString("switchSafetyMode", null)),
         favoritePackages = prefs.getStringSet("favoritePackages", emptySet()).orEmpty().toSet(),
         cloneUnlockCredential = loadCredential(),
     )
@@ -51,11 +47,12 @@ class SettingsStore private constructor(
             .putBoolean("stopCloneAfterTask", settings.stopCloneAfterTask)
             .putBoolean("autoUnlockClone", settings.autoUnlockClone)
             .putBoolean("allowModuleControl", settings.allowModuleControl)
-            .putBoolean("syncCloneDataBeforeMainRestore", settings.syncCloneDataBeforeMainRestore)
+            .putString("switchSafetyMode", settings.switchSafetyMode.name)
             .putStringSet("favoritePackages", settings.favoritePackages.toMutableSet())
             .putString(ENCRYPTED_CREDENTIAL_KEY, encryptCredential(settings.cloneUnlockCredential.trim()))
             .remove(LEGACY_CREDENTIAL_KEY)
             .remove("reuseExistingPassiveBackups")
+            .remove("syncCloneDataBeforeMainRestore")
             .remove("forceUpdateCloneDataBeforeMainRestore")
             .putInt("settingsSchemaVersion", schemaVersion)
             .apply()
@@ -87,13 +84,7 @@ class SettingsStore private constructor(
     }
 }
 
-internal fun migratedCloneSyncSetting(
-    hasCurrentValue: Boolean,
-    currentValue: Boolean,
-    hasLegacyValue: Boolean,
-    legacyValue: Boolean,
-): Boolean = when {
-    hasCurrentValue -> currentValue
-    hasLegacyValue -> legacyValue
-    else -> true
-}
+internal fun migratedSwitchSafetyMode(storedValue: String?): SwitchSafetyMode =
+    runCatching { storedValue?.let(SwitchSafetyMode::valueOf) }
+        .getOrNull()
+        ?: SwitchSafetyMode.SAFE

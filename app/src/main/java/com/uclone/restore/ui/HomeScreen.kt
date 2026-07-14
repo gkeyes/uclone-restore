@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.StepStatus
+import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.TaskStep
 import com.uclone.restore.model.User10CeState
 import com.uclone.restore.sync.AppDataState
@@ -97,7 +98,7 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             action = action,
             mainUserId = state.settings.mainUserId,
             cloneUserId = state.settings.cloneUserId,
-            syncCloneDataBeforeMainRestore = state.settings.syncCloneDataBeforeMainRestore,
+            switchSafetyMode = state.settings.switchSafetyMode,
             onDismiss = { confirm = null },
             onConfirm = {
                 confirm = null
@@ -297,7 +298,7 @@ private fun HomeConfirmDialog(
     action: HomeConfirm,
     mainUserId: Int,
     cloneUserId: Int,
-    syncCloneDataBeforeMainRestore: Boolean,
+    switchSafetyMode: SwitchSafetyMode,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
@@ -309,10 +310,9 @@ private fun HomeConfirmDialog(
     val body = when (action) {
         is HomeConfirm.Push -> "来源：user$mainUserId 当前 ${action.label} 数据。\n目标：user$cloneUserId 分身 App 数据。\n保护：执行前保存分身回滚。\n后果：覆盖分身当前数据，不改变首页切换标记。"
         is HomeConfirm.Switch -> "来源：user$cloneUserId 当前 ${action.label} 数据。\n目标：user$mainUserId App 数据。\nMAIN 返回点：首次切换时建立，已有时保持不变。\n后果：主系统将进入分数据 CLONE 状态。"
-        is HomeConfirm.Restore -> if (syncCloneDataBeforeMainRestore) {
-            "先把 user$mainUserId 当前分数据同步回 user$cloneUserId，再恢复固定 MAIN 返回点。\n保护：同步失败时不会开始还原；恢复前仍会建立本次事务回滚。"
-        } else {
-            "直接恢复固定 MAIN 返回点。\n注意：user$mainUserId 中尚未同步的分数据变更不会写回 user$cloneUserId。\n保护：恢复前仍会建立本次事务回滚。"
+        is HomeConfirm.Restore -> when (switchSafetyMode) {
+            SwitchSafetyMode.SAFE -> "安全模式，共 3 次完整写入：\n1. 保存 user$mainUserId 当前 CLONE 检查点；\n2. 同步到 user$cloneUserId；\n3. 恢复固定 MAIN。\n同步失败不会开始 MAIN 恢复，恢复失败可用本次检查点回滚。"
+            SwitchSafetyMode.DANGEROUS_FAST -> "危险快速返回，共 2 次完整写入：\n1. 直接同步 user$mainUserId 当前分数据到 user$cloneUserId；\n2. 恢复固定 MAIN。\n不会建立本地 CLONE 检查点；MAIN 恢复失败时状态会变为未知。"
         }
     }
     AlertDialog(

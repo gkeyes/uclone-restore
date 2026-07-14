@@ -29,10 +29,15 @@ internal object StateBackupShell {
                   [ "${'$'}(find "${'$'}UCLONE_VSB_DIR/${'$'}UCLONE_VSB_PART" -mindepth 1 -print -quit 2>/dev/null)" != "" ] || return 1
                 ;;
               absent|empty)
-                if [ -d "${'$'}UCLONE_VSB_DIR/${'$'}UCLONE_VSB_PART" ] &&
-                   [ "${'$'}(find "${'$'}UCLONE_VSB_DIR/${'$'}UCLONE_VSB_PART" -mindepth 1 -print -quit 2>/dev/null)" != "" ]; then
-                  return 1
+                [ ! -L "${'$'}UCLONE_VSB_DIR/${'$'}UCLONE_VSB_PART" ] || return 1
+                if [ -e "${'$'}UCLONE_VSB_DIR/${'$'}UCLONE_VSB_PART" ]; then
+                  [ -d "${'$'}UCLONE_VSB_DIR/${'$'}UCLONE_VSB_PART" ] || return 1
+                  [ "${'$'}(find "${'$'}UCLONE_VSB_DIR/${'$'}UCLONE_VSB_PART" -mindepth 1 -print -quit 2>/dev/null)" = "" ] || return 1
                 fi
+                ;;
+              unselected)
+                [ ! -e "${'$'}UCLONE_VSB_DIR/${'$'}UCLONE_VSB_PART" ] &&
+                  [ ! -L "${'$'}UCLONE_VSB_DIR/${'$'}UCLONE_VSB_PART" ] || return 1
                 ;;
               *) return 1 ;;
             esac
@@ -79,7 +84,11 @@ internal object StateBackupShell {
           [ "${'$'}UCLONE_SSB_STATE_KIND" = "MAIN" ] || return 1
           UCLONE_SSB_PERSISTENT_ID="persistent_main"
           UCLONE_SSB_PERSISTENT_DIR="${'$'}ROOT/rollback/${'$'}PKG/${'$'}UCLONE_SSB_PERSISTENT_ID"
-          if uclone_valid_state_backup "${'$'}UCLONE_SSB_PERSISTENT_DIR" MAIN; then
+          if [ -e "${'$'}UCLONE_SSB_PERSISTENT_DIR" ] || [ -L "${'$'}UCLONE_SSB_PERSISTENT_DIR" ]; then
+            uclone_valid_state_backup "${'$'}UCLONE_SSB_PERSISTENT_DIR" MAIN || {
+              echo "ERR_MAIN_RETURN_INVALID:${'$'}UCLONE_SSB_PERSISTENT_DIR" >&2
+              return 1
+            }
             UCLONE_STATE_BACKUP_ID="${'$'}UCLONE_SSB_PERSISTENT_ID"
             UCLONE_STATE_BACKUP_PATH="${'$'}UCLONE_SSB_PERSISTENT_DIR"
             UCLONE_STATE_BACKUP_REUSED=1

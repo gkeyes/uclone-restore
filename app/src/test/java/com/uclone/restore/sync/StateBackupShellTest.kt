@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.UCloneSettings
 import java.nio.file.Files
 import java.nio.file.Path
@@ -50,7 +51,7 @@ class StateBackupShellTest {
     }
 
     @Test
-    fun forcedCloneRefreshStopsBeforeMainRestoreWhenPushFails() {
+    fun safeReturnUsesCheckpointAndThreeCopyPasses() {
         val script = ShellScripts.pushMainToCloneThenRestoreMain(
             packageName = "com.example.app",
             rollbackId = "persistent_main",
@@ -59,11 +60,474 @@ class StateBackupShellTest {
             appPackage = "com.uclone.restore",
         )
 
-        assertContains(script, "ERR_FORCE_CLONE_REFRESH_PUSH_FAILED")
-        assertContains(script, "exit \"${'$'}UCLONE_FORCE_PUSH_EXIT\"")
-        assertContains(script, "FORCE_MAIN_RESTORE_BEGIN")
-        assertTrue(script.indexOf("ERR_FORCE_CLONE_REFRESH_PUSH_FAILED") < script.indexOf("FORCE_MAIN_RESTORE_BEGIN"))
-        assertTrue(script.indexOf("FORCE_CLONE_REFRESH_PRECHECK_OK") < script.indexOf("PUSH_TEMP="))
+        assertContains(script, "UCLONE_SWITCH_MODE=SAFE")
+        assertContains(script, "uclone_copy_pass_begin clone_checkpoint")
+        assertContains(script, "uclone_copy_pass_begin checkpoint_to_user10")
+        assertContains(script, "uclone_copy_pass_begin 'fixed_main_to_user0'")
+        assertContains(script, "sync_workspace_part_to_clone")
+        assertContains(script, "SWITCH_PUSHED_STATE:${'$'}ACPS_NAME state=empty")
+        assertContains(script, "RESTORED_STATE:${'$'}PART_NAME state=absent")
+        assertContains(script, "UCLONE_COPY_PASS_CONTRACT:expected=3")
+        assertContains(script, "ROLLBACK_READY=1")
+        assertContains(script, "SWITCH_CHECKPOINT_CLEANED")
+        assertFalse(script.contains("PUSH_TEMP="))
+        assertFalse(script.contains("CLONE_ROLLBACK_PREPARED="))
+        assertTrue(script.indexOf("checkpoint_to_user10") < script.indexOf("fixed_main_to_user0"))
+    }
+
+    @Test
+    fun dangerousReturnUsesTwoPassesAndFailsClosedWithoutLocalRollback() {
+        val script = ShellScripts.pushMainToCloneThenRestoreMain(
+            packageName = "com.example.app",
+            rollbackId = "persistent_main",
+            rule = AppRule("com.example.app"),
+            settings = UCloneSettings(switchSafetyMode = SwitchSafetyMode.DANGEROUS_FAST),
+            appPackage = "com.uclone.restore",
+        )
+
+        assertContains(script, "UCLONE_SWITCH_MODE=DANGEROUS_FAST")
+        assertContains(script, "uclone_copy_pass_begin live_user0_to_user10")
+        assertContains(script, "uclone_copy_pass_begin 'fixed_main_to_user0'")
+        assertContains(script, "sync_live_part_to_clone")
+        assertContains(script, "SWITCH_PUSHED_STATE:${'$'}ACPS_NAME state=absent")
+        assertContains(script, "UCLONE_COPY_PASS_CONTRACT:expected=2")
+        assertContains(script, "ROLLBACK_READY=0")
+        assertContains(script, "DANGEROUS_NO_LOCAL_ROLLBACK=1")
+        assertContains(script, "RECOVERY_REQUIRED:mode=DANGEROUS_FAST")
+        assertContains(script, "RECOVERY_REQUIRED:mode=DANGEROUS_FAST target=user10 reason=partial_sync")
+        assertContains(script, "dangerous_prepare_on_exit")
+        assertFalse(script.contains("uclone_copy_pass_begin clone_checkpoint"))
+    }
+
+    @Test
+    fun compositeReturnOnlyRestoresSelectedPartsAndUsesTheAppPermissionRule() {
+        val script = ShellScripts.pushMainToCloneThenRestoreMain(
+            packageName = "com.example.app",
+            rollbackId = "persistent_main",
+            rule = AppRule(
+                packageName = "com.example.app",
+                includeCe = true,
+                includeDe = false,
+                includeExternal = false,
+                includeMedia = false,
+                includeObb = false,
+                includePermissions = false,
+            ),
+            settings = UCloneSettings(includePermissions = true),
+            appPackage = "com.uclone.restore",
+        )
+
+        assertContains(script, "restore_part \"${'$'}ACTIVE/ce\"")
+        assertFalse(script.contains("restore_part \"${'$'}ACTIVE/de\""))
+        assertFalse(script.contains("restore_part \"${'$'}ACTIVE/external\""))
+        assertFalse(script.contains("restore_part \"${'$'}ACTIVE/media\""))
+        assertFalse(script.contains("restore_part \"${'$'}ACTIVE/obb\""))
+        assertFalse(script.contains("uclone_restore_permission_state \"${'$'}ACTIVE/permissions\""))
+        assertFalse(script.contains("uclone_capture_permission_state \"${'$'}ROLLBACK/permissions\" \"${'$'}MAIN_USER\""))
+    }
+
+    @Test
+    fun selectedCePreservesEmptyAndAbsentStatesInsteadOfRequiringData() {
+        val forward = ShellScripts.switchFromCloneLatest(
+            packageName = "com.example.app",
+            rule = AppRule("com.example.app"),
+            settings = UCloneSettings(),
+            appPackage = "com.uclone.restore",
+        )
+        val safeReturn = ShellScripts.pushMainToCloneThenRestoreMain(
+            packageName = "com.example.app",
+            rollbackId = "persistent_main",
+            rule = AppRule("com.example.app"),
+            settings = UCloneSettings(),
+            appPackage = "com.uclone.restore",
+        )
+
+        assertContains(forward, "data|empty|absent)")
+        assertFalse(forward.contains("ERR_SWITCH_CE_MISSING"))
+        assertContains(safeReturn, "sync_workspace_part_to_clone \"ce\"")
+        assertFalse(safeReturn.contains("ERR_REQUIRED_SWITCH_PART_STATE:ce"))
+    }
+
+    @Test
+    fun ceOnlyReturnMarksUnselectedPartsAndNeverRestoresOrRollsThemBack() {
+        val script = ShellScripts.pushMainToCloneThenRestoreMain(
+            packageName = "com.example.app",
+            rollbackId = "persistent_main",
+            rule = AppRule(
+                packageName = "com.example.app",
+                includeCe = true,
+                includeDe = false,
+                includeExternal = false,
+                includeMedia = false,
+                includeObb = false,
+                includePermissions = false,
+            ),
+            settings = UCloneSettings(),
+            appPackage = "com.uclone.restore",
+        )
+
+        listOf("de", "external", "media", "obb").forEach { part ->
+            assertContains(script, "mark_switch_part_unselected $part")
+            assertFalse(script.contains("restore_part \"${'$'}ACTIVE/$part\""), part)
+            assertFalse(script.contains("restore_rollback_part \"${'$'}ROLLBACK/$part\""), part)
+        }
+        assertContains(script, "restore_part \"${'$'}ACTIVE/ce\"")
+        assertContains(script, "restore_rollback_part \"${'$'}ROLLBACK/ce\"")
+    }
+
+    @Test
+    fun stateBackupValidatorAcceptsUnselectedWithoutPayloadAndRejectsItsPayload() {
+        val root = Files.createTempDirectory("uclone-unselected-validator")
+        createStateBackup(root, "valid", "CLONE", PARTS)
+        createStateBackup(root, "invalid", "CLONE", PARTS)
+        createStateBackup(root, "file-payload", "CLONE", PARTS)
+        createStateBackup(root, "link-payload", "CLONE", PARTS)
+        val valid = root.resolve("rollback/com.example.app/valid")
+        val invalid = root.resolve("rollback/com.example.app/invalid")
+        val filePayload = root.resolve("rollback/com.example.app/file-payload")
+        val linkPayload = root.resolve("rollback/com.example.app/link-payload")
+        Files.write(valid.resolve(".state/de"), "unselected\n".toByteArray())
+        Files.write(invalid.resolve(".state/de"), "unselected\n".toByteArray())
+        Files.write(filePayload.resolve(".state/de"), "unselected\n".toByteArray())
+        Files.write(linkPayload.resolve(".state/de"), "unselected\n".toByteArray())
+        Files.createDirectories(invalid.resolve("de"))
+        Files.write(invalid.resolve("de/unexpected"), "payload\n".toByteArray())
+        Files.writeString(filePayload.resolve("de"), "payload")
+        Files.createSymbolicLink(linkPayload.resolve("de"), valid.resolve(".state/de"))
+
+        val result = runShell(
+            """
+                set -u
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                TS=20260713-120007
+                ${StateBackupShell.functions()}
+                if uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/valid" CLONE; then echo UNSELECTED=VALID; else echo UNSELECTED=INVALID; fi
+                if uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/invalid" CLONE; then echo PAYLOAD=UNEXPECTED; else echo PAYLOAD=REJECTED; fi
+                if uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/file-payload" CLONE; then echo FILE=UNEXPECTED; else echo FILE=REJECTED; fi
+                if uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/link-payload" CLONE; then echo LINK=UNEXPECTED; else echo LINK=REJECTED; fi
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "UNSELECTED=VALID")
+        assertContains(result.output, "PAYLOAD=REJECTED")
+        assertContains(result.output, "FILE=REJECTED")
+        assertContains(result.output, "LINK=REJECTED")
+        assertFalse(result.output.contains("PAYLOAD=UNEXPECTED"))
+    }
+
+    @Test
+    fun stateBackupValidatorKeepsLegacyEmptyDirectoriesButRejectsUnsafeEmptyStatePayloads() {
+        val root = Files.createTempDirectory("uclone-empty-state-validator")
+        createStateBackup(root, "legacy-empty-dir", "MAIN", PARTS)
+        createStateBackup(root, "file-payload", "MAIN", PARTS)
+        createStateBackup(root, "link-payload", "MAIN", PARTS)
+        createStateBackup(root, "nonempty-dir", "MAIN", PARTS)
+        val legacy = root.resolve("rollback/com.example.app/legacy-empty-dir")
+        val file = root.resolve("rollback/com.example.app/file-payload")
+        val link = root.resolve("rollback/com.example.app/link-payload")
+        val nonempty = root.resolve("rollback/com.example.app/nonempty-dir")
+        listOf(legacy, file, link, nonempty).forEach {
+            Files.write(it.resolve(".state/de"), "empty\n".toByteArray())
+        }
+        Files.createDirectories(legacy.resolve("de"))
+        Files.writeString(file.resolve("de"), "payload")
+        Files.createSymbolicLink(link.resolve("de"), legacy.resolve(".state/de"))
+        Files.createDirectories(nonempty.resolve("de"))
+        Files.writeString(nonempty.resolve("de/unexpected"), "payload")
+
+        val result = runShell(
+            """
+                set -u
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                TS=20260713-120008
+                ${StateBackupShell.functions()}
+                if uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/legacy-empty-dir" MAIN; then echo LEGACY=VALID; else echo LEGACY=INVALID; fi
+                if uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/file-payload" MAIN; then echo FILE=UNEXPECTED; else echo FILE=REJECTED; fi
+                if uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/link-payload" MAIN; then echo LINK=UNEXPECTED; else echo LINK=REJECTED; fi
+                if uclone_valid_state_backup "${'$'}ROOT/rollback/${'$'}PKG/nonempty-dir" MAIN; then echo NONEMPTY=UNEXPECTED; else echo NONEMPTY=REJECTED; fi
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "LEGACY=VALID")
+        assertContains(result.output, "FILE=REJECTED")
+        assertContains(result.output, "LINK=REJECTED")
+        assertContains(result.output, "NONEMPTY=REJECTED")
+    }
+
+    @Test
+    fun forwardSwitchTempCleanupNeverDeletesACollisionItDidNotCreate() {
+        val root = Files.createTempDirectory("uclone-forward-collision")
+        val temp = root.resolve("tmp/switch_com.example.app_test_run")
+        Files.createDirectories(temp)
+        Files.writeString(temp.resolve("keep.txt"), "existing")
+        val function = shellFunction(
+            script = ShellScripts.switchFromCloneLatest(
+                "com.example.app",
+                AppRule("com.example.app"),
+                UCloneSettings(),
+                "com.uclone.restore",
+            ),
+            name = "cleanup_switch_temp",
+        )
+
+        val result = runShell(
+            """
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                RUN_ID=test_run
+                SWITCH_TEMP=${shellQuote(temp.toString())}
+                SWITCH_TEMP_CREATED=0
+                $function
+                cleanup_switch_temp
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals("existing", Files.readString(temp.resolve("keep.txt")))
+    }
+
+    @Test
+    fun safePreparationRemovesIncompleteCheckpointBeforeUser10Mutation() {
+        val root = Files.createTempDirectory("uclone-safe-checkpoint-cleanup")
+        val checkpoint = root.resolve("rollback/com.example.app/switch_checkpoint_test")
+        Files.createDirectories(checkpoint)
+        Files.write(checkpoint.resolve("partial"), "partial\n".toByteArray())
+        val function = shellFunction(
+            ShellScripts.pushMainToCloneThenRestoreMain(
+                "com.example.app",
+                "persistent_main",
+                AppRule("com.example.app"),
+                UCloneSettings(),
+                "com.uclone.restore",
+            ),
+            "safe_prepare_on_exit",
+        )
+
+        val result = runShell(
+            """
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                ROLLBACK=${shellQuote(checkpoint.toString())}
+                SAFE_CHECKPOINT_CREATED=1
+                SAFE_CHECKPOINT_COMPLETE=0
+                CLONE_TARGET_MUTATED=0
+                $function
+                trap safe_prepare_on_exit EXIT
+                false
+            """.trimIndent(),
+        )
+
+        assertEquals(1, result.exitCode, result.output)
+        assertFalse(Files.exists(checkpoint), result.output)
+    }
+
+    @Test
+    fun safePreparationRemovesCheckpointWhenStateDirectoryCreationFails() {
+        val root = Files.createTempDirectory("uclone-safe-state-dir-failure")
+        val checkpoint = root.resolve("rollback/com.example.app/switch_checkpoint_test")
+        val script = ShellScripts.pushMainToCloneThenRestoreMain(
+            "com.example.app",
+            "persistent_main",
+            AppRule("com.example.app"),
+            UCloneSettings(switchSafetyMode = SwitchSafetyMode.SAFE),
+            "com.uclone.restore",
+        )
+        val exitHandler = shellFunction(script, "safe_prepare_on_exit")
+        val createCheckpoint = shellFunction(script, "create_safe_checkpoint_dir")
+
+        val result = runShell(
+            """
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                ROLLBACK=${shellQuote(checkpoint.toString())}
+                SAFE_CHECKPOINT_CREATED=0
+                SAFE_CHECKPOINT_COMPLETE=0
+                SAFE_PREPARATION_COMPLETE=0
+                CLONE_TARGET_MUTATED=0
+                mkdir() {
+                  case "${'$'}*" in
+                    *"${'$'}ROLLBACK/.state"*) return 1 ;;
+                    *) command mkdir "${'$'}@" ;;
+                  esac
+                }
+                $exitHandler
+                $createCheckpoint
+                trap safe_prepare_on_exit EXIT
+                create_safe_checkpoint_dir
+            """.trimIndent(),
+        )
+
+        assertEquals(54, result.exitCode, result.output)
+        assertFalse(Files.exists(checkpoint), result.output)
+    }
+
+    @Test
+    fun safeCleanupNeverDeletesACheckpointItDidNotCreate() {
+        val root = Files.createTempDirectory("uclone-safe-collision")
+        val checkpoint = root.resolve("rollback/com.example.app/switch_checkpoint_existing")
+        Files.createDirectories(checkpoint)
+        Files.writeString(checkpoint.resolve("keep.txt"), "existing")
+        val function = shellFunction(
+            script = ShellScripts.pushMainToCloneThenRestoreMain(
+                "com.example.app",
+                "persistent_main",
+                AppRule("com.example.app"),
+                UCloneSettings(switchSafetyMode = SwitchSafetyMode.SAFE),
+                "com.uclone.restore",
+            ),
+            name = "safe_prepare_on_exit",
+        )
+
+        val result = runShell(
+            """
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                ROLLBACK=${shellQuote(checkpoint.toString())}
+                SAFE_CHECKPOINT_CREATED=0
+                SAFE_CHECKPOINT_COMPLETE=0
+                CLONE_TARGET_MUTATED=0
+                $function
+                trap safe_prepare_on_exit EXIT
+                false
+            """.trimIndent(),
+        )
+
+        assertEquals(1, result.exitCode, result.output)
+        assertEquals("existing", Files.readString(checkpoint.resolve("keep.txt")))
+    }
+
+    @Test
+    fun freshRollbackCleanupNeverDeletesACollisionItDidNotCreate() {
+        val root = Files.createTempDirectory("uclone-fresh-collision")
+        val rollback = root.resolve("rollback/com.example.app/transaction_existing")
+        Files.createDirectories(rollback)
+        Files.writeString(rollback.resolve("keep.txt"), "existing")
+        val function = shellFunction(
+            script = ShellScripts.switchFromCloneLatest(
+                "com.example.app",
+                AppRule("com.example.app"),
+                UCloneSettings(),
+                "com.uclone.restore",
+            ),
+            name = "cleanup_restore_before_transaction",
+        )
+
+        val result = runShell(
+            """
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                ROLLBACK=${shellQuote(rollback.toString())}
+                ROLLBACK_CREATED=0
+                ROLLBACK_FINALIZED=0
+                cleanup_restore_prepared() { :; }
+                cleanup_on_exit() { :; }
+                $function
+                cleanup_restore_before_transaction
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals("existing", Files.readString(rollback.resolve("keep.txt")))
+    }
+
+    @Test
+    fun freshRollbackPreparationRemovesDirectoryWhenStateDirectoryCreationFails() {
+        val root = Files.createTempDirectory("uclone-fresh-state-dir-failure")
+        val rollback = root.resolve("rollback/com.example.app/transaction_test")
+        val script = ShellScripts.switchFromCloneLatest(
+            "com.example.app",
+            AppRule("com.example.app"),
+            UCloneSettings(),
+            "com.uclone.restore",
+        )
+        val exitHandler = shellFunction(script, "cleanup_restore_before_transaction")
+        val createRollback = shellFunction(script, "create_fresh_rollback_dir")
+
+        val result = runShell(
+            """
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                ROLLBACK=${shellQuote(rollback.toString())}
+                PREPARED_ROOT=${shellQuote(root.resolve("prepared").toString())}
+                ROLLBACK_CREATED=0
+                ROLLBACK_FINALIZED=0
+                cleanup_restore_prepared() { :; }
+                mkdir() {
+                  case "${'$'}*" in
+                    *"${'$'}ROLLBACK/.state"*) return 1 ;;
+                    *) command mkdir "${'$'}@" ;;
+                  esac
+                }
+                $exitHandler
+                $createRollback
+                trap cleanup_restore_before_transaction EXIT
+                create_fresh_rollback_dir
+            """.trimIndent(),
+        )
+
+        assertEquals(54, result.exitCode, result.output)
+        assertFalse(Files.exists(rollback), result.output)
+    }
+
+    @Test
+    fun dangerousTempCleanupNeverDeletesACollisionItDidNotCreate() {
+        val root = Files.createTempDirectory("uclone-danger-collision")
+        val temp = root.resolve("tmp/dangerous_switch_com.example.app_test_run")
+        Files.createDirectories(temp)
+        Files.writeString(temp.resolve("keep.txt"), "existing")
+        val function = shellFunction(
+            script = returnScript(SwitchSafetyMode.DANGEROUS_FAST),
+            name = "cleanup_switch_temp",
+        )
+
+        val result = runShell(
+            """
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                RUN_ID=test_run
+                DANGER_META=${shellQuote(temp.toString())}
+                DANGER_META_CREATED=0
+                $function
+                cleanup_switch_temp
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals("existing", Files.readString(temp.resolve("keep.txt")))
+    }
+
+    @Test
+    fun partialUser10MutationIsFatalInBothReturnModes() {
+        val safe = generatedExitHandlerRun(SwitchSafetyMode.SAFE, "safe_prepare_on_exit")
+        val dangerous = generatedExitHandlerRun(SwitchSafetyMode.DANGEROUS_FAST, "dangerous_prepare_on_exit")
+
+        assertEquals(91, safe.exitCode, safe.output)
+        assertContains(safe.output, "RECOVERY_REQUIRED:mode=SAFE target=user10 reason=partial_sync")
+        assertContains(safe.output, "CLONE_LIFECYCLE_CLEANUP")
+        assertFalse(safe.output.contains("AUTO_ROLLBACK_FAILED"), safe.output)
+        assertEquals(91, dangerous.exitCode, dangerous.output)
+        assertContains(dangerous.output, "RECOVERY_REQUIRED:mode=DANGEROUS_FAST target=user10 reason=partial_sync")
+        assertContains(dangerous.output, "CLONE_LIFECYCLE_CLEANUP")
+        assertFalse(dangerous.output.contains("AUTO_ROLLBACK_FAILED"), dangerous.output)
+    }
+
+    @Test
+    fun preparationFailureTrapIsInstalledAfterCloneLifecycleCleanupTrap() {
+        SwitchSafetyMode.entries.forEach { mode ->
+            val script = returnScript(mode)
+            val cleanupTrap = script.indexOf("trap cleanup_on_exit EXIT")
+            val modeTrap = when (mode) {
+                SwitchSafetyMode.SAFE -> script.indexOf("trap safe_prepare_on_exit EXIT")
+                SwitchSafetyMode.DANGEROUS_FAST -> script.indexOf("trap dangerous_prepare_on_exit EXIT")
+            }
+
+            assertTrue(cleanupTrap >= 0, mode.name)
+            assertTrue(modeTrap > cleanupTrap, mode.name)
+        }
     }
 
     @Test
@@ -261,6 +725,35 @@ class StateBackupShellTest {
     }
 
     @Test
+    fun ordinarySwitchRefusesToReplaceAnExistingInvalidFixedMainReturnPoint() {
+        val root = Files.createTempDirectory("uclone-invalid-fixed-main")
+        createStateBackup(root, "transaction_complete", "MAIN", PARTS)
+        createStateBackup(root, "persistent_main", "MAIN", PARTS - "obb")
+
+        val selection = runShell(
+            """
+                set -u
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                TS=20260713-120006
+                ${StateBackupShell.functions()}
+                if uclone_select_transaction_state_backup "${'$'}ROOT/rollback/${'$'}PKG/transaction_complete" transaction_complete MAIN; then
+                  echo INVALID_FIXED=REPLACED
+                else
+                  echo INVALID_FIXED=BLOCKED
+                fi
+                [ -d "${'$'}ROOT/rollback/${'$'}PKG/persistent_main" ] && echo INVALID_FIXED=PRESERVED
+            """.trimIndent(),
+        )
+
+        assertEquals(0, selection.exitCode, selection.output)
+        assertContains(selection.output, "ERR_MAIN_RETURN_INVALID:")
+        assertContains(selection.output, "INVALID_FIXED=BLOCKED")
+        assertContains(selection.output, "INVALID_FIXED=PRESERVED")
+        assertFalse(selection.output.contains("INVALID_FIXED=REPLACED"))
+    }
+
+    @Test
     fun promotedReturnPointCanBeRevertedBeforeStatePublication() {
         val root = Files.createTempDirectory("uclone-promotion-revert")
         createStateBackup(root, "persistent_main", "MAIN", PARTS)
@@ -312,6 +805,57 @@ class StateBackupShellTest {
         val output = process.inputStream.bufferedReader().readText()
         return ShellRun(process.waitFor(), output)
     }
+
+    private fun generatedExitHandlerRun(mode: SwitchSafetyMode, functionName: String): ShellRun {
+        val root = Files.createTempDirectory("uclone-${mode.name.lowercase()}-failure")
+        val checkpoint = root.resolve("rollback/com.example.app/switch_checkpoint_test")
+        Files.createDirectories(checkpoint)
+        val script = ShellScripts.pushMainToCloneThenRestoreMain(
+            "com.example.app",
+            "persistent_main",
+            AppRule("com.example.app"),
+            UCloneSettings(switchSafetyMode = mode),
+            "com.uclone.restore",
+        )
+        val function = shellFunction(script, functionName)
+        val lifecycleCleanup = shellFunction(script, "cleanup_on_exit")
+        return runShell(
+            """
+                ROOT=${shellQuote(root.toString())}
+                PKG=com.example.app
+                TS=test
+                ROLLBACK=${shellQuote(checkpoint.toString())}
+                DANGER_META=${shellQuote(root.resolve("tmp/dangerous_switch_com.example.app_test").toString())}
+                SAFE_CHECKPOINT_CREATED=1
+                SAFE_CHECKPOINT_COMPLETE=1
+                SAFE_PREPARATION_COMPLETE=0
+                DANGEROUS_PREPARATION_COMPLETE=0
+                CLONE_TARGET_MUTATED=1
+                cleanup_switch_temp() { echo TEMP_CLEANUP; }
+                cleanup_clone_user() { echo CLONE_LIFECYCLE_CLEANUP; }
+                $lifecycleCleanup
+                $function
+                trap cleanup_on_exit EXIT
+                trap $functionName EXIT
+                false
+            """.trimIndent(),
+        )
+    }
+
+    private fun returnScript(mode: SwitchSafetyMode): String =
+        ShellScripts.pushMainToCloneThenRestoreMain(
+            "com.example.app",
+            "persistent_main",
+            AppRule("com.example.app"),
+            UCloneSettings(switchSafetyMode = mode),
+            "com.uclone.restore",
+        )
+
+    private fun shellFunction(script: String, name: String): String =
+        Regex("(?ms)^[ \\t]*${Regex.escape(name)}\\(\\) \\{\\n.*?^[ \\t]*\\}")
+            .find(script)
+            ?.value
+            ?: error("Missing generated shell function: $name")
 
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\"'\"'")}'"
 

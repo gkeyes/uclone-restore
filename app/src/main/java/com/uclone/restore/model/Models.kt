@@ -201,10 +201,15 @@ data class UCloneSettings(
     val stopCloneAfterTask: Boolean = true,
     val autoUnlockClone: Boolean = false,
     val allowModuleControl: Boolean = false,
-    val syncCloneDataBeforeMainRestore: Boolean = true,
+    val switchSafetyMode: SwitchSafetyMode = SwitchSafetyMode.SAFE,
     val favoritePackages: Set<String> = emptySet(),
     val cloneUnlockCredential: String = "",
 )
+
+enum class SwitchSafetyMode {
+    SAFE,
+    DANGEROUS_FAST,
+}
 
 enum class RiskLevel {
     NORMAL,

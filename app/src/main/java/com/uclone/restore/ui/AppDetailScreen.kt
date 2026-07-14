@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.PassiveBackupStateKind
 import com.uclone.restore.model.RiskLevel
+import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.util.Formatters
 
@@ -232,10 +233,9 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                     } else {
                         "保留固定 MAIN 返回点，从 user${state.settings.cloneUserId} 读取当前分数据。"
                     }
-                    is AppDataState.Clone -> if (state.settings.syncCloneDataBeforeMainRestore) {
-                        "先把当前分数据同步回 user${state.settings.cloneUserId}，再恢复固定 MAIN 返回点。"
-                    } else {
-                        "直接恢复固定 MAIN 返回点，不把当前分数据同步回 user${state.settings.cloneUserId}。"
+                    is AppDataState.Clone -> when (state.settings.switchSafetyMode) {
+                        SwitchSafetyMode.SAFE -> "安全返回：保存 CLONE 检查点、同步 user${state.settings.cloneUserId}、恢复固定 MAIN，共 3 次完整写入。"
+                        SwitchSafetyMode.DANGEROUS_FAST -> "危险快速返回：直接同步 user${state.settings.cloneUserId} 后恢复固定 MAIN，共 2 次完整写入，无本地 CLONE 检查点。"
                     }
                     AppDataState.Unknown, null -> "先恢复一份已标明 MAIN 或 CLONE 来源的备份。"
                 },
@@ -308,7 +308,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             mainUserId = state.settings.mainUserId,
             cloneUserId = state.settings.cloneUserId,
             hasMainReturnPoint = mainReturnPoint != null,
-            syncCloneDataBeforeMainRestore = state.settings.syncCloneDataBeforeMainRestore,
+            switchSafetyMode = state.settings.switchSafetyMode,
             installTargetLabel = installTargetUserId?.let { "user$it" },
             onDismiss = { confirm = null },
             onConfirm = {
@@ -383,7 +383,7 @@ private fun ConfirmDialog(
     mainUserId: Int,
     cloneUserId: Int,
     hasMainReturnPoint: Boolean,
-    syncCloneDataBeforeMainRestore: Boolean,
+    switchSafetyMode: SwitchSafetyMode,
     installTargetLabel: String?,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
@@ -407,10 +407,9 @@ private fun ConfirmDialog(
         } else {
             "会先把 user$mainUserId 当前 MAIN 数据建立为固定返回点，再从 user$cloneUserId 读取当前分数据覆盖 user$mainUserId。"
         }
-        ConfirmAction.RESTORE_SWITCH -> if (syncCloneDataBeforeMainRestore) {
-            "会先把 user$mainUserId 当前分数据同步回 user$cloneUserId；同步成功后恢复固定 MAIN 返回点并清除切换标记。"
-        } else {
-            "会直接恢复固定 MAIN 返回点并清除切换标记。user$mainUserId 中尚未同步的分数据变更不会写回 user$cloneUserId。"
+        ConfirmAction.RESTORE_SWITCH -> when (switchSafetyMode) {
+            SwitchSafetyMode.SAFE -> "安全模式，共 3 次完整写入：先保存 user$mainUserId 当前 CLONE 检查点，再同步到 user$cloneUserId，最后恢复固定 MAIN。同步失败不恢复 MAIN；MAIN 恢复失败可回滚检查点。"
+            SwitchSafetyMode.DANGEROUS_FAST -> "危险快速返回，共 2 次完整写入：直接把 user$mainUserId 当前分数据同步到 user$cloneUserId，再恢复固定 MAIN。不建立本地 CLONE 检查点，MAIN 恢复失败时会进入未知状态。"
         }
         ConfirmAction.UPDATE_MAIN_RETURN_POINT -> "只会读取 UClone 已明确记录为 MAIN 的 user$mainUserId 当前数据，完整验证后替换固定返回点。普通切换不会自动执行此更新。"
         ConfirmAction.CAPTURE -> "将读取分身系统当前最新数据，并保存为 active 主动备份。旧 active 主动备份会移动到 history。"

@@ -10,6 +10,7 @@ import com.uclone.restore.model.TaskStage
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskStep
 import com.uclone.restore.model.TaskType
+import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.root.RootEnvironmentChecker
 import com.uclone.restore.root.RootShellExecutor
@@ -235,21 +236,17 @@ class SyncEngine(
         report: (TaskProgress) -> Unit,
         requestId: String = newRequestId(),
     ): TaskRecord {
-        val syncCloneData = settings.syncCloneDataBeforeMainRestore
+        val dangerousFast = settings.switchSafetyMode == SwitchSafetyMode.DANGEROUS_FAST
         return runScriptTask(
             type = TaskType.RESTORE_SWITCH_MAIN_STATE,
             packageName = packageName,
             settings = settings,
-            labels = if (syncCloneData) {
-                listOf("检查 root", "同步当前分数据", "验证同步结果", "读取 MAIN 返回点", "恢复主系统态", "完成")
+            labels = if (dangerousFast) {
+                listOf("检查切换状态", "直接同步当前分数据", "验证分身数据", "恢复固定 MAIN", "提交主数据状态", "完成")
             } else {
-                listOf("检查 root", "读取 MAIN 返回点", "生成事务回滚", "恢复主系统态", "清除切换标记", "完成")
+                listOf("检查切换状态", "保存 CLONE 检查点", "同步当前分数据", "验证分身数据", "恢复固定 MAIN", "完成")
             },
-            script = if (syncCloneData) {
-                ShellScripts.pushMainToCloneThenRestoreMain(packageName, rollbackId, rule, settings, appPackage)
-            } else {
-                ShellScripts.rollback(packageName, rollbackId, settings, appPackage, clearSwitchMarker = true)
-            },
+            script = ShellScripts.pushMainToCloneThenRestoreMain(packageName, rollbackId, rule, settings, appPackage),
             report = report,
             requestId = requestId,
         )

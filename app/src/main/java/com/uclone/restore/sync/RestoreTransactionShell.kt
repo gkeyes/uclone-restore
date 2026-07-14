@@ -5,10 +5,17 @@ internal object RestoreTransactionShell {
         appUidVariable: String,
         includePermissions: Boolean,
         manageSwitchMarker: Boolean,
+        rollbackReady: Boolean = true,
+        failClosedWithoutRollback: Boolean = false,
+        restoreCe: Boolean = true,
+        restoreDe: Boolean = true,
+        restoreExternal: Boolean = true,
+        restoreMedia: Boolean = true,
+        restoreObb: Boolean = true,
     ): String = """
         TRANSACTION_COMMITTED=0
         TARGET_MUTATED=0
-        ROLLBACK_READY=1
+        ROLLBACK_READY=${if (rollbackReady) "1" else "0"}
         TRANSACTION_ROLLBACK_PRESERVE=0
         TRANSACTION_APP_UID="${'$'}$appUidVariable"
         ${markerStateScript(manageSwitchMarker)}
@@ -25,6 +32,10 @@ internal object RestoreTransactionShell {
             absent)
               rm -rf "${'$'}RB_TARGET" || return 1
               echo "AUTO_ROLLBACK_PART_ABSENT:${'$'}RB_TARGET"
+              return 0
+              ;;
+            unselected)
+              echo "AUTO_ROLLBACK_PART_UNSELECTED:${'$'}RB_NAME"
               return 0
               ;;
             empty) ;;
@@ -53,11 +64,11 @@ internal object RestoreTransactionShell {
         auto_rollback_target() {
           echo "AUTO_ROLLBACK_BEGIN rollback=${'$'}ROLLBACK"
           force_stop_package_users || return 1
-          (restore_rollback_part "${'$'}ROLLBACK/ce" "/data/user/${'$'}DST_USER/${'$'}PKG" "app" "ce") || return 1
-          (restore_rollback_part "${'$'}ROLLBACK/de" "/data/user_de/${'$'}DST_USER/${'$'}PKG" "app" "de") || return 1
-          (restore_rollback_part "${'$'}ROLLBACK/external" "/data/media/${'$'}DST_USER/Android/data/${'$'}PKG" "media" "external") || return 1
-          (restore_rollback_part "${'$'}ROLLBACK/media" "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG" "media" "media") || return 1
-          (restore_rollback_part "${'$'}ROLLBACK/obb" "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG" "media" "obb") || return 1
+          ${if (restoreCe) "(restore_rollback_part \"${'$'}ROLLBACK/ce\" \"/data/user/${'$'}DST_USER/${'$'}PKG\" \"app\" \"ce\") || return 1" else ":"}
+          ${if (restoreDe) "(restore_rollback_part \"${'$'}ROLLBACK/de\" \"/data/user_de/${'$'}DST_USER/${'$'}PKG\" \"app\" \"de\") || return 1" else ":"}
+          ${if (restoreExternal) "(restore_rollback_part \"${'$'}ROLLBACK/external\" \"/data/media/${'$'}DST_USER/Android/data/${'$'}PKG\" \"media\" \"external\") || return 1" else ":"}
+          ${if (restoreMedia) "(restore_rollback_part \"${'$'}ROLLBACK/media\" \"/data/media/${'$'}DST_USER/Android/media/${'$'}PKG\" \"media\" \"media\") || return 1" else ":"}
+          ${if (restoreObb) "(restore_rollback_part \"${'$'}ROLLBACK/obb\" \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\" \"media\" \"obb\") || return 1" else ":"}
           ${if (includePermissions) "(uclone_restore_permission_state \"${'$'}ROLLBACK/permissions\" \"${'$'}DST_USER\") || return 1" else ":"}
           ${if (manageSwitchMarker) "restore_previous_switch_marker || return 1" else ":"}
           sync
@@ -94,6 +105,16 @@ internal object RestoreTransactionShell {
               TRANSACTION_EXIT_CODE=91
             fi
           fi
+          ${if (failClosedWithoutRollback) """
+          if [ "${'$'}TRANSACTION_EXIT_CODE" -ne 0 ] &&
+             [ "${'$'}TARGET_MUTATED" = "1" ] &&
+             [ "${'$'}ROLLBACK_READY" != "1" ] &&
+             [ "${'$'}TRANSACTION_COMMITTED" != "1" ]; then
+            TRANSACTION_EMIT_FAILURE_METRICS=1
+            echo "RECOVERY_REQUIRED:mode=DANGEROUS_FAST rollback=unavailable marker=UNKNOWN" >&2
+            TRANSACTION_EXIT_CODE=91
+          fi
+          """.trimIndent() else ":"}
           if [ "${'$'}TRANSACTION_EMIT_FAILURE_METRICS" = "1" ]; then
             UCLONE_TARGET_READY_AT=${'$'}(uclone_now_ms)
             UCLONE_TARGET_DOWNTIME_MS=${'$'}(awk -v FINISHED_AT="${'$'}UCLONE_TARGET_READY_AT" -v STARTED_AT="${'$'}UCLONE_TARGET_STOPPED_AT" 'BEGIN { VALUE = FINISHED_AT - STARTED_AT; if (VALUE < 0) VALUE = 0; printf "%.0f\n", VALUE }')
