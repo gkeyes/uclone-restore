@@ -89,8 +89,14 @@ private fun HistoryTaskRow(
         color = MaterialTheme.ucloneColors.groupedSurface,
         shape = when {
             first && last -> MaterialTheme.shapes.medium
-            first -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
-            last -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+            first -> RoundedCornerShape(
+                topStart = UCloneGroupedCornerRadius,
+                topEnd = UCloneGroupedCornerRadius,
+            )
+            last -> RoundedCornerShape(
+                bottomStart = UCloneGroupedCornerRadius,
+                bottomEnd = UCloneGroupedCornerRadius,
+            )
             else -> RoundedCornerShape(0.dp)
         },
     ) {

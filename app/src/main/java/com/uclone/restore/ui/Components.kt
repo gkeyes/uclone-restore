@@ -86,11 +86,11 @@ fun SectionCard(
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             title,
-            modifier = Modifier.padding(horizontal = 12.dp),
+            modifier = Modifier.padding(horizontal = 4.dp),
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -103,8 +103,8 @@ fun SectionCard(
             shadowElevation = 0.dp,
         ) {
             Column(
-                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 content()
             }
@@ -118,7 +118,7 @@ fun PageDescription(text: String, modifier: Modifier = Modifier) {
         text,
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
+        modifier = modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
     )
 }
 
@@ -127,7 +127,7 @@ fun SectionLabel(title: String, caption: String? = null) {
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(start = 6.dp, top = 10.dp, end = 6.dp, bottom = 2.dp),
+            .padding(start = 4.dp, top = 8.dp, end = 4.dp, bottom = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
@@ -307,13 +307,13 @@ fun CompactActionButton(
 ) {
     val containerColor = when {
         !enabled -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.5f)
-        primary -> MaterialTheme.colorScheme.primary.copy(alpha = 0.11f)
+        primary -> MaterialTheme.ucloneColors.actionPrimary
         danger -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.76f)
-        else -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.92f)
+        else -> MaterialTheme.ucloneColors.elevatedSurface
     }
     val contentColor = when {
         !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-        primary -> MaterialTheme.colorScheme.primary
+        primary -> MaterialTheme.ucloneColors.onActionPrimary
         danger -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.primary
     }
@@ -324,39 +324,20 @@ fun CompactActionButton(
             role = Role.Button
             if (danger) stateDescription = "危险操作"
         }
-    if (primary && !danger) {
-        LiquidGlassSurface(
-            role = GlassRole.PrimaryAction,
-            modifier = controlModifier,
-            enabled = enabled,
-            onClick = onClick,
-            tint = MaterialTheme.colorScheme.primary,
-            contentColor = contentColor,
-        ) {
-            Row(
-                Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ActionButtonContent(text, icon)
-            }
-        }
-        return
-    }
     val interactionSource = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
         modifier = controlModifier.pressScale(interactionSource, enabled),
         enabled = enabled,
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(999.dp),
         color = containerColor,
         contentColor = contentColor,
         interactionSource = interactionSource,
         border = when {
             !enabled -> null
-            primary -> BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
+            primary -> null
             danger -> BorderStroke(0.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.16f))
-            else -> BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f))
+            else -> null
         },
     ) {
         Row(
@@ -387,21 +368,25 @@ fun InlineActionButton(
     danger: Boolean = false,
     icon: ImageVector? = null,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
         modifier = modifier
             .heightIn(min = 48.dp)
+            .pressScale(interactionSource, enabled)
             .semantics {
                 role = Role.Button
                 if (danger) stateDescription = "危险操作"
             },
         enabled = enabled,
+        shape = RoundedCornerShape(999.dp),
         color = Color.Transparent,
         contentColor = when {
             !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
             danger -> MaterialTheme.colorScheme.error
             else -> MaterialTheme.colorScheme.primary
         },
+        interactionSource = interactionSource,
     ) {
         Row(
             Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
@@ -425,15 +410,25 @@ fun UtilityIconButton(
     enabled: Boolean = true,
 ) {
     if (framed) {
-        LiquidGlassSurface(
-            role = GlassRole.ToolbarControl,
-            modifier = modifier.size(48.dp),
-            enabled = enabled,
+        val interactionSource = remember { MutableInteractionSource() }
+        Surface(
             onClick = onClick,
-            tint = if (selected) tint else Color.Unspecified,
+            modifier = modifier
+                .size(48.dp)
+                .pressScale(interactionSource, enabled),
+            enabled = enabled,
+            shape = CircleShape,
+            color = if (selected) {
+                tint.copy(alpha = 0.12f)
+            } else {
+                MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.88f)
+            },
             contentColor = tint,
+            interactionSource = interactionSource,
         ) {
-            Icon(imageVector, contentDescription = contentDescription, modifier = Modifier.size(20.dp))
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(imageVector, contentDescription = contentDescription, modifier = Modifier.size(20.dp))
+            }
         }
         return
     }
@@ -511,7 +506,7 @@ fun ToolRow(
                 )
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (primary) {
@@ -625,7 +620,7 @@ fun GroupedTextField(
         label = label,
         placeholder = placeholder,
         leadingIcon = leadingIcon,
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         singleLine = true,
         visualTransformation = visualTransformation,
         colors = TextFieldDefaults.colors(

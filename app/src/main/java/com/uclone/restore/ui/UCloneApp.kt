@@ -306,7 +306,7 @@ private fun AppScaffold(
                     Text(
                         destination.label,
                         style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                     )
                 },
                 navigationIcon = { navigationIcon?.invoke() },

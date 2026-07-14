@@ -75,8 +75,12 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         ) {
             AppIcon(app.packageName)
             Column(Modifier.weight(1f)) {
-                Text(app.label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(app.packageName)
+                Text(app.label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    app.packageName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             val favorite = app.packageName in state.settings.favoritePackages
             UtilityIconButton(

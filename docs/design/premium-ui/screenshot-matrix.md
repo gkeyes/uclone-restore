@@ -2,13 +2,13 @@
 
 ## Status
 
-历史 A1/A2 截图只用于说明被否决的问题，不作为当前实现证据。当前分支已改为 Backdrop 1.0.2 的真实底栏背景采样、五项导航、连续分组列表和短半透明主动作；内容树不反向读取同一个 Backdrop。在安装当前提交对应的 GitHub 固定签名 APK 前，所有真机项保持 `UNVERIFIED`。
+历史 A1/A2 截图只用于说明被否决的问题，不作为当前实现证据。当前本地差异保留 Backdrop 1.0.2 的真实底栏背景采样、五项导航和连续分组列表，并将内容主动作收敛为独立高对比 Action Blue 短胶囊；内容树不反向读取同一个 Backdrop。在当前差异通过 GitHub 构建并安装对应固定签名 APK 前，所有自动与真机项保持 `UNVERIFIED`。
 
 ## 1. 主 App 核心矩阵
 
 | ID | Window | Theme | Text scale | Input | Screen/state | Screenshot | Interaction test | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| M-01 | compact portrait | light | default | touch | 首页/default/ready | `1fc2831` 用户截图 | 进入所有顶层页；检查系统动作行和底栏选中态 | `REJECTED / RETEST REQUIRED` | 分组面和底栏通过方向检查；实心蓝主动作过重。修正版要求低饱和短胶囊、状态与动作同层、更多工具镜片独立 |
+| M-01 | compact portrait | light | default | touch | 首页/default/ready | `1fc2831` 用户截图 | 进入所有顶层页；检查系统动作行和底栏选中态 | `REJECTED / RETEST REQUIRED` | 分组面和底栏通过方向检查；旧实心动作面积过重。修正版要求高对比短胶囊、状态与动作同层、更多工具保持轻量圆形控件 |
 | M-02 | compact portrait | dark | default | touch | 首页/default/ready | 待采集 | 收藏 App 主动作 | `UNVERIFIED` | 状态不只靠颜色 |
 | M-03 | compact portrait | light | large | touch | 首页/current task | 待采集 | 展开任务详情 | `UNVERIFIED` | 无重叠、行尾动作重排 |
 | M-04 | compact portrait | dark | maximum | TalkBack | 首页/error/unknown | 待采集 | 宣读状态、原因和重试 | `UNVERIFIED` | 技术值不抢主文案 |

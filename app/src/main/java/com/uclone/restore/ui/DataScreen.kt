@@ -212,8 +212,11 @@ fun DataScreen(
 }
 
 private fun groupedRowShape(index: Int, lastIndex: Int): Shape = when {
-    lastIndex <= 0 -> RoundedCornerShape(12.dp)
-    index == 0 -> RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
-    index == lastIndex -> RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+    lastIndex <= 0 -> RoundedCornerShape(UCloneGroupedCornerRadius)
+    index == 0 -> RoundedCornerShape(topStart = UCloneGroupedCornerRadius, topEnd = UCloneGroupedCornerRadius)
+    index == lastIndex -> RoundedCornerShape(
+        bottomStart = UCloneGroupedCornerRadius,
+        bottomEnd = UCloneGroupedCornerRadius,
+    )
     else -> RoundedCornerShape(0.dp)
 }

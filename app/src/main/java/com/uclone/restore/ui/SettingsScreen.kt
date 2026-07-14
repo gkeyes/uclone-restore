@@ -37,7 +37,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.shape.RoundedCornerShape
 import com.uclone.restore.model.CloneSessionPolicy
 import com.uclone.restore.model.MainReturnPointPolicy
 import com.uclone.restore.model.SwitchSafetyMode
@@ -69,7 +68,7 @@ fun SettingsScreen(
                 end = 16.dp,
                 bottom = LocalBottomBarContentPadding.current,
             ),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         PageDescription("配置用户、工作区和默认数据范围；危险维护操作集中在页面底部。")
         SectionCard("诊断与维护") {
@@ -506,7 +505,7 @@ private fun ToggleRow(
                 label,
                 modifier = Modifier.weight(1f).padding(end = 12.dp),
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.Normal,
             )
             UCloneSwitch(
                 checked = checked,
@@ -548,7 +547,7 @@ private fun PolicySettingRow(
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         color = Color.Transparent,
     ) {
         Row(
@@ -560,7 +559,7 @@ private fun PolicySettingRow(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Normal)
                 Text(
                     "当前：$value",
                     style = MaterialTheme.typography.bodyMedium,
@@ -588,7 +587,7 @@ private fun PolicyChoiceRow(choice: PolicyChoice) {
     Surface(
         onClick = choice.onSelect,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         color = if (choice.selected) accent.copy(alpha = 0.10f) else Color.Transparent,
     ) {
         Row(
@@ -600,7 +599,7 @@ private fun PolicyChoiceRow(choice: PolicyChoice) {
                 Text(
                     choice.label,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.Normal,
                     color = if (choice.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                 )
                 Text(

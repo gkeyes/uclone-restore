@@ -13,8 +13,8 @@
 | 有哪些功能、状态和风险 | 当前项目需求、代码、用户批准 | `PROJECT-VERIFIED` | 不得由视觉参考覆盖 |
 | Android 组件、触控、导航和自适应行为 | Android Developers、Material 3 | `OFFICIAL-VERIFIED` | 生产实现的主要平台依据 |
 | 信息层级、列表分组、动作克制、可读性参考 | Apple HIG / Apple Design Resources | `OFFICIAL-VERIFIED` | 只作参考，不产生 Android HIG 合规声明 |
-| UClone 的视觉方向 | 本项目批准的视觉契约 | `EXPERIMENTAL` | 尚未批准 |
-| 运行效果 | 当前分支真实 APK 截图与真机操作 | `UNVERIFIED` | 本阶段无生产 UI 改动 |
+| UClone 的视觉方向 | 本项目批准的视觉契约 | `PROJECT-VERIFIED` | 用户已批准内容层实施，并要求底部导航保持不变 |
+| 运行效果 | 当前差异对应的 GitHub APK 截图与真机操作 | `UNVERIFIED` | 当前本地 UI 差异尚未构建、安装或截图验收 |
 
 ## 2. 已实际打开或本地核验的来源
 
@@ -41,7 +41,7 @@
 | D-019 | `material3-components` | `OFFICIAL-VERIFIED` | https://m3.material.io/components | 官方组件使用边界 | 优先复用 App bars、lists、dialogs、switch、progress | 不手绘已有标准组件 |
 | D-020 | `material3-typography` | `OFFICIAL-VERIFIED` | https://m3.material.io/styles/typography/overview | Android 字体角色 | 映射 display/title/body/label，不按 viewport 缩放字号 | 中文长文案以换行和布局重排处理 |
 | D-021 | `material-symbols-guide` | `OFFICIAL-VERIFIED` | https://developers.google.com/fonts/docs/material_symbols | Android 图标来源 | 主 App 保持 Material Icons/Symbols 语义一致 | Apple SF Symbols 不打包到 Android |
-| D-022 | `project-design-system` | `PROJECT-VERIFIED` | `DESIGN.md`, `Theme.kt`, `Components.kt` | 当前产品视觉、token 与组件基线 | 保留冷静、状态明确、4dp 网格、系统字体和分组列表 | 44dp、light-only、`Ios*` 命名、全内容 glass 与 Android 官方/本轮约束冲突，见 visual contract |
+| D-022 | `project-design-system` | `PROJECT-VERIFIED` | `visual-contract.md`, `Theme.kt`, `Components.kt`；根目录 `DESIGN.md` 仅作导入视觉参考 | 当前产品视觉、token 与组件基线 | 保留冷静、状态明确、4dp 网格、系统字体和分组列表 | Apple 营销页面的低密度构图、平台字体和原生组件不能直接移植到 Android 系统工具，见 visual contract |
 
 ## 3. 已选择但未作为决策证据的来源
 
@@ -59,7 +59,7 @@
 3. 当前项目的 6 个顶层功能均必须保留。方向 A 仅改变入口组件；方向 B 涉及移动层级，因此保持 `EXPERIMENTAL`。
 4. Apple 44pt 与 Android 48dp 冲突时，以 Android 48dp 为实现标准。
 5. SwiftUI 仅作为用户最初指定的语义对照；真实生产框架保持 Compose/View。
-6. `DESIGN.md` 的产品气质与信息原则继续有效；具体平台几何与颜色由 Android 官方来源和获批 visual contract 取代，冲突项不会在未批准时修改。
+6. 根目录 `DESIGN.md` 只提供 Apple 视觉参考；产品语义、平台几何、底部导航和可访问性由 Android 官方来源与获批 visual contract 管辖，冲突时以后者为准。
 
 ## 5. 资产权利与分发
 
