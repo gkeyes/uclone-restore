@@ -458,7 +458,7 @@ class ShellScriptsTest {
         assertContains(script, "SOURCE_KIND='clone_rollback'")
         assertContains(script, "ACTIVE='/data/adb/uclone/clone_rollback/com.example.app/latest'")
         assertContains(script, "EXPECTED_ACTIVE=\"${'$'}ROOT/clone_rollback/${'$'}PKG/latest\"")
-        assertContains(script, "ROLLBACK=\"${'$'}ROOT/clone_rollback/${'$'}PKG/restore_${'$'}TS\"")
+        assertContains(script, "ROLLBACK=\"${'$'}ROOT/clone_rollback/${'$'}PKG/restore_${'$'}RUN_ID\"")
         assertContains(script, "restore_part \"${'$'}ACTIVE/ce\" \"/data/user/${'$'}DST_USER/${'$'}PKG\"")
         assertFalse(script.contains("prune_old_rollbacks\n"))
     }
