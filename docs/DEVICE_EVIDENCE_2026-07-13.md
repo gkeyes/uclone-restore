@@ -98,6 +98,8 @@ Production implication: workspace extraction uses `tar -xopf`; restoration into 
 
 - `cmd package install-existing --user` success and visibility timing on this target.
 - Cache, `code_cache`, external-data, and OBB owner/GID/mode/context replacement rules.
+- `find <dir> -mindepth 1 -print -quit` exits successfully and returns exactly one entry on this target.
+- `readlink -f` followed by `du -sk` reports a non-zero size for the real directory behind a task-created live-source symlink.
 - Any rebuilt 0.3 GitHub artifact performing push, switch, restore, or launcher cold start.
 
 These gaps must remain device-unverified. They do not authorize fallback commands, fixed retries, or metadata changes.

@@ -91,7 +91,7 @@ for APP in com.uclone.restore com.uclone.restore.module; do
 done
 
 section "COMMANDS"
-for COMMAND_NAME in am cmd dumpsys pm tar toybox awk sed sort stat readlink restorecon; do
+for COMMAND_NAME in am cmd dumpsys pm tar toybox awk sed sort stat readlink restorecon find du; do
   COMMAND_PATH=$(command -v "$COMMAND_NAME" 2>/dev/null)
   echo "COMMAND=$COMMAND_NAME PATH=${COMMAND_PATH:-NOT_FOUND}"
 done
@@ -259,6 +259,33 @@ APP_OWNER=$(stat -c '%u:%g' "$TMP/tar_app/file" 2>&1)
 echo "SOURCE_OWNER=$SOURCE_OWNER CREATE_EXIT=$TAR_CREATE_RC"
 echo "WORKSPACE_XOPF_EXIT=$TAR_WORKSPACE_RC OWNER=$WORKSPACE_OWNER EXPECTED=0:0"
 echo "APP_XPF_EXIT=$TAR_APP_RC OWNER=$APP_OWNER EXPECTED=10332:10332"
+
+section "FIND_QUIT_SEMANTICS"
+mkdir -p "$TMP/find_quit"
+printf '%s\n' first > "$TMP/find_quit/first"
+printf '%s\n' second > "$TMP/find_quit/second"
+FIND_QUIT_OUTPUT=$(find "$TMP/find_quit" -mindepth 1 -print -quit 2>&1)
+FIND_QUIT_RC=$?
+FIND_QUIT_LINES=$(printf '%s\n' "$FIND_QUIT_OUTPUT" | awk 'NF { count++ } END { print count + 0 }')
+echo "FIND_QUIT_EXIT=$FIND_QUIT_RC LINES=$FIND_QUIT_LINES EXPECTED_LINES=1"
+printf '%s\n' "$FIND_QUIT_OUTPUT" | sed -n '1,3p'
+
+section "LIVE_SOURCE_SIZE_SEMANTICS"
+mkdir -p "$TMP/live_source_real"
+dd if=/dev/zero of="$TMP/live_source_real/payload" bs=1024 count=4 >/dev/null 2>&1
+ln -s "$TMP/live_source_real" "$TMP/live_source_link"
+LIVE_SOURCE_REAL=$(readlink -f "$TMP/live_source_link" 2>/dev/null)
+LIVE_SOURCE_READLINK_RC=$?
+LIVE_SOURCE_DU_OUTPUT=""
+LIVE_SOURCE_DU_RC=1
+if [ "$LIVE_SOURCE_READLINK_RC" -eq 0 ] && [ -n "$LIVE_SOURCE_REAL" ]; then
+  LIVE_SOURCE_DU_OUTPUT=$(du -sk "$LIVE_SOURCE_REAL" 2>/dev/null)
+  LIVE_SOURCE_DU_RC=$?
+fi
+LIVE_SOURCE_KB=$(printf '%s\n' "$LIVE_SOURCE_DU_OUTPUT" | awk 'NR == 1 { print $1 } END { if (NR != 1) exit 1 }')
+LIVE_SOURCE_PARSE_RC=$?
+case "$LIVE_SOURCE_KB" in ''|0|*[!0-9]*) LIVE_SOURCE_SIZE_VALID=0 ;; *) LIVE_SOURCE_SIZE_VALID=1 ;; esac
+echo "LIVE_SOURCE_READLINK_EXIT=$LIVE_SOURCE_READLINK_RC LIVE_SOURCE_DU_EXIT=$LIVE_SOURCE_DU_RC LIVE_SOURCE_PARSE_EXIT=$LIVE_SOURCE_PARSE_RC SIZE_KB=${LIVE_SOURCE_KB:-0} SIZE_VALID=$LIVE_SOURCE_SIZE_VALID"
 
 section "WORKSPACE_TOP_LEVEL"
 if [ -e /data/adb/uclone ] || [ -L /data/adb/uclone ]; then

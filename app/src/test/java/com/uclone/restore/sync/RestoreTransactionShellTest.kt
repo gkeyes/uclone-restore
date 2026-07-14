@@ -61,6 +61,7 @@ class RestoreTransactionShellTest {
             uclone_stage_end() { :; }
             uclone_now_ms() { echo 2000; }
             uclone_emit_metrics() { :; }
+            uclone_perf_emit() { :; }
             force_stop_package_users() { :; }
             sync() { :; }
             ${RestoreTransactionShell.guard("UID_VALUE", includePermissions = false, manageSwitchMarker = true)}
@@ -101,6 +102,7 @@ class RestoreTransactionShellTest {
             uclone_stage_end() { :; }
             uclone_now_ms() { echo 2000; }
             uclone_emit_metrics() { echo "DOWNTIME=${'$'}UCLONE_TARGET_DOWNTIME_MS"; }
+            uclone_perf_emit() { :; }
             count_items() { echo 0; }
             validate_target_path() { :; }
             read_target_context() { echo ''; }

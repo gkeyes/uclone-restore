@@ -51,16 +51,28 @@ object ShellScripts {
           case "${'$'}UCLONE_NEXT_COPIED_BYTES" in ''|*[!0-9]*) return 0 ;; esac
           UCLONE_COPIED_BYTES="${'$'}UCLONE_NEXT_COPIED_BYTES"
         }
-        uclone_record_temp_path() {
-          [ -d "${'$'}1" ] || return 0
-          UCLONE_TEMP_KB=${'$'}(du -sk "${'$'}1" 2>/dev/null | awk '{print ${'$'}1}')
+        uclone_record_temp_kb() {
+          UCLONE_TEMP_KB="${'$'}1"
           case "${'$'}UCLONE_TEMP_KB" in ''|*[!0-9]*) return 0 ;; esac
           UCLONE_TEMP_BYTES=${'$'}(awk -v KB="${'$'}UCLONE_TEMP_KB" 'BEGIN { printf "%.0f\n", KB * 1024 }')
           case "${'$'}UCLONE_TEMP_BYTES" in ''|*[!0-9]*) return 0 ;; esac
           awk -v CURRENT="${'$'}UCLONE_TEMP_BYTES" -v PEAK="${'$'}UCLONE_PEAK_TEMPORARY_BYTES" 'BEGIN { exit !(CURRENT > PEAK) }' && UCLONE_PEAK_TEMPORARY_BYTES="${'$'}UCLONE_TEMP_BYTES"
         }
+        uclone_record_temp_path() {
+          [ -d "${'$'}1" ] || return 0
+          UCLONE_TEMP_KB=${'$'}(du -sk "${'$'}1" 2>/dev/null | awk '{print ${'$'}1}')
+          uclone_record_temp_kb "${'$'}UCLONE_TEMP_KB"
+        }
         uclone_elapsed_ms() {
           awk -v FINISHED_AT="${'$'}1" -v STARTED_AT="${'$'}2" 'BEGIN { VALUE = FINISHED_AT - STARTED_AT; if (VALUE < 0) VALUE = 0; printf "%.0f\n", VALUE }'
+        }
+        uclone_perf_emit() {
+          UCLONE_PERF_PHASE="${'$'}1"
+          UCLONE_PERF_PART="${'$'}2"
+          UCLONE_PERF_STARTED_AT="${'$'}3"
+          UCLONE_PERF_FINISHED_AT=${'$'}(uclone_now_ms)
+          UCLONE_PERF_DURATION_MS=${'$'}(uclone_elapsed_ms "${'$'}UCLONE_PERF_FINISHED_AT" "${'$'}UCLONE_PERF_STARTED_AT")
+          echo "UCLONE_PERF:phase=${'$'}UCLONE_PERF_PHASE part=${'$'}UCLONE_PERF_PART started_at=${'$'}UCLONE_PERF_STARTED_AT finished_at=${'$'}UCLONE_PERF_FINISHED_AT duration_ms=${'$'}UCLONE_PERF_DURATION_MS"
         }
         uclone_emit_metrics() {
           echo "UCLONE_METRIC:scanned_files=${'$'}UCLONE_SCANNED_FILES copied_files=${'$'}UCLONE_COPIED_FILES copied_bytes=${'$'}UCLONE_COPIED_BYTES peak_temporary_bytes=${'$'}UCLONE_PEAK_TEMPORARY_BYTES target_downtime_ms=${'$'}UCLONE_TARGET_DOWNTIME_MS"
@@ -76,13 +88,105 @@ object ShellScripts {
           [ "${'$'}{#LEFT}" -le 15 ] && [ "${'$'}{#RIGHT}" -le 15 ] || return 1
           awk -v LEFT="${'$'}LEFT" -v RIGHT="${'$'}RIGHT" 'BEGIN { printf "%.0f\n", LEFT + RIGHT }'
         }
+        uclone_decimal_max() {
+          LEFT="${'$'}1"
+          RIGHT="${'$'}2"
+          case "${'$'}LEFT:${'$'}RIGHT" in *[!0-9:]*) return 1 ;; esac
+          [ "${'$'}{#LEFT}" -le 15 ] && [ "${'$'}{#RIGHT}" -le 15 ] || return 1
+          awk -v LEFT="${'$'}LEFT" -v RIGHT="${'$'}RIGHT" 'BEGIN { printf "%.0f\n", (LEFT > RIGHT ? LEFT : RIGHT) }'
+        }
         uclone_dir_kb() {
           [ -d "${'$'}1" ] || { echo 0; return 0; }
           VALUE_KB=${'$'}(du -sk "${'$'}1" 2>/dev/null | awk '{print ${'$'}1}')
           case "${'$'}VALUE_KB" in ''|*[!0-9]*) echo 0 ;; *) echo "${'$'}VALUE_KB" ;; esac
         }
+        uclone_dir_kb_strict() {
+          [ -d "${'$'}1" ] || { echo 0; return 0; }
+          [ ! -L "${'$'}1" ] || return 1
+          VALUE_DU_OUTPUT=${'$'}(du -sk "${'$'}1" 2>/dev/null) || return 1
+          VALUE_KB=${'$'}(printf '%s\n' "${'$'}VALUE_DU_OUTPUT" | awk 'NR == 1 { print ${'$'}1 } END { if (NR != 1) exit 1 }') || return 1
+          case "${'$'}VALUE_KB" in ''|*[!0-9]*) return 1 ;; *) echo "${'$'}VALUE_KB" ;; esac
+        }
+        uclone_live_source_dir_kb_strict() {
+          if [ -L "${'$'}1" ]; then
+            VALUE_REAL_PATH=${'$'}(readlink -f "${'$'}1" 2>/dev/null) || return 1
+            [ -n "${'$'}VALUE_REAL_PATH" ] && [ -d "${'$'}VALUE_REAL_PATH" ] && [ ! -L "${'$'}VALUE_REAL_PATH" ] || return 1
+            uclone_dir_kb_strict "${'$'}VALUE_REAL_PATH"
+            return ${'$'}?
+          fi
+          uclone_dir_kb_strict "${'$'}1"
+        }
+        uclone_validate_direct_source() {
+          VALUE_ROOT="${'$'}1"
+          VALUE_MODE="${'$'}2"
+          shift 2
+          [ -d "${'$'}VALUE_ROOT" ] && [ ! -L "${'$'}VALUE_ROOT" ] || return 1
+          case "${'$'}VALUE_MODE" in
+            live|managed) ;;
+            *) return 1 ;;
+          esac
+          for VALUE_PART in "${'$'}@"; do
+            case "${'$'}VALUE_PART" in ce|de|external|media|obb) ;; *) return 1 ;; esac
+            VALUE_PART_PATH="${'$'}VALUE_ROOT/${'$'}VALUE_PART"
+            if [ -e "${'$'}VALUE_PART_PATH" ] || [ -L "${'$'}VALUE_PART_PATH" ]; then
+              [ -d "${'$'}VALUE_PART_PATH" ] || return 1
+              [ "${'$'}VALUE_MODE" = "live" ] || [ ! -L "${'$'}VALUE_PART_PATH" ] || return 1
+            fi
+          done
+        }
+        uclone_read_size_hint() {
+          VALUE_ROOT="${'$'}1"
+          VALUE_PART="${'$'}2"
+          case "${'$'}VALUE_PART" in ce|de|external|media|obb) ;; *) return 1 ;; esac
+          [ -d "${'$'}VALUE_ROOT" ] && [ ! -L "${'$'}VALUE_ROOT" ] || return 1
+          VALUE_HINT_DIR="${'$'}VALUE_ROOT/.size_kb"
+          [ -d "${'$'}VALUE_HINT_DIR" ] && [ ! -L "${'$'}VALUE_HINT_DIR" ] || return 1
+          VALUE_HINT="${'$'}VALUE_HINT_DIR/${'$'}VALUE_PART"
+          [ -f "${'$'}VALUE_HINT" ] && [ ! -L "${'$'}VALUE_HINT" ] || return 1
+          VALUE_HINT_LINES=${'$'}(awk 'END { print NR + 0 }' "${'$'}VALUE_HINT" 2>/dev/null) || return 1
+          [ "${'$'}VALUE_HINT_LINES" -eq 1 ] 2>/dev/null || return 1
+          VALUE_KB=${'$'}(sed -n '1p' "${'$'}VALUE_HINT" 2>/dev/null) || return 1
+          case "${'$'}VALUE_KB" in ''|*[!0-9]*) return 1 ;; esac
+          [ "${'$'}{#VALUE_KB}" -le 15 ] || return 1
+          [ "${'$'}VALUE_KB" -gt 0 ] 2>/dev/null || return 1
+          echo "${'$'}VALUE_KB"
+        }
+        uclone_write_size_hint() {
+          VALUE_ROOT="${'$'}1"
+          VALUE_PART="${'$'}2"
+          VALUE_KB="${'$'}3"
+          case "${'$'}VALUE_PART" in ce|de|external|media|obb) ;; *) return 1 ;; esac
+          case "${'$'}VALUE_KB" in ''|*[!0-9]*) return 1 ;; esac
+          [ "${'$'}{#VALUE_KB}" -le 15 ] || return 1
+          [ "${'$'}VALUE_KB" -gt 0 ] 2>/dev/null || return 1
+          [ -d "${'$'}VALUE_ROOT" ] && [ ! -L "${'$'}VALUE_ROOT" ] || return 1
+          VALUE_HINT_DIR="${'$'}VALUE_ROOT/.size_kb"
+          if [ -e "${'$'}VALUE_HINT_DIR" ] || [ -L "${'$'}VALUE_HINT_DIR" ]; then
+            [ -d "${'$'}VALUE_HINT_DIR" ] && [ ! -L "${'$'}VALUE_HINT_DIR" ] || return 1
+          else
+            mkdir "${'$'}VALUE_HINT_DIR" || return 1
+          fi
+          VALUE_HINT="${'$'}VALUE_HINT_DIR/${'$'}VALUE_PART"
+          [ ! -L "${'$'}VALUE_HINT" ] || return 1
+          VALUE_HINT_TMP="${'$'}{VALUE_HINT}.tmp_${'$'}${'$'}"
+          printf '%s\n' "${'$'}VALUE_KB" > "${'$'}VALUE_HINT_TMP" || return 1
+          chmod 600 "${'$'}VALUE_HINT_TMP" >/dev/null 2>&1 || true
+          mv -f "${'$'}VALUE_HINT_TMP" "${'$'}VALUE_HINT" || return 1
+        }
         uclone_add_dir_kb() {
           VALUE_KB=${'$'}(uclone_dir_kb "${'$'}1")
+          NEXT_ESTIMATED_KB=${'$'}(uclone_decimal_add "${'$'}UCLONE_ESTIMATED_KB" "${'$'}VALUE_KB") || NEXT_ESTIMATED_KB=""
+          case "${'$'}NEXT_ESTIMATED_KB" in ''|*[!0-9]*) UCLONE_ESTIMATED_KB=""; return 1 ;; esac
+          UCLONE_ESTIMATED_KB="${'$'}NEXT_ESTIMATED_KB"
+        }
+        uclone_add_dir_kb_strict() {
+          VALUE_KB=${'$'}(uclone_dir_kb_strict "${'$'}1") || return 1
+          NEXT_ESTIMATED_KB=${'$'}(uclone_decimal_add "${'$'}UCLONE_ESTIMATED_KB" "${'$'}VALUE_KB") || NEXT_ESTIMATED_KB=""
+          case "${'$'}NEXT_ESTIMATED_KB" in ''|*[!0-9]*) UCLONE_ESTIMATED_KB=""; return 1 ;; esac
+          UCLONE_ESTIMATED_KB="${'$'}NEXT_ESTIMATED_KB"
+        }
+        uclone_add_live_source_dir_kb_strict() {
+          VALUE_KB=${'$'}(uclone_live_source_dir_kb_strict "${'$'}1") || return 1
           NEXT_ESTIMATED_KB=${'$'}(uclone_decimal_add "${'$'}UCLONE_ESTIMATED_KB" "${'$'}VALUE_KB") || NEXT_ESTIMATED_KB=""
           case "${'$'}NEXT_ESTIMATED_KB" in ''|*[!0-9]*) UCLONE_ESTIMATED_KB=""; return 1 ;; esac
           UCLONE_ESTIMATED_KB="${'$'}NEXT_ESTIMATED_KB"
@@ -384,7 +488,8 @@ object ShellScripts {
           ${if (rule.excludeCache) "rm -rf \"${'$'}DST/cache\" \"${'$'}DST/code_cache\" 2>/dev/null || true" else ":"}
           DST_ITEMS=${'$'}(count_items "${'$'}DST")
           [ "${'$'}DST_ITEMS" -gt 0 ] || { echo "ERR_COPY_EMPTY:${'$'}SRC" >&2; exit 17; }
-          PART_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
+          PART_SIZE_KB=${'$'}(uclone_dir_kb_strict "${'$'}DST") || exit 18
+          uclone_write_size_hint "${'$'}TRY_TMP" "${'$'}(basename "${'$'}DST")" "${'$'}PART_SIZE_KB" || exit 18
           COPIED_PARTS=${'$'}((COPIED_PARTS + 1))
           COPIED_ITEMS=${'$'}((COPIED_ITEMS + DST_ITEMS))
           UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + DST_ITEMS))
@@ -609,7 +714,8 @@ object ShellScripts {
           DST_ITEMS=${'$'}(count_items "${'$'}DST")
           [ "${'$'}DST_ITEMS" -gt 0 ] || { echo "ERR_MAIN_RETURN_COPY_EMPTY:${'$'}SRC" >&2; exit 63; }
           printf '%s\n' data > "${'$'}TMP/.state/${'$'}PART_NAME" || exit 54
-          PART_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
+          PART_SIZE_KB=${'$'}(uclone_dir_kb_strict "${'$'}DST") || exit 53
+          uclone_write_size_hint "${'$'}TMP" "${'$'}PART_NAME" "${'$'}PART_SIZE_KB" || exit 53
           UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + DST_ITEMS))
           uclone_add_written_kb "${'$'}PART_SIZE_KB"
           echo "MAIN_RETURN_PART:${'$'}PART_NAME state=data items=${'$'}DST_ITEMS sizeKb=${'$'}PART_SIZE_KB"
@@ -675,6 +781,7 @@ object ShellScripts {
         appPackage = appPackage,
         rollbackName = """${'$'}RUN_ID""",
         rollbackReason = "恢复到主系统前生成",
+        directSource = true,
     )
 
     fun restoreFromCloneLatest(
@@ -883,7 +990,8 @@ object ShellScripts {
           BACKUP_ITEMS=${'$'}(count_items "${'$'}DST")
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
           UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + BACKUP_ITEMS))
-          BACKUP_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
+          BACKUP_SIZE_KB=${'$'}(uclone_dir_kb_strict "${'$'}DST") || exit 53
+          uclone_write_size_hint "${'$'}ROLLBACK_TMP" "${'$'}PART_NAME" "${'$'}BACKUP_SIZE_KB" || exit 53
           uclone_add_written_kb "${'$'}BACKUP_SIZE_KB"
           uclone_record_temp_path "${'$'}DST"
           [ "${'$'}BACKUP_ITEMS" -gt 0 ] || { echo "ERR_BACKUP_EMPTY:${'$'}SRC" >&2; exit 63; }
@@ -1542,6 +1650,7 @@ object ShellScripts {
             sourcePrefix = "${settings.rootDir}/rollback/$packageName/$rollbackId",
             sourceRollbackId = rollbackId,
             clearSwitchMarker = clearSwitchMarker,
+            directSource = true,
         )
     }
 
@@ -1566,6 +1675,7 @@ object ShellScripts {
         targetUserId = settings.cloneUserId,
         rollbackRootName = "clone_rollback",
         pruneOldRollbacks = false,
+        directSource = true,
     )
 
     fun deleteSnapshot(packageName: String, settings: UCloneSettings, appPackage: String): String = """
@@ -1752,6 +1862,7 @@ object ShellScripts {
           for SRC in "${'$'}@"; do
             [ -d "${'$'}SRC" ] || { echo "SKIP_MISSING:${'$'}SRC"; continue; }
             SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+            uclone_set_source_items "${'$'}LINK_NAME" "${'$'}SRC_ITEMS"
             echo "PROBE_PATH:${'$'}SRC ITEMS=${'$'}SRC_ITEMS"
             if [ "${'$'}SRC_ITEMS" -le 0 ]; then
               printf '%s\n' empty > "${'$'}SWITCH_TEMP/.state/${'$'}LINK_NAME" || exit 14
@@ -1764,6 +1875,7 @@ object ShellScripts {
             echo "LIVE_SOURCE_STATE:${'$'}LINK_NAME state=data path=${'$'}SRC items=${'$'}SRC_ITEMS"
             return 0
           done
+          uclone_set_source_items "${'$'}LINK_NAME" 0
           printf '%s\n' absent > "${'$'}SWITCH_TEMP/.state/${'$'}LINK_NAME" || exit 14
           echo "LIVE_SOURCE_STATE:${'$'}LINK_NAME state=absent"
           return 0
@@ -1899,7 +2011,37 @@ object ShellScripts {
             fi
             uclone_stage_end
             uclone_stage_begin SOURCE_PREPARE
+            UCLONE_SOURCE_ITEMS_CE=""
+            UCLONE_SOURCE_ITEMS_DE=""
+            UCLONE_SOURCE_ITEMS_EXTERNAL=""
+            UCLONE_SOURCE_ITEMS_MEDIA=""
+            UCLONE_SOURCE_ITEMS_OBB=""
+            uclone_set_source_items() {
+              UCLONE_SOURCE_PART="${'$'}1"
+              UCLONE_SOURCE_COUNT="${'$'}2"
+              case "${'$'}UCLONE_SOURCE_PART" in
+                ce) UCLONE_SOURCE_ITEMS_CE="${'$'}UCLONE_SOURCE_COUNT" ;;
+                de) UCLONE_SOURCE_ITEMS_DE="${'$'}UCLONE_SOURCE_COUNT" ;;
+                external) UCLONE_SOURCE_ITEMS_EXTERNAL="${'$'}UCLONE_SOURCE_COUNT" ;;
+                media) UCLONE_SOURCE_ITEMS_MEDIA="${'$'}UCLONE_SOURCE_COUNT" ;;
+                obb) UCLONE_SOURCE_ITEMS_OBB="${'$'}UCLONE_SOURCE_COUNT" ;;
+                *) return 1 ;;
+              esac
+            }
+            uclone_get_source_items() {
+              case "${'$'}1" in
+                ce) echo "${'$'}UCLONE_SOURCE_ITEMS_CE" ;;
+                de) echo "${'$'}UCLONE_SOURCE_ITEMS_DE" ;;
+                external) echo "${'$'}UCLONE_SOURCE_ITEMS_EXTERNAL" ;;
+                media) echo "${'$'}UCLONE_SOURCE_ITEMS_MEDIA" ;;
+                obb) echo "${'$'}UCLONE_SOURCE_ITEMS_OBB" ;;
+                *) echo "" ;;
+              esac
+            }
+            UCLONE_SOURCE_MATERIALIZE_STARTED_AT=${'$'}(uclone_now_ms)
             $prepareSourceScript
+            uclone_perf_emit source_materialize all "${'$'}UCLONE_SOURCE_MATERIALIZE_STARTED_AT"
+            UCLONE_SOURCE_VALIDATE_STARTED_AT=${'$'}(uclone_now_ms)
             [ "${'$'}ACTIVE" = "${'$'}EXPECTED_ACTIVE" ] || { echo "ERR_BAD_RESTORE_SOURCE:${'$'}ACTIVE" >&2; exit 72; }
             [ -d "${'$'}ACTIVE" ] || { echo "ERR_SNAPSHOT_MISSING:${'$'}ACTIVE" >&2; exit 51; }
             [ "${'$'}ACTIVE" != "${'$'}ROLLBACK" ] || { echo "ERR_ROLLBACK_SOURCE_CONFLICT:${'$'}ACTIVE" >&2; exit 61; }
@@ -1969,25 +2111,59 @@ object ShellScripts {
               [ -d "${'$'}1" ] || { echo 0; return 0; }
               (cd "${'$'}1" && find . -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
             }
+            has_items() {
+              [ -d "${'$'}1" ] || return 1
+              [ -n "${'$'}(find "${'$'}1" -mindepth 1 -print -quit 2>/dev/null)" ]
+            }
             UCLONE_ESTIMATED_KB=0
-            ${if (directSource) ":" else """
+            ${if (directSource) """
+            uclone_validate_direct_source "${'$'}ACTIVE" "${if (sourceKind == RestoreSourceKind.SWITCH_TEMP) "live" else "managed"}" $selectedRestoreParts || {
+              echo "ERR_BAD_RESTORE_SOURCE_LAYOUT:${'$'}ACTIVE" >&2
+              exit 72
+            }
+            for RESTORE_SOURCE_PART in $selectedRestoreParts; do
+              if RESTORE_PART_KB=${'$'}(uclone_read_size_hint "${'$'}ACTIVE" "${'$'}RESTORE_SOURCE_PART"); then
+                echo "RESTORE_SOURCE_SIZE_HINT:${'$'}RESTORE_SOURCE_PART=${'$'}RESTORE_PART_KB"
+              else
+                RESTORE_PART_KB=${'$'}(${if (sourceKind == RestoreSourceKind.SWITCH_TEMP) "uclone_live_source_dir_kb_strict" else "uclone_dir_kb_strict"} "${'$'}ACTIVE/${'$'}RESTORE_SOURCE_PART") || {
+                  echo "ERR_SPACE_ESTIMATE:restore_source:${'$'}RESTORE_SOURCE_PART" >&2
+                  exit 75
+                }
+                echo "RESTORE_SOURCE_SIZE_SCAN:${'$'}RESTORE_SOURCE_PART=${'$'}RESTORE_PART_KB"
+              fi
+              UCLONE_ESTIMATED_KB=${'$'}(uclone_decimal_add "${'$'}UCLONE_ESTIMATED_KB" "${'$'}RESTORE_PART_KB") || { echo "ERR_SPACE_ESTIMATE:restore_source:${'$'}RESTORE_SOURCE_PART" >&2; exit 75; }
+            done
+            RESTORE_SOURCE_KB="${'$'}UCLONE_ESTIMATED_KB"
+            """.trimIndent() else """
             uclone_add_dir_kb "${'$'}ACTIVE/ce"
             uclone_add_dir_kb "${'$'}ACTIVE/de"
             uclone_add_dir_kb "${'$'}ACTIVE/external"
             uclone_add_dir_kb "${'$'}ACTIVE/media"
             uclone_add_dir_kb "${'$'}ACTIVE/obb"
-            """.trimIndent()}
             RESTORE_SOURCE_KB="${'$'}UCLONE_ESTIMATED_KB"
-            UCLONE_ESTIMATED_KB=0
+            """.trimIndent()}
+            RESTORE_TARGET_CE_KB=0
+            RESTORE_TARGET_DE_KB=0
+            RESTORE_TARGET_EXTERNAL_KB=0
+            RESTORE_TARGET_MEDIA_KB=0
+            RESTORE_TARGET_OBB_KB=0
             ${if (rollbackProtection == RollbackProtection.FRESH) """
-            ${if (restoreRule?.includeCe != false) "uclone_add_dir_kb \"/data/user/${'$'}DST_USER/${'$'}PKG\"" else ":"}
-            ${if (restoreRule?.includeDe != false) "uclone_add_dir_kb \"/data/user_de/${'$'}DST_USER/${'$'}PKG\"" else ":"}
-            ${if (restoreRule?.includeExternal != false) "uclone_add_dir_kb \"/data/media/${'$'}DST_USER/Android/data/${'$'}PKG\"" else ":"}
-            ${if (restoreRule?.includeMedia != false) "uclone_add_dir_kb \"/data/media/${'$'}DST_USER/Android/media/${'$'}PKG\"" else ":"}
-            ${if (restoreRule?.includeObb != false) "uclone_add_dir_kb \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\"" else ":"}
+            ${if (restoreRule?.includeCe != false) "RESTORE_TARGET_CE_KB=${'$'}(uclone_dir_kb_strict \"/data/user/${'$'}DST_USER/${'$'}PKG\") || { echo \"ERR_SPACE_ESTIMATE:restore_target:ce\" >&2; exit 75; }" else ":"}
+            ${if (restoreRule?.includeDe != false) "RESTORE_TARGET_DE_KB=${'$'}(uclone_dir_kb_strict \"/data/user_de/${'$'}DST_USER/${'$'}PKG\") || { echo \"ERR_SPACE_ESTIMATE:restore_target:de\" >&2; exit 75; }" else ":"}
+            ${if (restoreRule?.includeExternal != false) "RESTORE_TARGET_EXTERNAL_KB=${'$'}(uclone_dir_kb_strict \"/data/media/${'$'}DST_USER/Android/data/${'$'}PKG\") || { echo \"ERR_SPACE_ESTIMATE:restore_target:external\" >&2; exit 75; }" else ":"}
+            ${if (restoreRule?.includeMedia != false) "RESTORE_TARGET_MEDIA_KB=${'$'}(uclone_dir_kb_strict \"/data/media/${'$'}DST_USER/Android/media/${'$'}PKG\") || { echo \"ERR_SPACE_ESTIMATE:restore_target:media\" >&2; exit 75; }" else ":"}
+            ${if (restoreRule?.includeObb != false) "RESTORE_TARGET_OBB_KB=${'$'}(uclone_dir_kb_strict \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\") || { echo \"ERR_SPACE_ESTIMATE:restore_target:obb\" >&2; exit 75; }" else ":"}
             """.trimIndent() else ":"}
-            RESTORE_TARGET_KB="${'$'}UCLONE_ESTIMATED_KB"
-            RESTORE_REQUIRED_KB=${'$'}(uclone_decimal_add "${'$'}RESTORE_SOURCE_KB" "${'$'}RESTORE_TARGET_KB") || RESTORE_REQUIRED_KB=""
+            RESTORE_TARGET_KB=0
+            for RESTORE_PART_KB in \
+              "${'$'}RESTORE_TARGET_CE_KB" \
+              "${'$'}RESTORE_TARGET_DE_KB" \
+              "${'$'}RESTORE_TARGET_EXTERNAL_KB" \
+              "${'$'}RESTORE_TARGET_MEDIA_KB" \
+              "${'$'}RESTORE_TARGET_OBB_KB"; do
+              RESTORE_TARGET_KB=${'$'}(uclone_decimal_add "${'$'}RESTORE_TARGET_KB" "${'$'}RESTORE_PART_KB") || { RESTORE_TARGET_KB=""; break; }
+            done
+            RESTORE_REQUIRED_KB=${'$'}(${if (directSource) "uclone_decimal_max" else "uclone_decimal_add"} "${'$'}RESTORE_SOURCE_KB" "${'$'}RESTORE_TARGET_KB") || RESTORE_REQUIRED_KB=""
             uclone_require_space "${'$'}RESTORE_REQUIRED_KB" "${if (directSource) "restore_direct" else "restore_prepared_and_rollback"}"
             PREPARED_ROOT=${if (directSource) "\"${'$'}ACTIVE\"" else "\"${'$'}ROOT/tmp/prepared_${'$'}{PKG}_${'$'}TS\""}
             cleanup_restore_prepared() {
@@ -2030,8 +2206,16 @@ object ShellScripts {
               case "${'$'}PREPARED_STATE" in data|empty|absent) ;; *) echo "ERR_SOURCE_STATE_INVALID:${'$'}PREPARED_NAME:${'$'}PREPARED_STATE" >&2; exit 69 ;; esac
               if [ "${'$'}PREPARED_STATE" = "data" ]; then
                 [ -d "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME" ] || { echo "ERR_SOURCE_DATA_MISSING:${'$'}PREPARED_NAME" >&2; exit 69; }
-                PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME")
+                PREPARED_ITEMS=${'$'}(uclone_get_source_items "${'$'}PREPARED_NAME")
+                case "${'$'}PREPARED_ITEMS" in
+                  ''|*[!0-9]*)
+                    PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME")
+                    uclone_set_source_items "${'$'}PREPARED_NAME" "${'$'}PREPARED_ITEMS"
+                    ;;
+                esac
                 [ "${'$'}PREPARED_ITEMS" -gt 0 ] || { echo "ERR_SOURCE_DATA_EMPTY:${'$'}PREPARED_NAME" >&2; exit 69; }
+              else
+                uclone_set_source_items "${'$'}PREPARED_NAME" 0
               fi
               PREPARED_PARTS=${'$'}((PREPARED_PARTS + 1))
               echo "DIRECT_SOURCE_STATE:${'$'}PREPARED_NAME state=${'$'}PREPARED_STATE"
@@ -2042,10 +2226,12 @@ object ShellScripts {
               [ -d "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME" ] || continue
               PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME")
               [ "${'$'}PREPARED_ITEMS" -gt 0 ] || continue
+              uclone_set_source_items "${'$'}PREPARED_NAME" "${'$'}PREPARED_ITEMS"
               PREPARED_PARTS=${'$'}((PREPARED_PARTS + 1))
               echo "DIRECT_SOURCE:${'$'}PREPARED_NAME ITEMS=${'$'}PREPARED_ITEMS"
             done
             """.trimIndent() else """
+            UCLONE_PREPARED_MATERIALIZE_STARTED_AT=${'$'}(uclone_now_ms)
             rm -rf "${'$'}PREPARED_ROOT"
             mkdir -p "${'$'}PREPARED_ROOT" || exit 56
             PREPARED_PARTS=0
@@ -2060,6 +2246,7 @@ object ShellScripts {
               (cd "${'$'}PREPARE_SRC" && tar -cpf - .) | (cd "${'$'}PREPARE_DST" && tar -xopf -) || exit 57
               PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARE_DST")
               [ "${'$'}PREPARED_ITEMS" -gt 0 ] || { echo "ERR_EXTRACT_EMPTY:${'$'}PREPARE_SRC" >&2; exit 69; }
+              uclone_set_source_items "${'$'}PREPARE_NAME" "${'$'}PREPARED_ITEMS"
               PREPARED_SIZE_KB=${'$'}(uclone_dir_kb "${'$'}PREPARE_DST")
               UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + PREPARE_ITEMS))
               UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + PREPARED_ITEMS))
@@ -2073,8 +2260,10 @@ object ShellScripts {
             prepare_restore_part "${'$'}ACTIVE/media" "media"
             prepare_restore_part "${'$'}ACTIVE/obb" "obb"
             uclone_record_temp_path "${'$'}PREPARED_ROOT"
+            uclone_perf_emit source_materialize prepared "${'$'}UCLONE_PREPARED_MATERIALIZE_STARTED_AT"
             """.trimIndent()}
             [ "${'$'}PREPARED_PARTS" -gt 0 ] || { echo "ERR_NOTHING_PREPARED:${'$'}ACTIVE" >&2; exit 62; }
+            uclone_perf_emit source_validate all "${'$'}UCLONE_SOURCE_VALIDATE_STARTED_AT"
             uclone_stage_end
             force_stop_package_users() {
               am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || {
@@ -2094,6 +2283,8 @@ object ShellScripts {
               SRC="${'$'}1"
               DST="${'$'}2"
               PART_NAME="${'$'}3"
+              BACKUP_SIZE_KB="${'$'}{4:-0}"
+              case "${'$'}BACKUP_SIZE_KB" in ''|*[!0-9]*) BACKUP_SIZE_KB=0 ;; esac
               mkdir -p "${'$'}ROLLBACK/.state" || exit 54
               if [ ! -d "${'$'}SRC" ]; then
                 printf '%s\n' "absent" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
@@ -2107,16 +2298,25 @@ object ShellScripts {
               fi
               rm -rf "${'$'}DST"
               mkdir -p "${'$'}DST" || exit 54
-              (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && tar -xopf -) || exit 55
-              BACKUP_ITEMS=${'$'}(count_items "${'$'}DST")
-              [ "${'$'}BACKUP_ITEMS" -gt 0 ] || { echo "ERR_BACKUP_EMPTY:${'$'}SRC" >&2; exit 63; }
+              UCLONE_UNDO_COPY_STARTED_AT=${'$'}(uclone_now_ms)
+              UCLONE_UNDO_COPY_EXIT=0
+              (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && tar -xopf -) || UCLONE_UNDO_COPY_EXIT=${'$'}?
+              uclone_perf_emit transaction_undo_copy "${'$'}PART_NAME" "${'$'}UCLONE_UNDO_COPY_STARTED_AT"
+              [ "${'$'}UCLONE_UNDO_COPY_EXIT" -eq 0 ] || exit 55
+              UCLONE_UNDO_VERIFY_STARTED_AT=${'$'}(uclone_now_ms)
+              if ! has_items "${'$'}DST"; then
+                uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_UNDO_VERIFY_STARTED_AT"
+                echo "ERR_BACKUP_EMPTY:${'$'}SRC" >&2
+                exit 63
+              fi
+              uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_UNDO_VERIFY_STARTED_AT"
+              BACKUP_ITEMS="${'$'}SRC_ITEMS"
               printf '%s\n' "data" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
               BACKUP_PARTS=${'$'}((BACKUP_PARTS + 1))
               UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
               UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + BACKUP_ITEMS))
-              BACKUP_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
               uclone_add_written_kb "${'$'}BACKUP_SIZE_KB"
-              uclone_record_temp_path "${'$'}DST"
+              uclone_record_temp_kb "${'$'}BACKUP_SIZE_KB"
               echo "BACKUP:${'$'}SRC ITEMS=${'$'}BACKUP_ITEMS"
             }
             validate_target_path() {
@@ -2159,8 +2359,13 @@ object ShellScripts {
               SEC_TARGET="${'$'}1"
               SEC_OWNER="${'$'}2"
               SEC_CONTEXT="${'$'}3"
+              SEC_PART="${'$'}{4:-all}"
+              UCLONE_OWNER_FIX_STARTED_AT=${'$'}(uclone_now_ms)
               if [ -n "${'$'}SEC_OWNER" ]; then
-                chown -hR "${'$'}SEC_OWNER" "${'$'}SEC_TARGET" || exit 59
+                if ! chown -hR "${'$'}SEC_OWNER" "${'$'}SEC_TARGET"; then
+                  uclone_perf_emit owner_fix "${'$'}SEC_PART" "${'$'}UCLONE_OWNER_FIX_STARTED_AT"
+                  exit 59
+                fi
                 OWNER_UID=${'$'}(echo "${'$'}SEC_OWNER" | cut -d: -f1)
                 case "${'$'}OWNER_UID" in
                   ''|*[!0-9]*) ;;
@@ -2172,11 +2377,16 @@ object ShellScripts {
                     ;;
                 esac
               fi
+              uclone_perf_emit owner_fix "${'$'}SEC_PART" "${'$'}UCLONE_OWNER_FIX_STARTED_AT"
+              UCLONE_SELINUX_FIX_STARTED_AT=${'$'}(uclone_now_ms)
+              UCLONE_SELINUX_FIX_EXIT=0
               if [ -n "${'$'}SEC_CONTEXT" ]; then
-                chcon -R -h "${'$'}SEC_CONTEXT" "${'$'}SEC_TARGET" >/dev/null 2>&1 || restorecon -RF "${'$'}SEC_TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}SEC_TARGET" >/dev/null 2>&1 || exit 60
+                chcon -R -h "${'$'}SEC_CONTEXT" "${'$'}SEC_TARGET" >/dev/null 2>&1 || restorecon -RF "${'$'}SEC_TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}SEC_TARGET" >/dev/null 2>&1 || UCLONE_SELINUX_FIX_EXIT=${'$'}?
               else
-                restorecon -RF "${'$'}SEC_TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}SEC_TARGET" >/dev/null 2>&1 || exit 60
+                restorecon -RF "${'$'}SEC_TARGET" >/dev/null 2>&1 || restorecon -R "${'$'}SEC_TARGET" >/dev/null 2>&1 || UCLONE_SELINUX_FIX_EXIT=${'$'}?
               fi
+              uclone_perf_emit selinux_fix "${'$'}SEC_PART" "${'$'}UCLONE_SELINUX_FIX_STARTED_AT"
+              [ "${'$'}UCLONE_SELINUX_FIX_EXIT" -eq 0 ] || exit 60
             }
             restore_part() {
               SNAP="${'$'}1"
@@ -2208,7 +2418,7 @@ object ShellScripts {
                   case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
                   TARGET_MUTATED=1
                   clear_target_contents "${'$'}TARGET"
-                  apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT"
+                  apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT" "${'$'}PART_NAME"
                   RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
                   echo "RESTORED_STATE:${'$'}PART_NAME state=empty target=${'$'}TARGET"
                   return 0
@@ -2222,7 +2432,13 @@ object ShellScripts {
                 echo "SKIP_PART:${'$'}SNAP"
                 return 0
               fi
-              PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED")
+              PREPARED_ITEMS=${'$'}(uclone_get_source_items "${'$'}PART_NAME")
+              case "${'$'}PREPARED_ITEMS" in
+                ''|*[!0-9]*)
+                  PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED")
+                  uclone_set_source_items "${'$'}PART_NAME" "${'$'}PREPARED_ITEMS"
+                  ;;
+              esac
               [ "${'$'}PREPARED_ITEMS" -gt 0 ] || { echo "ERR_PREPARED_PART_EMPTY:${'$'}PREPARED" >&2; exit 69; }
               SNAP_ITEMS="${'$'}PREPARED_ITEMS"
               TARGET_OWNER=${'$'}(target_owner_for "${'$'}TARGET" "${'$'}OWNER_UID" "${'$'}OWNER_KIND")
@@ -2236,26 +2452,39 @@ object ShellScripts {
               fi
               TARGET_MUTATED=1
               clear_target_contents "${'$'}TARGET"
-              (cd "${'$'}PREPARED" && tar -cpf - .) | (cd "${'$'}TARGET" && tar -xpf -) || exit 58
+              UCLONE_RESTORE_COPY_STARTED_AT=${'$'}(uclone_now_ms)
+              UCLONE_RESTORE_COPY_EXIT=0
+              (cd "${'$'}PREPARED" && tar -cpf - .) | (cd "${'$'}TARGET" && tar -xpf -) || UCLONE_RESTORE_COPY_EXIT=${'$'}?
+              uclone_perf_emit restore_copy "${'$'}PART_NAME" "${'$'}UCLONE_RESTORE_COPY_STARTED_AT"
+              [ "${'$'}UCLONE_RESTORE_COPY_EXIT" -eq 0 ] || exit 58
               ${if (directSourceExcludeCache) """
               case "${'$'}PART_NAME" in
                 ce|de) rm -rf "${'$'}TARGET/cache" "${'$'}TARGET/code_cache" 2>/dev/null || true ;;
               esac
               """.trimIndent() else ":"}
-              apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT"
-              TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET")
-              [ "${'$'}TARGET_ITEMS" -gt 0 ] || { echo "ERR_RESTORE_EMPTY:${'$'}TARGET" >&2; exit 65; }
+              apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT" "${'$'}PART_NAME"
+              UCLONE_RESTORE_VERIFY_STARTED_AT=${'$'}(uclone_now_ms)
+              if ! has_items "${'$'}TARGET"; then
+                uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_RESTORE_VERIFY_STARTED_AT"
+                echo "ERR_RESTORE_EMPTY:${'$'}TARGET" >&2
+                exit 65
+              fi
+              ${if (directSourceExcludeCache) """
+              case "${'$'}PART_NAME" in
+                ce|de) TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET") ;;
+                *) TARGET_ITEMS="${'$'}PREPARED_ITEMS" ;;
+              esac
+              """.trimIndent() else "TARGET_ITEMS=\"${'$'}PREPARED_ITEMS\""}
+              uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_RESTORE_VERIFY_STARTED_AT"
               RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
               RESTORED_ITEMS=${'$'}((RESTORED_ITEMS + TARGET_ITEMS))
               UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SNAP_ITEMS))
               UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + TARGET_ITEMS))
-              TARGET_SIZE_KB=${'$'}(du -sk "${'$'}TARGET" 2>/dev/null | awk '{print ${'$'}1}')
-              uclone_add_written_kb "${'$'}TARGET_SIZE_KB"
-              uclone_record_temp_path "${'$'}TARGET"
               echo "RESTORED:${'$'}TARGET ITEMS=${'$'}TARGET_ITEMS OWNER=${'$'}TARGET_OWNER CONTEXT=${'$'}TARGET_CONTEXT"
             }
             prune_old_rollbacks() {
               ROLLBACK_PARENT="${'$'}ROOT/rollback/${'$'}PKG"
+              SOURCE_ROLLBACK_ID_FOR_PRUNE=${shellQuote(if (sourceKind == RestoreSourceKind.ROLLBACK) sourceRollbackId.orEmpty() else "")}
               SWITCH_MARKER_FOR_PRUNE="${'$'}ROOT/switches/${'$'}PKG/active"
               SWITCH_ID_FOR_PRUNE=""
               if [ -f "${'$'}SWITCH_MARKER_FOR_PRUNE" ]; then
@@ -2266,6 +2495,7 @@ object ShellScripts {
               find "${'$'}ROLLBACK_PARENT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while IFS= read -r OLD; do
                 OLD_ID=${'$'}(basename "${'$'}OLD")
                 [ "${'$'}OLD_ID" = "${'$'}ROLLBACK_ID" ] && continue
+                [ -n "${'$'}SOURCE_ROLLBACK_ID_FOR_PRUNE" ] && [ "${'$'}OLD_ID" = "${'$'}SOURCE_ROLLBACK_ID_FOR_PRUNE" ] && continue
                 [ -n "${'$'}SWITCH_ID_FOR_PRUNE" ] && [ "${'$'}OLD_ID" = "${'$'}SWITCH_ID_FOR_PRUNE" ] && continue
                 case "${'$'}OLD_ID" in persistent_main|persistent_clone|persistent_main.previous|persistent_clone.previous) continue ;; esac
                 case "${'$'}OLD" in
@@ -2317,15 +2547,18 @@ object ShellScripts {
             ${when (rollbackProtection) {
                 RollbackProtection.FRESH -> """
             create_fresh_rollback_dir || exit ${'$'}?
-            ${if (restoreRule?.includeCe != false) "backup_dir \"/data/user/${'$'}DST_USER/${'$'}PKG\" \"${'$'}ROLLBACK/ce\" \"ce\"" else "printf '%s\\n' unselected > \"${'$'}ROLLBACK/.state/ce\" || exit 54"}
-            ${if (restoreRule?.includeDe != false) "backup_dir \"/data/user_de/${'$'}DST_USER/${'$'}PKG\" \"${'$'}ROLLBACK/de\" \"de\"" else "printf '%s\\n' unselected > \"${'$'}ROLLBACK/.state/de\" || exit 54"}
-            ${if (restoreRule?.includeExternal != false) "backup_dir \"/data/media/${'$'}DST_USER/Android/data/${'$'}PKG\" \"${'$'}ROLLBACK/external\" \"external\"" else "printf '%s\\n' unselected > \"${'$'}ROLLBACK/.state/external\" || exit 54"}
-            ${if (restoreRule?.includeMedia != false) "backup_dir \"/data/media/${'$'}DST_USER/Android/media/${'$'}PKG\" \"${'$'}ROLLBACK/media\" \"media\"" else "printf '%s\\n' unselected > \"${'$'}ROLLBACK/.state/media\" || exit 54"}
-            ${if (restoreRule?.includeObb != false) "backup_dir \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\" \"${'$'}ROLLBACK/obb\" \"obb\"" else "printf '%s\\n' unselected > \"${'$'}ROLLBACK/.state/obb\" || exit 54"}
+            ${if (restoreRule?.includeCe != false) "backup_dir \"/data/user/${'$'}DST_USER/${'$'}PKG\" \"${'$'}ROLLBACK/ce\" \"ce\" \"${'$'}RESTORE_TARGET_CE_KB\"" else "printf '%s\\n' unselected > \"${'$'}ROLLBACK/.state/ce\" || exit 54"}
+            ${if (restoreRule?.includeDe != false) "backup_dir \"/data/user_de/${'$'}DST_USER/${'$'}PKG\" \"${'$'}ROLLBACK/de\" \"de\" \"${'$'}RESTORE_TARGET_DE_KB\"" else "printf '%s\\n' unselected > \"${'$'}ROLLBACK/.state/de\" || exit 54"}
+            ${if (restoreRule?.includeExternal != false) "backup_dir \"/data/media/${'$'}DST_USER/Android/data/${'$'}PKG\" \"${'$'}ROLLBACK/external\" \"external\" \"${'$'}RESTORE_TARGET_EXTERNAL_KB\"" else "printf '%s\\n' unselected > \"${'$'}ROLLBACK/.state/external\" || exit 54"}
+            ${if (restoreRule?.includeMedia != false) "backup_dir \"/data/media/${'$'}DST_USER/Android/media/${'$'}PKG\" \"${'$'}ROLLBACK/media\" \"media\" \"${'$'}RESTORE_TARGET_MEDIA_KB\"" else "printf '%s\\n' unselected > \"${'$'}ROLLBACK/.state/media\" || exit 54"}
+            ${if (restoreRule?.includeObb != false) "backup_dir \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\" \"${'$'}ROLLBACK/obb\" \"obb\" \"${'$'}RESTORE_TARGET_OBB_KB\"" else "printf '%s\\n' unselected > \"${'$'}ROLLBACK/.state/obb\" || exit 54"}
             ${if (restorePermissions) "uclone_capture_permission_state \"${'$'}ROLLBACK/permissions\" \"${'$'}DST_USER\" || echo \"WARN_PERMISSION_CAPTURE_SKIPPED:${'$'}DST_USER\"" else ":"}
-            ROLLBACK_SIZE_KB=${'$'}(du -sk "${'$'}ROLLBACK" 2>/dev/null | awk '{print ${'$'}1}')
+            ROLLBACK_SIZE_KB="${'$'}RESTORE_TARGET_KB"
+            uclone_record_temp_kb "${'$'}ROLLBACK_SIZE_KB"
             printf '%s\n' "{\"packageName\":\"${'$'}PKG\",\"rollbackId\":\"${'$'}ROLLBACK_ID\",\"createdAt\":\"${'$'}TS\",\"reason\":\"$rollbackReason\",\"targetUser\":\"${'$'}DST_USER\",\"stateKind\":\"${'$'}CURRENT_TARGET_STATE\",\"backupKind\":\"transaction_undo\",\"sizeKb\":\"${'$'}ROLLBACK_SIZE_KB\"}" > "${'$'}ROLLBACK/manifest.json" || exit 53
+            UCLONE_DURABILITY_STARTED_AT=${'$'}(uclone_now_ms)
             sync
+            uclone_perf_emit durability_barrier transaction_undo "${'$'}UCLONE_DURABILITY_STARTED_AT"
             ROLLBACK_FINALIZED=1
             """.trimIndent()
                 RollbackProtection.EXISTING -> """
@@ -2361,6 +2594,7 @@ object ShellScripts {
             ${if (restoreRule?.includeExternal != false) "restore_part \"${'$'}ACTIVE/external\" \"/data/media/${'$'}DST_USER/Android/data/${'$'}PKG\" \"\" \"media\" \"external\"" else ":"}
             ${if (restoreRule?.includeMedia != false) "restore_part \"${'$'}ACTIVE/media\" \"/data/media/${'$'}DST_USER/Android/media/${'$'}PKG\" \"\" \"media\" \"media\"" else ":"}
             ${if (restoreRule?.includeObb != false) "restore_part \"${'$'}ACTIVE/obb\" \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\" \"\" \"media\" \"obb\"" else ":"}
+            uclone_add_written_kb "${'$'}RESTORE_SOURCE_KB"
             ${restoreCopyPassLabel?.let { "uclone_copy_pass_end ${shellQuote(it)}" } ?: ":"}
             uclone_stage_end
             uclone_stage_begin RESTORE_PERMISSIONS
@@ -2402,7 +2636,9 @@ object ShellScripts {
               fi
             fi
             """.trimIndent() else ":"}
+            UCLONE_DURABILITY_STARTED_AT=${'$'}(uclone_now_ms)
             sync
+            uclone_perf_emit durability_barrier commit "${'$'}UCLONE_DURABILITY_STARTED_AT"
             force_stop_package_users || exit 76
             UCLONE_READY_TO_COMMIT=1
             ${if (targetUserId == settings.mainUserId && rollbackRootName == "rollback") """

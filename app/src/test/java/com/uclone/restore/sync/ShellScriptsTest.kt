@@ -26,6 +26,7 @@ class ShellScriptsTest {
         val script = ShellScripts.storagePreflightScript()
 
         assertContains(script, "uclone_decimal_add()")
+        assertContains(script, "uclone_decimal_max()")
         assertContains(script, "awk -v LEFT=")
         assertFalse(script.contains("8000000000000"))
         assertFalse(script.contains("REQUIRED_KB\" -le"))
@@ -58,6 +59,22 @@ class ShellScriptsTest {
 
         assertEquals(0, process.waitFor(), output)
         assertContains(output, "SPACE_PREFLIGHT:push_source_and_clone_rollback requiredKb=3696214")
+    }
+
+    @Test
+    fun storagePreflightComputesPeakOfDirectSourceAndTargetInPosixShell() {
+        val result = runPosixShell(
+            """
+                set -u
+                ${ShellScripts.storagePreflightScript()}
+                echo SOURCE_LARGER=${'$'}(uclone_decimal_max 500 300)
+                echo TARGET_LARGER=${'$'}(uclone_decimal_max 300 500)
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.stderr)
+        assertContains(result.stdout, "SOURCE_LARGER=500")
+        assertContains(result.stdout, "TARGET_LARGER=500")
     }
 
     @Test
@@ -105,6 +122,18 @@ class ShellScriptsTest {
         }
         assertContains(restore, "target_downtime_ms=")
         assertContains(push, "target_downtime_ms=")
+        listOf(
+            "source_validate",
+            "source_materialize",
+            "transaction_undo_copy",
+            "restore_copy",
+            "owner_fix",
+            "selinux_fix",
+            "post_copy_verify",
+            "durability_barrier",
+        ).forEach { phase ->
+            assertContains(restore, "uclone_perf_emit $phase")
+        }
     }
 
     @Test
@@ -220,19 +249,256 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun restorePreparesAndValidatesSourceBeforeStoppingTarget() {
+    fun restoreValidatesDirectSourceBeforeStoppingTarget() {
         val script = ShellScripts.restore("com.example.app", settings, appPackage)
 
         val preflight = script.indexOf("uclone_require_space \"${'$'}RESTORE_REQUIRED_KB\"")
-        val prepared = script.indexOf("PREPARED_PARTS=${'$'}((PREPARED_PARTS + 1))")
+        val sourceValidated = script.indexOf("uclone_perf_emit source_validate all")
         val targetStop = script.indexOf("uclone_stage_begin TARGET_STOP")
         val rollback = script.indexOf("uclone_stage_begin ROLLBACK_BACKUP")
 
         assertTrue(preflight in 0 until targetStop)
-        assertTrue(prepared in 0 until targetStop)
+        assertTrue(sourceValidated in 0 until targetStop)
         assertTrue(targetStop < rollback)
-        assertContains(script, "PREPARED=\"${'$'}PREPARED_ROOT/${'$'}PART_NAME\"")
-        assertFalse(script.contains("ROOT/tmp/restore_${'$'}{PKG}_"))
+        assertContains(script, "PREPARED_ROOT=\"${'$'}ACTIVE\"")
+        assertFalse(script.contains("${'$'}ROOT/tmp/prepared_"))
+        assertFalse(script.contains("prepare_restore_part()"))
+    }
+
+    @Test
+    fun managedWorkspaceRestoresUseExactReadOnlySourcesWithoutPreparedCopies() {
+        val scripts = listOf(
+            ShellScripts.restore("com.example.app", settings, appPackage) to
+                "ACTIVE='/data/adb/uclone/snapshots/com.example.app/active'",
+            ShellScripts.rollback("com.example.app", "20260709-010203", settings, appPackage) to
+                "ACTIVE='/data/adb/uclone/rollback/com.example.app/20260709-010203'",
+            ShellScripts.restoreCloneRollback("com.example.app", settings, appPackage) to
+                "ACTIVE='/data/adb/uclone/clone_rollback/com.example.app/latest'",
+        )
+
+        scripts.forEach { (script, exactSource) ->
+            assertContains(script, exactSource)
+            assertContains(script, "PREPARED_ROOT=\"${'$'}ACTIVE\"")
+            assertContains(script, "uclone_decimal_max \"${'$'}RESTORE_SOURCE_KB\" \"${'$'}RESTORE_TARGET_KB\"")
+            assertFalse(script.contains("${'$'}ROOT/tmp/prepared_"))
+            assertFalse(script.contains("prepare_restore_part()"))
+            assertFalse(script.contains("SOURCE_STATE_FILE="))
+            assertFalse(script.contains("rm -rf \"${'$'}ACTIVE\""))
+            assertFalse(script.contains("mv \"${'$'}ACTIVE\""))
+        }
+    }
+
+    @Test
+    fun passiveBackupRestoreExcludesItsDirectSourceFromPostCommitPruning() {
+        val root = Files.createTempDirectory("uclone-prune-source-test")
+        val packageName = "com.example.app"
+        val sourceId = "20260709-010203"
+        val rollbackParent = Files.createDirectories(root.resolve("rollback/$packageName"))
+        Files.createDirectory(rollbackParent.resolve(sourceId))
+        Files.createDirectory(rollbackParent.resolve("rollback_new"))
+        Files.createDirectory(rollbackParent.resolve("stale"))
+        val generated = ShellScripts.rollback(
+            packageName,
+            sourceId,
+            settings.copy(rootDir = root.toString()),
+            appPackage,
+        )
+        val result = runPosixShell(
+            """
+                set -u
+                ROOT='${root.toAbsolutePath()}'
+                PKG='$packageName'
+                ROLLBACK_ID=rollback_new
+                UCLONE_UNKNOWN_STATE_MARKER=UNKNOWN
+                UCLONE_MAIN_STATE_MARKER=MAIN
+                write_switch_marker_atomic() { :; }
+                ${shellFunction(generated, "prune_old_rollbacks")}
+                prune_old_rollbacks
+                test -d '${rollbackParent.resolve(sourceId)}'
+                test -d '${rollbackParent.resolve("rollback_new")}'
+                test ! -e '${rollbackParent.resolve("stale")}'
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.stderr)
+    }
+
+    @Test
+    fun directManagedRestoreKeepsFreshUndoAndAvoidsRedundantTreeScans() {
+        val script = ShellScripts.restore("com.example.app", settings, appPackage)
+        val createUndo = script.lastIndexOf("create_fresh_rollback_dir || exit")
+        val restoreData = script.lastIndexOf("uclone_stage_begin RESTORE_DATA")
+
+        assertTrue(createUndo in 0 until restoreData)
+        assertContains(script, "ROLLBACK_READY=1")
+        assertContains(script, "BACKUP_ITEMS=\"${'$'}SRC_ITEMS\"")
+        assertContains(script, "has_items()")
+        assertContains(script, "for RESTORE_SOURCE_PART in ce de external media obb; do")
+        assertContains(script, "uclone_validate_direct_source \"${'$'}ACTIVE\" \"managed\" ce de external media obb")
+        assertContains(script, "uclone_read_size_hint \"${'$'}ACTIVE\" \"${'$'}RESTORE_SOURCE_PART\"")
+        assertContains(script, "RESTORE_SOURCE_SIZE_SCAN:")
+        assertFalse(script.contains("uclone_manifest_size_kb"))
+        assertContains(script, "uclone_decimal_max \"${'$'}RESTORE_SOURCE_KB\" \"${'$'}RESTORE_TARGET_KB\"")
+        assertContains(script, "uclone_record_temp_kb \"${'$'}ROLLBACK_SIZE_KB\"")
+        assertFalse(script.contains("BACKUP_ITEMS=${'$'}(count_items \"${'$'}DST\")"))
+        assertFalse(script.contains("BACKUP_SIZE_KB=${'$'}(du -sk \"${'$'}DST\")"))
+        assertFalse(script.contains("ROLLBACK_SIZE_KB=${'$'}(du -sk \"${'$'}ROLLBACK\")"))
+        assertFalse(script.contains("TARGET_SIZE_KB"))
+        assertFalse(script.contains("uclone_record_temp_path \"${'$'}TARGET\""))
+    }
+
+    @Test
+    fun completedManagedBackupsWritePerPartSizeHintsButTransactionUndoDoesNot() {
+        val rule = AppRule(packageName = "com.example.app")
+        val capture = ShellScripts.capture("com.example.app", rule, settings, appPackage)
+        val mainReturn = ShellScripts.updateMainReturnPoint("com.example.app", settings, appPackage)
+        val push = ShellScripts.pushMainToClone("com.example.app", rule, settings, appPackage)
+        val restore = ShellScripts.restore("com.example.app", settings, appPackage)
+
+        assertContains(capture, "uclone_write_size_hint \"${'$'}TRY_TMP\"")
+        assertContains(capture, "PART_SIZE_KB=${'$'}(uclone_dir_kb_strict \"${'$'}DST\") || exit 18")
+        assertContains(mainReturn, "uclone_write_size_hint \"${'$'}TMP\" \"${'$'}PART_NAME\"")
+        assertContains(mainReturn, "PART_SIZE_KB=${'$'}(uclone_dir_kb_strict \"${'$'}DST\") || exit 53")
+        assertContains(push, "uclone_write_size_hint \"${'$'}ROLLBACK_TMP\" \"${'$'}PART_NAME\"")
+        assertContains(push, "BACKUP_SIZE_KB=${'$'}(uclone_dir_kb_strict \"${'$'}DST\") || exit 53")
+        assertFalse(restore.contains("uclone_write_size_hint \"${'$'}ROLLBACK\""))
+    }
+
+    @Test
+    fun liveSwitchWithCacheExclusionOnlyRecountsCeAndDeTargets() {
+        val switchScript = ShellScripts.switchFromCloneLatest(
+            "com.example.app",
+            AppRule(packageName = "com.example.app", excludeCache = true),
+            settings,
+            appPackage,
+        )
+        val managedRestore = ShellScripts.restore("com.example.app", settings, appPackage)
+        val recount = "ce|de) TARGET_ITEMS=${'$'}(count_items \"${'$'}TARGET\")"
+
+        assertContains(switchScript, recount)
+        assertContains(switchScript, "uclone_validate_direct_source \"${'$'}ACTIVE\" \"live\"")
+        assertFalse(managedRestore.contains(recount))
+    }
+
+    @Test
+    fun performanceMarkerRunsInPosixShell() {
+        val result = runPosixShell(
+            """
+                set -u
+                ${ShellScripts.metricsScript()}
+                uclone_now_ms() { echo 1250; }
+                uclone_perf_emit restore_copy ce 1000
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.stderr)
+        assertContains(
+            result.stdout,
+            "UCLONE_PERF:phase=restore_copy part=ce started_at=1000 finished_at=1250 duration_ms=250",
+        )
+    }
+
+    @Test
+    fun directRestoreHelpersProbeNonEmptyAndUseStrictPerPartSizeHintsInPosixShell() {
+        val generated = ShellScripts.restore("com.example.app", settings, appPackage)
+        val root = Files.createTempDirectory("uclone-restore-helper-test")
+        val empty = Files.createDirectory(root.resolve("empty"))
+        val nonEmpty = Files.createDirectory(root.resolve("non-empty"))
+        Files.write(nonEmpty.resolve("payload"), byteArrayOf(1))
+        val hintRoot = Files.createDirectory(root.resolve("hint-root"))
+        val malformedHintRoot = Files.createDirectories(root.resolve("malformed-hint/.size_kb"))
+        Files.write(malformedHintRoot.resolve("ce"), "1e9\n".toByteArray())
+        val multilineHintRoot = Files.createDirectories(root.resolve("multiline-hint/.size_kb"))
+        Files.write(multilineHintRoot.resolve("ce"), "1\n2\n".toByteArray())
+        val zeroHintRoot = Files.createDirectories(root.resolve("zero-hint/.size_kb"))
+        Files.write(zeroHintRoot.resolve("ce"), "0\n".toByteArray())
+        val jsonOnlyRoot = Files.createDirectory(root.resolve("json-only"))
+        Files.write(jsonOnlyRoot.resolve("manifest.json"), "{\"sizeKb\":1}\n".toByteArray())
+        val symlinkHintRoot = Files.createDirectories(root.resolve("symlink-hint/.size_kb"))
+        val symlinkHintTarget = Files.write(root.resolve("symlink-hint-value"), "9\n".toByteArray())
+        Files.createSymbolicLink(symlinkHintRoot.resolve("ce"), symlinkHintTarget)
+        val symlinkHintParentRoot = Files.createDirectory(root.resolve("symlink-hint-parent"))
+        val symlinkHintParentTarget = Files.createDirectory(root.resolve("symlink-hint-parent-target"))
+        Files.write(symlinkHintParentTarget.resolve("ce"), "7\n".toByteArray())
+        Files.createSymbolicLink(symlinkHintParentRoot.resolve(".size_kb"), symlinkHintParentTarget)
+        val liveSource = Files.createDirectory(root.resolve("live-source"))
+        Files.write(liveSource.resolve("payload"), ByteArray(1024))
+        val liveLink = Files.createSymbolicLink(root.resolve("live-link"), liveSource)
+        val managedRoot = Files.createDirectory(root.resolve("managed-root"))
+        Files.createSymbolicLink(managedRoot.resolve("ce"), liveSource)
+        val linkedManagedRoot = Files.createSymbolicLink(root.resolve("linked-managed-root"), managedRoot)
+        val managedRegularRoot = Files.createDirectory(root.resolve("managed-regular-root"))
+        Files.createDirectory(managedRegularRoot.resolve("ce"))
+        val missingPartRoot = Files.createDirectory(root.resolve("missing-part-root"))
+        val managedFileRoot = Files.createDirectory(root.resolve("managed-file-root"))
+        Files.write(managedFileRoot.resolve("ce"), byteArrayOf(1))
+        val preflight = ShellScripts.storagePreflightScript()
+        val result = runPosixShell(
+            """
+                set -u
+                ${shellFunction(generated, "has_items")}
+                ${shellFunction(preflight, "uclone_dir_kb_strict")}
+                ${shellFunction(preflight, "uclone_live_source_dir_kb_strict")}
+                ${shellFunction(preflight, "uclone_validate_direct_source")}
+                ${shellFunction(preflight, "uclone_read_size_hint")}
+                ${shellFunction(preflight, "uclone_write_size_hint")}
+                if has_items '${empty.toAbsolutePath()}'; then echo HAS_EMPTY=1; else echo HAS_EMPTY=0; fi
+                if has_items '${nonEmpty.toAbsolutePath()}'; then echo HAS_NON_EMPTY=1; else echo HAS_NON_EMPTY=0; fi
+                uclone_write_size_hint '${hintRoot.toAbsolutePath()}' ce 123
+                echo HINT=${'$'}(uclone_read_size_hint '${hintRoot.toAbsolutePath()}' ce)
+                if uclone_read_size_hint '${malformedHintRoot.parent.toAbsolutePath()}' ce >/dev/null; then echo MALFORMED=accepted; else echo MALFORMED=rejected; fi
+                if uclone_read_size_hint '${multilineHintRoot.parent.toAbsolutePath()}' ce >/dev/null; then echo MULTILINE=accepted; else echo MULTILINE=rejected; fi
+                if uclone_read_size_hint '${zeroHintRoot.parent.toAbsolutePath()}' ce >/dev/null; then echo ZERO=accepted; else echo ZERO=rejected; fi
+                if uclone_read_size_hint '${jsonOnlyRoot.toAbsolutePath()}' ce >/dev/null; then echo JSON_ONLY=accepted; else echo JSON_ONLY=rejected; fi
+                if uclone_read_size_hint '${symlinkHintRoot.parent.toAbsolutePath()}' ce >/dev/null; then echo SYMLINK_HINT=accepted; else echo SYMLINK_HINT=rejected; fi
+                if uclone_read_size_hint '${symlinkHintParentRoot.toAbsolutePath()}' ce >/dev/null; then echo SYMLINK_HINT_PARENT=accepted; else echo SYMLINK_HINT_PARENT=rejected; fi
+                LIVE_SOURCE_KB=${'$'}(uclone_live_source_dir_kb_strict '${liveLink.toAbsolutePath()}')
+                case "${'$'}LIVE_SOURCE_KB" in ''|0|*[!0-9]*) exit 91 ;; esac
+                echo LIVE_SOURCE_KB=${'$'}LIVE_SOURCE_KB
+                if uclone_validate_direct_source '${linkedManagedRoot.toAbsolutePath()}' managed ce; then echo MANAGED_ROOT_LINK=accepted; else echo MANAGED_ROOT_LINK=rejected; fi
+                if uclone_validate_direct_source '${managedRoot.toAbsolutePath()}' managed ce; then echo MANAGED_PART_LINK=accepted; else echo MANAGED_PART_LINK=rejected; fi
+                if uclone_validate_direct_source '${managedRoot.toAbsolutePath()}' live ce; then echo LIVE_PART_LINK=accepted; else echo LIVE_PART_LINK=rejected; fi
+                if uclone_validate_direct_source '${managedRegularRoot.toAbsolutePath()}' managed ce; then echo MANAGED_REGULAR=accepted; else echo MANAGED_REGULAR=rejected; fi
+                if uclone_validate_direct_source '${missingPartRoot.toAbsolutePath()}' managed ce; then echo MANAGED_MISSING=accepted; else echo MANAGED_MISSING=rejected; fi
+                if uclone_validate_direct_source '${missingPartRoot.toAbsolutePath()}' live ce; then echo LIVE_MISSING=accepted; else echo LIVE_MISSING=rejected; fi
+                if uclone_validate_direct_source '${managedFileRoot.toAbsolutePath()}' managed ce; then echo MANAGED_PART_FILE=accepted; else echo MANAGED_PART_FILE=rejected; fi
+                if uclone_validate_direct_source '${managedFileRoot.toAbsolutePath()}' live ce; then echo LIVE_PART_FILE=accepted; else echo LIVE_PART_FILE=rejected; fi
+                du() { return 1; }
+                if uclone_dir_kb_strict '${nonEmpty.toAbsolutePath()}' >/dev/null; then
+                  echo STRICT_DU_FAILURE=accepted
+                else
+                  echo STRICT_DU_FAILURE=rejected
+                fi
+                du() { echo "4 ${nonEmpty.toAbsolutePath()}"; return 1; }
+                if uclone_dir_kb_strict '${nonEmpty.toAbsolutePath()}' >/dev/null; then
+                  echo STRICT_DU_PARTIAL_FAILURE=accepted
+                else
+                  echo STRICT_DU_PARTIAL_FAILURE=rejected
+                fi
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, result.stderr)
+        assertContains(result.stdout, "HAS_EMPTY=0")
+        assertContains(result.stdout, "HAS_NON_EMPTY=1")
+        assertContains(result.stdout, "HINT=123")
+        assertContains(result.stdout, "MALFORMED=rejected")
+        assertContains(result.stdout, "MULTILINE=rejected")
+        assertContains(result.stdout, "ZERO=rejected")
+        assertContains(result.stdout, "JSON_ONLY=rejected")
+        assertContains(result.stdout, "SYMLINK_HINT=rejected")
+        assertContains(result.stdout, "SYMLINK_HINT_PARENT=rejected")
+        assertContains(result.stdout, "LIVE_SOURCE_KB=")
+        assertContains(result.stdout, "MANAGED_ROOT_LINK=rejected")
+        assertContains(result.stdout, "MANAGED_PART_LINK=rejected")
+        assertContains(result.stdout, "LIVE_PART_LINK=accepted")
+        assertContains(result.stdout, "MANAGED_REGULAR=accepted")
+        assertContains(result.stdout, "MANAGED_MISSING=accepted")
+        assertContains(result.stdout, "LIVE_MISSING=accepted")
+        assertContains(result.stdout, "MANAGED_PART_FILE=rejected")
+        assertContains(result.stdout, "LIVE_PART_FILE=rejected")
+        assertContains(result.stdout, "STRICT_DU_FAILURE=rejected")
+        assertContains(result.stdout, "STRICT_DU_PARTIAL_FAILURE=rejected")
     }
 
     @Test
@@ -832,5 +1098,23 @@ class ShellScriptsTest {
         return StopScriptResult(process.waitFor(), output)
     }
 
+    private fun runPosixShell(script: String): PosixShellResult {
+        val process = ProcessBuilder("/bin/sh").start()
+        process.outputStream.bufferedWriter().use { it.write(script) }
+        val stdout = process.inputStream.bufferedReader().readText()
+        val stderr = process.errorStream.bufferedReader().readText()
+        return PosixShellResult(process.waitFor(), stdout, stderr)
+    }
+
+    private fun shellFunction(script: String, name: String): String = checkNotNull(
+        Regex("(?ms)^[ \\t]*${Regex.escape(name)}\\(\\) \\{\\n.*?^[ \\t]*\\}").find(script)?.value,
+    ) { "Missing shell function: $name" }
+
     private data class StopScriptResult(val exitCode: Int, val output: String)
+
+    private data class PosixShellResult(
+        val exitCode: Int,
+        val stdout: String,
+        val stderr: String,
+    )
 }

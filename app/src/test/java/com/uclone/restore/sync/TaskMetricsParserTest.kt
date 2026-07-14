@@ -21,4 +21,22 @@ class TaskMetricsParserTest {
         assertEquals(4096, metrics.peakTemporaryBytes)
         assertEquals(500, metrics.targetDowntimeMs)
     }
+
+    @Test
+    fun fineGrainedPerformanceLinesDoNotChangePersistedTaskMetrics() {
+        val metrics = TaskMetricsParser.parse(
+            output = """
+                UCLONE_PERF:phase=restore_copy part=ce started_at=1000 finished_at=1250 duration_ms=250
+                UCLONE_METRIC:scanned_files=10 copied_files=8 copied_bytes=1024 peak_temporary_bytes=4096 target_downtime_ms=500
+            """.trimIndent(),
+            rootProcessStarts = 1,
+            rootCommandCount = 1,
+        )
+
+        assertEquals(10, metrics.scannedFiles)
+        assertEquals(8, metrics.copiedFiles)
+        assertEquals(1024, metrics.copiedBytes)
+        assertEquals(4096, metrics.peakTemporaryBytes)
+        assertEquals(500, metrics.targetDowntimeMs)
+    }
 }

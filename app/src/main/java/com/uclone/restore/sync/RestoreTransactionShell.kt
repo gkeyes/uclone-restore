@@ -58,7 +58,7 @@ internal object RestoreTransactionShell {
           if [ "${'$'}RB_STATE" = "data" ]; then
             (cd "${'$'}RB_SRC" && tar -cpf - .) | (cd "${'$'}RB_TARGET" && tar -xpf -) || return 1
           fi
-          apply_target_security "${'$'}RB_TARGET" "${'$'}RB_OWNER" "${'$'}RB_CONTEXT"
+          apply_target_security "${'$'}RB_TARGET" "${'$'}RB_OWNER" "${'$'}RB_CONTEXT" "${'$'}RB_NAME"
           echo "AUTO_ROLLBACK_PART:${'$'}RB_TARGET"
         }
         auto_rollback_target() {
@@ -71,7 +71,9 @@ internal object RestoreTransactionShell {
           ${if (restoreObb) "(restore_rollback_part \"${'$'}ROLLBACK/obb\" \"/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG\" \"media\" \"obb\") || return 1" else ":"}
           ${if (includePermissions) "(uclone_restore_permission_state \"${'$'}ROLLBACK/permissions\" \"${'$'}DST_USER\") || return 1" else ":"}
           ${if (manageSwitchMarker) "restore_previous_switch_marker || return 1" else ":"}
+          UCLONE_DURABILITY_STARTED_AT=${'$'}(uclone_now_ms)
           sync
+          uclone_perf_emit durability_barrier auto_rollback "${'$'}UCLONE_DURABILITY_STARTED_AT"
           force_stop_package_users || return 1
           return 0
         }

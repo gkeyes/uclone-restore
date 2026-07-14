@@ -15,3 +15,5 @@
 | Upgrade | signed overwrite installation from stable 0.2 |
 
 Each new vertical slice must identify the cells it changes and record both GitHub Action evidence and target-phone evidence in its change report. Host tests may preserve a captured device contract but cannot satisfy the device column.
+
+Restore-path performance changes must also complete `docs/RESTORE_PERFORMANCE_ACCEPTANCE.md`; a faster run cannot override any failed correctness cell in this matrix.
