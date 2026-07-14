@@ -1,6 +1,8 @@
 package com.uclone.restore.ui
 
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -43,6 +45,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.animation.core.animateDpAsState
@@ -53,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -69,6 +73,8 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.core.graphics.drawable.toBitmap
 import com.uclone.restore.model.RiskLevel
 import com.uclone.restore.model.StepStatus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal val LocalBottomBarContentPadding = staticCompositionLocalOf { 16.dp }
 
@@ -232,12 +238,18 @@ fun StepIcon(status: StepStatus) {
 
 @Composable
 fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val bitmap = remember(packageName) {
-        runCatching {
-            context.packageManager.getApplicationIcon(packageName).toBitmap(96, 96).asImageBitmap()
-        }.getOrNull()
+    val packageManager = LocalContext.current.applicationContext.packageManager
+    val loadedState = produceState<LoadedAppIcon?>(
+        initialValue = null,
+        packageName,
+        packageManager,
+    ) {
+        value = null
+        value = AppIconCache.load(packageManager, packageName)?.let { LoadedAppIcon(packageName, it) }
     }
+    val bitmap = loadedState.value
+        ?.takeIf { shouldDisplayAppIcon(packageName, it.packageName) }
+        ?.bitmap
     if (bitmap == null) {
         Box(
             modifier
@@ -254,6 +266,33 @@ fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
             modifier = modifier.size(40.dp).clip(RoundedCornerShape(11.dp)),
         )
     }
+}
+
+internal fun shouldDisplayAppIcon(requestedPackageName: String, loadedPackageName: String?): Boolean =
+    requestedPackageName == loadedPackageName
+
+private data class LoadedAppIcon(
+    val packageName: String,
+    val bitmap: ImageBitmap,
+)
+
+private object AppIconCache {
+    private const val MAX_CACHE_KB = 4 * 1024
+    private val bitmaps = object : LruCache<String, Bitmap>(MAX_CACHE_KB) {
+        override fun sizeOf(key: String, value: Bitmap): Int =
+            maxOf(1, value.allocationByteCount / 1024)
+    }
+
+    suspend fun load(packageManager: PackageManager, packageName: String): ImageBitmap? = withContext(Dispatchers.IO) {
+        val cacheKey = "$packageName:${packageManager.lastUpdateTime(packageName)}"
+        bitmaps.get(cacheKey)?.asImageBitmap() ?: runCatching {
+            packageManager.getApplicationIcon(packageName).toBitmap(96, 96)
+        }.getOrNull()?.also { bitmaps.put(cacheKey, it) }?.asImageBitmap()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun PackageManager.lastUpdateTime(packageName: String): Long =
+        runCatching { getPackageInfo(packageName, 0).lastUpdateTime }.getOrDefault(0L)
 }
 
 @Composable

@@ -3,6 +3,7 @@ package com.uclone.restore.sync
 import com.uclone.restore.model.AppRule
 import com.uclone.restore.model.CloneReturnPlan
 import com.uclone.restore.model.CrossUserInstallMode
+import com.uclone.restore.model.EnvironmentStatus
 import com.uclone.restore.model.RestoreBackupEntry
 import com.uclone.restore.model.StepStatus
 import com.uclone.restore.model.TaskProgress
@@ -31,6 +32,11 @@ class SyncEngine(
     private val appPackage: String,
 ) {
     suspend fun checkEnvironment(settings: UCloneSettings) = environmentChecker.check(settings)
+
+    suspend fun refreshCloneEnvironment(
+        settings: UCloneSettings,
+        current: EnvironmentStatus?,
+    ) = environmentChecker.refreshCloneState(settings, current)
 
     suspend fun scanWorkspaceOwnership(
         settings: UCloneSettings,

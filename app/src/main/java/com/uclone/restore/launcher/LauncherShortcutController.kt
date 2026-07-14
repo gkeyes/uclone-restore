@@ -40,30 +40,57 @@ data class LauncherShortcutRequest(
 internal fun isTrustedLauncherShortcutToken(providedToken: String?, expectedToken: String): Boolean =
     !providedToken.isNullOrBlank() && expectedToken.isNotBlank() && providedToken == expectedToken
 
+internal data class FavoriteShortcutSignature(
+    val packageName: String,
+    val label: String,
+    val actionLabel: String,
+    val iconVersion: Long = 0,
+)
+
+internal fun favoriteShortcutId(packageName: String): String = "favorite_toggle_$packageName"
+
+internal fun shouldUpdateFavoriteShortcuts(
+    previous: List<FavoriteShortcutSignature>?,
+    current: List<FavoriteShortcutSignature>,
+    actualShortcutIds: Set<String>?,
+): Boolean {
+    val expectedShortcutIds = current.mapTo(mutableSetOf()) { favoriteShortcutId(it.packageName) }
+    if (current.isEmpty() && actualShortcutIds?.isEmpty() == true) return false
+    return previous != current || actualShortcutIds == null || actualShortcutIds != expectedShortcutIds
+}
+
 class LauncherShortcutController(private val context: Context) {
+    private var lastAppliedSignature: List<FavoriteShortcutSignature>? = null
+
     private val shortcutManager: ShortcutManager?
         get() = context.getSystemService(ShortcutManager::class.java)
 
     fun updateFavoriteShortcuts(entries: List<FavoriteShortcutEntry>) {
         val manager = shortcutManager ?: return
         val maxCount = manager.maxShortcutCountPerActivity.coerceAtMost(MAX_FAVORITE_SHORTCUTS)
-        if (maxCount <= 0 || entries.isEmpty()) {
+        val visibleEntries = entries.take(maxCount.coerceAtLeast(0))
+        val signature = visibleEntries.map { it.signature() }
+        val actualShortcutIds = if (lastAppliedSignature == signature || signature.isEmpty()) {
+            runCatching { manager.dynamicShortcuts.mapTo(mutableSetOf(), ShortcutInfo::getId) }.getOrNull()
+        } else {
+            null
+        }
+        if (!shouldUpdateFavoriteShortcuts(lastAppliedSignature, signature, actualShortcutIds)) return
+        if (visibleEntries.isEmpty()) {
             manager.removeAllDynamicShortcuts()
+            lastAppliedSignature = emptyList()
             return
         }
-        val shortcuts = entries
-            .take(maxCount)
+        val shortcuts = visibleEntries
             .mapIndexed { index, entry -> entry.toShortcut(index) }
-        manager.setDynamicShortcuts(shortcuts)
+        if (manager.setDynamicShortcuts(shortcuts)) {
+            lastAppliedSignature = signature
+        }
     }
 
     private fun FavoriteShortcutEntry.toShortcut(rank: Int): ShortcutInfo {
-        val actionLabel = when (dataState) {
-            AppDataState.Main -> "切换"
-            is AppDataState.Clone -> "还原"
-            AppDataState.Unknown -> "检查状态"
-        }
-        return ShortcutInfo.Builder(context, shortcutId(packageName))
+        val actionLabel = actionLabel()
+        return ShortcutInfo.Builder(context, favoriteShortcutId(packageName))
             .setShortLabel(compactLabel("$actionLabel $label"))
             .setLongLabel("$actionLabel $label")
             .setIcon(shortcutIcon())
@@ -82,7 +109,18 @@ class LauncherShortcutController(private val context: Context) {
     private fun compactLabel(value: String): String =
         if (value.length <= SHORT_LABEL_MAX) value else value.take(SHORT_LABEL_MAX - 1) + "…"
 
-    private fun shortcutId(packageName: String): String = "favorite_toggle_$packageName"
+    private fun FavoriteShortcutEntry.actionLabel(): String = when (dataState) {
+        AppDataState.Main -> "切换"
+        is AppDataState.Clone -> "还原"
+        AppDataState.Unknown -> "检查状态"
+    }
+
+    private fun FavoriteShortcutEntry.signature(): FavoriteShortcutSignature =
+        FavoriteShortcutSignature(packageName, label, actionLabel(), packageLastUpdateTime(packageName))
+
+    @Suppress("DEPRECATION")
+    private fun packageLastUpdateTime(packageName: String): Long =
+        runCatching { context.packageManager.getPackageInfo(packageName, 0).lastUpdateTime }.getOrDefault(0L)
 
     fun shortcutToken(): String =
         context.getSharedPreferences("uclone_settings", Context.MODE_PRIVATE)

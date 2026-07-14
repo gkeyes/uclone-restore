@@ -83,7 +83,7 @@ class ExternalActionService : Service() {
         }
         scope.launch {
             try {
-                executeAccepted(request, settings)
+                executeAccepted(request, settings, notifier)
             } finally {
                 synchronized(lifecycleLock) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -104,9 +104,9 @@ class ExternalActionService : Service() {
     private suspend fun executeAccepted(
         request: ExternalActionRequest,
         settings: com.uclone.restore.model.UCloneSettings,
+        notifier: ExternalActionNotifier,
     ) {
         val container = (application as UCloneApplication).container
-        val notifier = ExternalActionNotifier(this)
         broadcastStatus(request, ExternalActionContract.STATUS_ACCEPTED, "任务已接收")
         notifier.notifyAccepted(request.packageName, request.operation, "任务已接收")
         Log.i(TAG, "accepted operation=${request.operation} package=${request.packageName} request=${request.requestId}")

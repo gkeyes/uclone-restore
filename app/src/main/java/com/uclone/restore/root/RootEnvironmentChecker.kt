@@ -47,6 +47,22 @@ class RootEnvironmentChecker(private val shell: RootShellExecutor) {
         )
     }
 
+    suspend fun refreshCloneState(
+        settings: UCloneSettings,
+        current: EnvironmentStatus?,
+    ): EnvironmentStatus {
+        if (current == null || !current.user10Present) return check(settings)
+        val result = shell.exec(
+            "am get-started-user-state ${settings.cloneUserId}",
+            timeoutSeconds = 20,
+        )
+        val raw = result.stdout.trim().ifBlank { result.stderr.trim().ifBlank { "未知" } }
+        return current.copy(
+            user10State = raw,
+            user10CeState = User10CeState.fromRaw(raw, current.user10Present),
+        )
+    }
+
     private suspend fun probeBasePath(path: String): CheckResult {
         val quoted = shellQuote(path)
         val result = shell.exec(

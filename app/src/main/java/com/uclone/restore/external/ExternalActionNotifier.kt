@@ -11,11 +11,36 @@ import androidx.core.app.NotificationCompat
 import com.uclone.restore.MainActivity
 import com.uclone.restore.R
 
+internal data class RunningNotificationKey(
+    val packageName: String?,
+    val operation: String?,
+    val message: String,
+)
+
+internal class RunningNotificationGate {
+    private var lastPublished: RunningNotificationKey? = null
+
+    fun shouldPublish(key: RunningNotificationKey): Boolean = key != lastPublished
+
+    fun markPublished(key: RunningNotificationKey) {
+        lastPublished = key
+    }
+
+    fun reset() {
+        lastPublished = null
+    }
+}
+
 class ExternalActionNotifier(private val context: Context) {
     fun running(packageName: String?, operation: String?, message: String): Notification {
+        val key = RunningNotificationKey(packageName, operation, message)
+        return buildRunning(key).also { runningGate.markPublished(key) }
+    }
+
+    private fun buildRunning(key: RunningNotificationKey): Notification {
         ensureChannels()
-        return builder(RUNNING_CHANNEL_ID, operation)
-            .setContentText("${displayName(packageName)}：$message")
+        return builder(RUNNING_CHANNEL_ID, key.operation)
+            .setContentText("${displayName(key.packageName)}：${key.message}")
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
@@ -27,11 +52,16 @@ class ExternalActionNotifier(private val context: Context) {
     }
 
     fun clearRunning() {
+        runningGate.reset()
         manager.cancel(RUNNING_NOTIFICATION_ID)
     }
 
     fun updateRunning(packageName: String?, operation: String?, message: String) {
-        manager.notify(RUNNING_NOTIFICATION_ID, running(packageName, operation, message))
+        val key = RunningNotificationKey(packageName, operation, message)
+        if (!runningGate.shouldPublish(key)) return
+        val notification = buildRunning(key)
+        manager.notify(RUNNING_NOTIFICATION_ID, notification)
+        runningGate.markPublished(key)
     }
 
     fun notifyAccepted(packageName: String?, operation: String?, message: String) {
@@ -78,10 +108,14 @@ class ExternalActionNotifier(private val context: Context) {
 
     private fun displayName(packageName: String?): String {
         val target = packageName?.takeIf(String::isNotBlank) ?: return "目标 App"
+        if (target == cachedDisplayNamePackage) return cachedDisplayName ?: target
         return runCatching {
             val info = context.packageManager.getApplicationInfo(target, 0)
             context.packageManager.getApplicationLabel(info).toString().takeIf(String::isNotBlank)
-        }.getOrNull() ?: target
+        }.getOrNull().orEmpty().ifBlank { target }.also {
+            cachedDisplayNamePackage = target
+            cachedDisplayName = it
+        }
     }
 
     private fun operationLabel(operation: String?): String = when (operation) {
@@ -124,6 +158,10 @@ class ExternalActionNotifier(private val context: Context) {
 
     private val manager: NotificationManager
         get() = context.getSystemService(NotificationManager::class.java)
+
+    private val runningGate = RunningNotificationGate()
+    private var cachedDisplayNamePackage: String? = null
+    private var cachedDisplayName: String? = null
 
     private companion object {
         const val RUNNING_CHANNEL_ID = "uclone_external_actions"

@@ -176,6 +176,33 @@ internal fun workspaceIndexScript(rootDir: String): String = """
     MAIN_SWITCH_MARKER=${shellQuote(MAIN_SWITCH_MARKER)}
     [ -d "${'$'}ROOT" ] && [ ! -L "${'$'}ROOT" ] || { echo "ERR_WORKSPACE_INDEX_ROOT:${'$'}ROOT" >&2; exit 2; }
 
+    manifest_size_kb() {
+      MSK_BYTES=${'$'}(wc -c < "${'$'}1" 2>/dev/null | awk '{print ${'$'}1}') || return 1
+      case "${'$'}MSK_BYTES" in ''|*[!0-9]*) return 1 ;; esac
+      [ "${'$'}MSK_BYTES" -gt 0 ] && [ "${'$'}MSK_BYTES" -le 16384 ] || return 1
+      MSK_NULS=${'$'}(LC_ALL=C tr -cd '\000' < "${'$'}1" | wc -c | awk '{print ${'$'}1}') || return 1
+      [ "${'$'}MSK_NULS" -eq 0 ] || return 1
+      MSK_NEWLINES=${'$'}(LC_ALL=C tr -cd '\n' < "${'$'}1" | wc -c | awk '{print ${'$'}1}') || return 1
+      [ "${'$'}MSK_NEWLINES" -le 1 ] || return 1
+      MSK_JSON=${'$'}(cat "${'$'}1" 2>/dev/null) || return 1
+      MSK_LINES=${'$'}(printf '%s\n' "${'$'}MSK_JSON" | awk 'END { print NR }')
+      [ "${'$'}MSK_LINES" -eq 1 ] || return 1
+      if printf '%s\n' "${'$'}MSK_JSON" | grep -q '[[:cntrl:]]'; then return 1; fi
+      case "${'$'}MSK_JSON" in *'\'*) return 1 ;; esac
+      printf '%s\n' "${'$'}MSK_JSON" | grep -Eq '^[[:space:]]*\{[[:space:]]*"[^"]+"[[:space:]]*:[[:space:]]*("[^"]*"|0|[1-9][0-9]*|true|false|null)([[:space:]]*,[[:space:]]*"[^"]+"[[:space:]]*:[[:space:]]*("[^"]*"|0|[1-9][0-9]*|true|false|null))*[[:space:]]*\}[[:space:]]*${'$'}' || return 1
+      case "${'$'}MSK_JSON" in
+        *'{'*'{'*|*'}'*'}'*|*'['*|*']'*) return 1 ;;
+      esac
+      MSK_AFTER_FIRST=${'$'}{MSK_JSON#*'"sizeKb"'}
+      [ "${'$'}MSK_AFTER_FIRST" != "${'$'}MSK_JSON" ] || return 1
+      case "${'$'}MSK_AFTER_FIRST" in *'"sizeKb"'*) return 1 ;; esac
+      MSK_SIZE=${'$'}(printf '%s\n' "${'$'}MSK_JSON" | sed -n 's/.*"sizeKb"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\)"[[:space:]]*[,}].*/\1/p' | head -1)
+      [ -n "${'$'}MSK_SIZE" ] || MSK_SIZE=${'$'}(printf '%s\n' "${'$'}MSK_JSON" | sed -n 's/.*"sizeKb"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*[,}].*/\1/p' | head -1)
+      case "${'$'}MSK_SIZE" in ''|*[!0-9]*) return 1 ;; esac
+      [ "${'$'}{#MSK_SIZE}" -le 18 ] || return 1
+      printf '%s\n' "${'$'}MSK_SIZE"
+    }
+
     valid_main_return() {
       VMR_DIR="${'$'}1"
       [ -d "${'$'}VMR_DIR" ] && [ ! -L "${'$'}VMR_DIR" ] || return 1
@@ -249,7 +276,7 @@ internal fun workspaceIndexScript(rootDir: String): String = """
         pkg=${'$'}(basename "${'$'}(dirname "${'$'}d")")
         id=${'$'}(basename "${'$'}d")
         ts=${'$'}(stat -c %Y "${'$'}d" 2>/dev/null || echo 0)
-        size=${'$'}(du -sk "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
+        size=${'$'}(manifest_size_kb "${'$'}d/manifest.json") || size=${'$'}(du -sk "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
         reason=${'$'}(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
         state_kind=${'$'}(sed -n 's/.*"stateKind":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
         backup_kind=${'$'}(sed -n 's/.*"backupKind":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
@@ -263,7 +290,7 @@ internal fun workspaceIndexScript(rootDir: String): String = """
         [ -f "${'$'}d/manifest.json" ] || continue
         pkg=${'$'}(basename "${'$'}(dirname "${'$'}d")")
         ts=${'$'}(stat -c %Y "${'$'}d" 2>/dev/null || echo 0)
-        size=${'$'}(du -sk "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
+        size=${'$'}(manifest_size_kb "${'$'}d/manifest.json") || size=${'$'}(du -sk "${'$'}d" 2>/dev/null | awk '{print ${'$'}1}')
         reason=${'$'}(sed -n 's/.*"reason":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
         backup_kind=${'$'}(sed -n 's/.*"backupKind":"\([^"]*\)".*/\1/p' "${'$'}d/manifest.json" | head -1)
         printf 'CLONE_ROLLBACK\t%s\t%s\t%s\t%s\t%s\t%s\n' "${'$'}pkg" latest "${'$'}ts" "${'$'}size" "${'$'}reason" "${'$'}backup_kind"

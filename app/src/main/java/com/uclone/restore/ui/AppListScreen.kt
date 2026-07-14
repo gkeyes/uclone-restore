@@ -43,12 +43,14 @@ import com.uclone.restore.sync.AppDataState
 fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, openDetail: () -> Unit) {
     var searchExpanded by remember { mutableStateOf(state.search.isNotBlank()) }
     var selectedFilters by remember { mutableStateOf(setOf(AppListFilter.ALL)) }
-    val query = state.search.trim().lowercase()
-    val apps = state.apps.filter {
-        val matchesQuery = query.isEmpty() ||
-            it.label.lowercase().contains(query) ||
-            it.packageName.lowercase().contains(query)
-        matchesQuery && selectedFilters.matches(it)
+    val query = remember(state.search) { state.search.trim().lowercase() }
+    val apps = remember(state.apps, query, selectedFilters) {
+        state.apps.filter {
+            val matchesQuery = query.isEmpty() ||
+                it.label.lowercase().contains(query) ||
+                it.packageName.lowercase().contains(query)
+            matchesQuery && selectedFilters.matches(it)
+        }
     }
     Column(
         modifier

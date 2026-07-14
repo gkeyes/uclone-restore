@@ -6,7 +6,9 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class WorkspaceIndexTest {
     @Test
@@ -141,6 +143,157 @@ class WorkspaceIndexTest {
         assertEquals(AppDataState.Main, parsed.dataState(packageName))
     }
 
+    @Test
+    fun executableIndexUsesStringAndNumericManifestSizesWithoutRunningDu() {
+        val root = Files.createTempDirectory("uclone-workspace-index-size")
+        val packageName = "com.example.app"
+        val mainBackup = root.resolve("rollback/$packageName/persistent_main")
+        createCompleteMainReturn(mainBackup)
+        Files.write(
+            mainBackup.resolve("manifest.json"),
+            "{\"stateKind\":\"MAIN\",\"sizeKb\":\"321\"}\n".toByteArray(),
+        )
+        val cloneBackup = Files.createDirectories(root.resolve("clone_rollback/$packageName/latest"))
+        Files.write(cloneBackup.resolve("manifest.json"), "{\"sizeKb\":654}\n".toByteArray())
+        val fakeBin = fakeCommand("du", "echo FAKE_DU_CALLED >&2\nexit 91")
+
+        val result = runShell(workspaceIndexScript(root.toString()), fakeBin)
+        val main = result.output.lineSequence().first { it.startsWith("MAIN_ROLLBACK\t") }.split('\t')
+        val clone = result.output.lineSequence().first { it.startsWith("CLONE_ROLLBACK\t") }.split('\t')
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals("321", main[4])
+        assertEquals("654", clone[4])
+        assertFalse("FAKE_DU_CALLED" in result.output)
+    }
+
+    @Test
+    fun executableIndexFallsBackToDuForLegacyManifestWithoutSize() {
+        val root = Files.createTempDirectory("uclone-workspace-index-legacy-size")
+        val packageName = "com.example.app"
+        val backup = Files.createDirectories(root.resolve("rollback/$packageName/legacy"))
+        Files.write(backup.resolve("manifest.json"), "{\"stateKind\":\"MAIN\"}\n".toByteArray())
+        val fakeBin = fakeCommand("du", "echo \"777 ${'$'}2\"")
+
+        val result = runShell(workspaceIndexScript(root.toString()), fakeBin)
+        val main = result.output.lineSequence().first { it.startsWith("MAIN_ROLLBACK\t") }.split('\t')
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals("777", main[4])
+    }
+
+    @Test
+    fun executableIndexRejectsNonIntegerManifestSizesAndFallsBackToDu() {
+        val root = Files.createTempDirectory("uclone-workspace-index-invalid-size")
+        val packageName = "com.example.app"
+        val decimal = Files.createDirectories(root.resolve("rollback/$packageName/decimal"))
+        Files.write(decimal.resolve("manifest.json"), "{\"sizeKb\":12.5}\n".toByteArray())
+        val exponent = Files.createDirectories(root.resolve("clone_rollback/$packageName/latest"))
+        Files.write(exponent.resolve("manifest.json"), "{\"sizeKb\":12e3}\n".toByteArray())
+        val fakeBin = fakeCommand("du", "echo \"777 ${'$'}2\"")
+
+        val result = runShell(workspaceIndexScript(root.toString()), fakeBin)
+        val main = result.output.lineSequence().first { it.startsWith("MAIN_ROLLBACK\t") }.split('\t')
+        val clone = result.output.lineSequence().first { it.startsWith("CLONE_ROLLBACK\t") }.split('\t')
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals("777", main[4])
+        assertEquals("777", clone[4])
+    }
+
+    @Test
+    fun executableIndexDoesNotCollapseWhitespaceInsideStringSize() {
+        val root = Files.createTempDirectory("uclone-workspace-index-spaced-size")
+        val packageName = "com.example.app"
+        val backup = Files.createDirectories(root.resolve("rollback/$packageName/spaced"))
+        Files.write(
+            backup.resolve("manifest.json"),
+            "{\n  \"stateKind\": \"MAIN\",\n  \"sizeKb\": \"1 2\"\n}\n".toByteArray(),
+        )
+        val fakeBin = fakeCommand("du", "echo \"777 ${'$'}2\"")
+
+        val result = runShell(workspaceIndexScript(root.toString()), fakeBin)
+        val main = result.output.lineSequence().first { it.startsWith("MAIN_ROLLBACK\t") }.split('\t')
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals("777", main[4])
+    }
+
+    @Test
+    fun executableIndexFallsBackForNestedOrOverflowingManifestSize() {
+        val root = Files.createTempDirectory("uclone-workspace-index-unsafe-size")
+        val packageName = "com.example.app"
+        val nested = Files.createDirectories(root.resolve("rollback/$packageName/nested"))
+        Files.write(
+            nested.resolve("manifest.json"),
+            "{\"stateKind\":\"MAIN\",\"metadata\":{\"sizeKb\":999}}\n".toByteArray(),
+        )
+        val overflow = Files.createDirectories(root.resolve("clone_rollback/$packageName/latest"))
+        Files.write(
+            overflow.resolve("manifest.json"),
+            "{\"sizeKb\":9223372036854775808}\n".toByteArray(),
+        )
+        val fakeBin = fakeCommand("du", "echo \"777 ${'$'}2\"")
+
+        val result = runShell(workspaceIndexScript(root.toString()), fakeBin)
+        val main = result.output.lineSequence().first { it.startsWith("MAIN_ROLLBACK\t") }.split('\t')
+        val clone = result.output.lineSequence().first { it.startsWith("CLONE_ROLLBACK\t") }.split('\t')
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals("777", main[4])
+        assertEquals("777", clone[4])
+    }
+
+    @Test
+    fun executableIndexFallsBackForDuplicateTopLevelManifestSize() {
+        val root = Files.createTempDirectory("uclone-workspace-index-duplicate-size")
+        val packageName = "com.example.app"
+        val backup = Files.createDirectories(root.resolve("rollback/$packageName/duplicate"))
+        Files.write(
+            backup.resolve("manifest.json"),
+            "{\"stateKind\":\"MAIN\",\"sizeKb\":12,\"sizeKb\":13}\n".toByteArray(),
+        )
+        val fakeBin = fakeCommand("du", "echo \"777 ${'$'}2\"")
+
+        val result = runShell(workspaceIndexScript(root.toString()), fakeBin)
+        val main = result.output.lineSequence().first { it.startsWith("MAIN_ROLLBACK\t") }.split('\t')
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals("777", main[4])
+    }
+
+    @Test
+    fun executableIndexFallsBackForTruncatedOrContaminatedManifest() {
+        val root = Files.createTempDirectory("uclone-workspace-index-malformed-size")
+        val packageName = "com.example.app"
+        val manifests = mapOf(
+            "suffix" to "{\"stateKind\":\"MAIN\",\"sizeKb\":12} garbage\n",
+            "prefix" to "garbage {\"stateKind\":\"MAIN\",\"sizeKb\":12}\n",
+            "trailing-comma" to "{\"stateKind\":\"MAIN\",\"sizeKb\":12,}\n",
+            "missing-value" to "{\"stateKind\":\"MAIN\",\"broken\":,\"sizeKb\":12}\n",
+            "leading-zero" to "{\"stateKind\":\"MAIN\",\"sizeKb\":012}\n",
+            "multiline" to "{\n\"stateKind\":\"MAIN\",\"sizeKb\":12\n}\n",
+            "invalid-escape" to "{\"stateKind\":\"MAIN\",\"reason\":\"bad\\q\",\"sizeKb\":12}\n",
+            "extra-empty-line" to "{\"stateKind\":\"MAIN\",\"sizeKb\":12}\n\n",
+            "nul-byte" to "{\"state\u0000Kind\":\"MAIN\",\"sizeKb\":12}\n",
+        )
+        manifests.forEach { (id, manifest) ->
+            val backup = Files.createDirectories(root.resolve("rollback/$packageName/$id"))
+            Files.write(backup.resolve("manifest.json"), manifest.toByteArray())
+        }
+        val fakeBin = fakeCommand("du", "echo \"777 ${'$'}2\"")
+
+        val result = runShell(workspaceIndexScript(root.toString()), fakeBin)
+        val sizes = result.output.lineSequence()
+            .filter { it.startsWith("MAIN_ROLLBACK\t") }
+            .map { it.split('\t')[4] }
+            .toList()
+
+        assertEquals(0, result.exitCode, result.output)
+        assertEquals(manifests.size, sizes.size, result.output)
+        assertTrue(sizes.all { it == "777" }, result.output)
+    }
+
     private fun createCompleteMainReturn(backup: Path) {
         val state = Files.createDirectories(backup.resolve(".state"))
         Files.write(backup.resolve("manifest.json"), "{\"stateKind\":\"MAIN\"}\n".toByteArray())
@@ -149,8 +302,20 @@ class WorkspaceIndexTest {
         }
     }
 
-    private fun runShell(script: String): ShellRun {
-        val process = ProcessBuilder("/bin/sh", "-c", script).redirectErrorStream(true).start()
+    private fun fakeCommand(name: String, body: String): Path {
+        val directory = Files.createTempDirectory("uclone-fake-bin")
+        val command = directory.resolve(name)
+        Files.write(command, "#!/bin/sh\n$body\n".toByteArray())
+        command.toFile().setExecutable(true)
+        return directory
+    }
+
+    private fun runShell(script: String, pathPrefix: Path? = null): ShellRun {
+        val builder = ProcessBuilder("/bin/sh", "-c", script).redirectErrorStream(true)
+        if (pathPrefix != null) {
+            builder.environment()["PATH"] = "$pathPrefix:${System.getenv("PATH")}"
+        }
+        val process = builder.start()
         val output = process.inputStream.bufferedReader().readText()
         return ShellRun(process.waitFor(), output)
     }

@@ -1,8 +1,12 @@
 package com.uclone.restore.root
 
+import com.uclone.restore.model.CheckResult
+import com.uclone.restore.model.EnvironmentStatus
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.model.User10CeState
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -19,6 +23,31 @@ class RootEnvironmentCheckerTest {
         assertTrue(status.user10Present)
         assertTrue(shell.commands.contains("pm list users"))
         assertFalse(shell.commands.any { it == "cmd user list" })
+    }
+
+    @Test
+    fun cloneStateRefreshRunsOnlyTheStateProbeAndPreservesOtherChecks() = runBlocking {
+        val shell = RecordingShell()
+        val current = EnvironmentStatus(
+            root = CheckResult(true, "root-ok"),
+            currentUser = "0",
+            user0Present = true,
+            user10Present = true,
+            user10State = "RUNNING_LOCKED",
+            dataAdbWritable = CheckResult(true, "workspace-ok"),
+            snapshotDirReady = CheckResult(true, "snapshots-ok"),
+        )
+
+        val refreshed = RootEnvironmentChecker(shell).refreshCloneState(
+            UCloneSettings(mainUserId = 0, cloneUserId = 10),
+            current,
+        )
+
+        assertEquals(listOf("am get-started-user-state 10"), shell.commands)
+        assertEquals(current.root, refreshed.root)
+        assertEquals(current.dataAdbWritable, refreshed.dataAdbWritable)
+        assertEquals("RUNNING_UNLOCKED", refreshed.user10State)
+        assertEquals(User10CeState.RunningUnlocked, refreshed.user10CeState)
     }
 
     private class RecordingShell : RootShellExecutor {
