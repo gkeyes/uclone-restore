@@ -192,7 +192,7 @@ class StateBackupShellTest {
         Files.write(linkPayload.resolve(".state/de"), "unselected\n".toByteArray())
         Files.createDirectories(invalid.resolve("de"))
         Files.write(invalid.resolve("de/unexpected"), "payload\n".toByteArray())
-        Files.writeString(filePayload.resolve("de"), "payload")
+        writeText(filePayload.resolve("de"), "payload")
         Files.createSymbolicLink(linkPayload.resolve("de"), valid.resolve(".state/de"))
 
         val result = runShell(
@@ -232,10 +232,10 @@ class StateBackupShellTest {
             Files.write(it.resolve(".state/de"), "empty\n".toByteArray())
         }
         Files.createDirectories(legacy.resolve("de"))
-        Files.writeString(file.resolve("de"), "payload")
+        writeText(file.resolve("de"), "payload")
         Files.createSymbolicLink(link.resolve("de"), legacy.resolve(".state/de"))
         Files.createDirectories(nonempty.resolve("de"))
-        Files.writeString(nonempty.resolve("de/unexpected"), "payload")
+        writeText(nonempty.resolve("de/unexpected"), "payload")
 
         val result = runShell(
             """
@@ -263,7 +263,7 @@ class StateBackupShellTest {
         val root = Files.createTempDirectory("uclone-forward-collision")
         val temp = root.resolve("tmp/switch_com.example.app_test_run")
         Files.createDirectories(temp)
-        Files.writeString(temp.resolve("keep.txt"), "existing")
+        writeText(temp.resolve("keep.txt"), "existing")
         val function = shellFunction(
             script = ShellScripts.switchFromCloneLatest(
                 "com.example.app",
@@ -287,7 +287,7 @@ class StateBackupShellTest {
         )
 
         assertEquals(0, result.exitCode, result.output)
-        assertEquals("existing", Files.readString(temp.resolve("keep.txt")))
+        assertEquals("existing", readText(temp.resolve("keep.txt")))
     }
 
     @Test
@@ -370,7 +370,7 @@ class StateBackupShellTest {
         val root = Files.createTempDirectory("uclone-safe-collision")
         val checkpoint = root.resolve("rollback/com.example.app/switch_checkpoint_existing")
         Files.createDirectories(checkpoint)
-        Files.writeString(checkpoint.resolve("keep.txt"), "existing")
+        writeText(checkpoint.resolve("keep.txt"), "existing")
         val function = shellFunction(
             script = ShellScripts.pushMainToCloneThenRestoreMain(
                 "com.example.app",
@@ -397,7 +397,7 @@ class StateBackupShellTest {
         )
 
         assertEquals(1, result.exitCode, result.output)
-        assertEquals("existing", Files.readString(checkpoint.resolve("keep.txt")))
+        assertEquals("existing", readText(checkpoint.resolve("keep.txt")))
     }
 
     @Test
@@ -405,7 +405,7 @@ class StateBackupShellTest {
         val root = Files.createTempDirectory("uclone-fresh-collision")
         val rollback = root.resolve("rollback/com.example.app/transaction_existing")
         Files.createDirectories(rollback)
-        Files.writeString(rollback.resolve("keep.txt"), "existing")
+        writeText(rollback.resolve("keep.txt"), "existing")
         val function = shellFunction(
             script = ShellScripts.switchFromCloneLatest(
                 "com.example.app",
@@ -431,7 +431,7 @@ class StateBackupShellTest {
         )
 
         assertEquals(0, result.exitCode, result.output)
-        assertEquals("existing", Files.readString(rollback.resolve("keep.txt")))
+        assertEquals("existing", readText(rollback.resolve("keep.txt")))
     }
 
     @Test
@@ -478,7 +478,7 @@ class StateBackupShellTest {
         val root = Files.createTempDirectory("uclone-danger-collision")
         val temp = root.resolve("tmp/dangerous_switch_com.example.app_test_run")
         Files.createDirectories(temp)
-        Files.writeString(temp.resolve("keep.txt"), "existing")
+        writeText(temp.resolve("keep.txt"), "existing")
         val function = shellFunction(
             script = returnScript(SwitchSafetyMode.DANGEROUS_FAST),
             name = "cleanup_switch_temp",
@@ -497,7 +497,7 @@ class StateBackupShellTest {
         )
 
         assertEquals(0, result.exitCode, result.output)
-        assertEquals("existing", Files.readString(temp.resolve("keep.txt")))
+        assertEquals("existing", readText(temp.resolve("keep.txt")))
     }
 
     @Test
@@ -805,6 +805,12 @@ class StateBackupShellTest {
         val output = process.inputStream.bufferedReader().readText()
         return ShellRun(process.waitFor(), output)
     }
+
+    private fun writeText(path: Path, value: String) {
+        Files.write(path, value.toByteArray())
+    }
+
+    private fun readText(path: Path): String = String(Files.readAllBytes(path))
 
     private fun generatedExitHandlerRun(mode: SwitchSafetyMode, functionName: String): ShellRun {
         val root = Files.createTempDirectory("uclone-${mode.name.lowercase()}-failure")
