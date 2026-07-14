@@ -3,8 +3,11 @@ package com.uclone.restore.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -52,11 +55,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -421,6 +426,19 @@ private fun androidx.compose.foundation.layout.RowScope.FloatingTabItem(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val reduceMotion = rememberReduceMotionEnabled()
+    val contentScale by animateFloatAsState(
+        targetValue = if (pressed && !reduceMotion) 0.94f else 1f,
+        animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(120),
+        label = "bottomNavigationItemPressScale",
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (pressed) 0.72f else 1f,
+        animationSpec = tween(120),
+        label = "bottomNavigationItemPressAlpha",
+    )
     val contentColor = if (selected) {
         MaterialTheme.colorScheme.primary
     } else {
@@ -433,13 +451,22 @@ private fun androidx.compose.foundation.layout.RowScope.FloatingTabItem(
             .testTag("uclone_nav_${item.name}")
             .selectable(
                 selected = selected,
+                interactionSource = interactionSource,
+                indication = null,
                 onClick = onClick,
                 role = Role.Tab,
             ),
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(vertical = 6.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = contentScale
+                    scaleY = contentScale
+                    alpha = contentAlpha
+                }
+                .padding(vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {

@@ -151,6 +151,7 @@ private fun HistoryTaskRow(
                             actionLabel = "选择",
                             icon = Icons.Default.Apps,
                             onClick = onSelectPackage,
+                            showDivider = false,
                         )
                     }
                 }

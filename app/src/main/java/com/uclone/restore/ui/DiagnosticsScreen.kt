@@ -89,6 +89,7 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
                 actionLabel = "执行",
                 icon = Icons.Default.Sync,
                 onClick = viewModel::debugCloneSystem,
+                showDivider = false,
             )
         }
         SectionCard("分身系统控制") {
@@ -112,6 +113,7 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
                 actionLabel = "切换",
                 icon = Icons.Default.Sync,
                 onClick = viewModel::switchToCloneUser,
+                showDivider = false,
             )
         }
     }

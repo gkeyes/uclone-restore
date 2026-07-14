@@ -54,7 +54,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (app == null) {
             PageDescription("请先在 App 页面选择一个目标。")
@@ -215,6 +215,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 },
                 enabled = state.selectedDataState != AppDataState.Unknown,
                 primary = state.selectedDataState != AppDataState.Unknown,
+                showDivider = false,
             )
         }
         SectionCard("备份与恢复工具") {
@@ -245,6 +246,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 actionLabel = "执行",
                 icon = Icons.Default.CloudDownload,
                 onClick = { confirm = ConfirmAction.AUDIT },
+                showDivider = false,
             )
         }
         SectionCard("危险操作") {
@@ -256,6 +258,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 enabled = app.lastSnapshotAt != null,
                 danger = true,
                 onClick = { confirm = ConfirmAction.DELETE },
+                showDivider = false,
             )
         }
     }
@@ -289,7 +292,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
 @Composable
 private fun SettingCheck(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp),
+        Modifier.fillMaxWidth().heightIn(min = 48.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {

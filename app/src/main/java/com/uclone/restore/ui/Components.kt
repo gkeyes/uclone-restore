@@ -51,7 +51,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -146,7 +145,7 @@ fun InfoRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp),
+            .heightIn(min = 48.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -505,6 +504,7 @@ fun UCloneSwitch(
     enabled: Boolean = true,
 ) {
     val reduceMotion = rememberReduceMotionEnabled()
+    val interactionSource = remember { MutableInteractionSource() }
     val thumbOffset by animateDpAsState(
         targetValue = if (checked) 20.dp else 0.dp,
         animationSpec = if (reduceMotion) snap() else tween(180),
@@ -517,6 +517,8 @@ fun UCloneSwitch(
             .height(48.dp)
             .toggleable(
                 value = checked,
+                interactionSource = interactionSource,
+                indication = null,
                 enabled = enabled,
                 role = Role.Switch,
                 onValueChange = onCheckedChange,
@@ -527,6 +529,7 @@ fun UCloneSwitch(
             Modifier
                 .width(51.dp)
                 .height(31.dp)
+                .pressScale(interactionSource, enabled)
                 .clip(CircleShape)
                 .background(trackColor.copy(alpha = if (enabled) 1f else 0.45f))
                 .padding(2.dp),
@@ -536,7 +539,6 @@ fun UCloneSwitch(
                 Modifier
                     .offset(x = thumbOffset)
                     .size(27.dp)
-                    .shadow(1.dp, CircleShape)
                     .background(Color.White, CircleShape),
             )
         }

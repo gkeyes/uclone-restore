@@ -100,6 +100,7 @@ fun DataBackupDetailScreen(
                 icon = Icons.Default.Delete,
                 onClick = { confirm = DataBackupAction.DELETE },
                 danger = true,
+                showDivider = false,
             )
         }
     }

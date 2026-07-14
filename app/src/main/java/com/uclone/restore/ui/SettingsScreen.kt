@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.WorkspaceOwnershipReport
@@ -67,6 +68,7 @@ fun SettingsScreen(
                 actionLabel = "进入",
                 icon = Icons.Outlined.Terminal,
                 onClick = openDiagnostics,
+                showDivider = false,
             )
         }
         SectionCard("用户 ID") {
@@ -98,46 +100,47 @@ fun SettingsScreen(
             )
             Text(
                 "开启后，需要读取分身 CE 数据时会自动尝试后台启动并解锁。任务日志不会记录明文；当前已保存 ${draft.cloneUnlockCredential.length} 位。",
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         SectionCard("任务结束") {
-            ToggleRow("数据任务后关闭临时分身", draft.stopCloneAfterTask) {
+            ToggleRow(
+                label = "数据任务后关闭临时分身",
+                checked = draft.stopCloneAfterTask,
+                description = "仅对备份、切换、推送和分身回滚等数据任务生效，而且只关闭本次任务启动的 user${draft.cloneUserId}。无感启动分身不会自动关闭。",
+            ) {
                 draft = draft.copy(stopCloneAfterTask = it)
             }
-            Text(
-                "仅对备份、切换、推送和分身回滚等数据任务生效，而且只关闭本次任务启动的 user${draft.cloneUserId}。无感启动分身不会自动关闭。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
         SectionCard("状态备份") {
-            ToggleRow("已有主/分状态备份时不再更新", draft.reuseExistingPassiveBackups) {
-                draft = draft.copy(reuseExistingPassiveBackups = it)
-            }
-            Text(
-                if (draft.reuseExistingPassiveBackups) {
+            ToggleRow(
+                label = "已有主/分状态备份时不再更新",
+                checked = draft.reuseExistingPassiveBackups,
+                description = if (draft.reuseExistingPassiveBackups) {
                     "开启后，已有 MAIN 或 CLONE 长期状态备份会继续保留。每次操作仍会先建立本次专用回滚，失败时不会使用旧备份代替操作前数据。"
                 } else {
                     "关闭时，每次成功切换、还原或推送都会用操作前的最新数据更新对应 MAIN/CLONE 长期状态备份。"
                 },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ToggleRow("还原主系统前强制更新分数据", draft.forceUpdateCloneDataBeforeMainRestore) {
+            ) {
+                draft = draft.copy(reuseExistingPassiveBackups = it)
+            }
+            ToggleRow(
+                label = "还原主系统前强制更新分数据",
+                checked = draft.forceUpdateCloneDataBeforeMainRestore,
+                description = "仅在 user${draft.mainUserId} 已确认处于 CLONE 状态时生效：先把当前分数据推送到 user${draft.cloneUserId}，成功后再恢复 MAIN 返回点。推送失败时不会开始还原。",
+            ) {
                 draft = draft.copy(forceUpdateCloneDataBeforeMainRestore = it)
             }
-            Text(
-                "仅在 user${draft.mainUserId} 已确认处于 CLONE 状态时生效：先把当前分数据推送到 user${draft.cloneUserId}，成功后再恢复 MAIN 返回点。推送失败时不会开始还原。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
         SectionCard("模块控制") {
-            ToggleRow("允许模块控制", draft.allowModuleControl) {
+            ToggleRow(
+                label = "允许模块控制",
+                checked = draft.allowModuleControl,
+                description = "默认关闭。开启后，仅允许同签名模块通过受保护协议触发备份、恢复、切换和推送；系统 App 与 UClone 自身仍会被拒绝。",
+            ) {
                 draft = draft.copy(allowModuleControl = it)
             }
-            Text(
-                "默认关闭。开启后，仅允许同签名模块通过受保护协议触发备份、恢复、切换和推送；系统 App 与 UClone 自身仍会被拒绝。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
         SectionCard("默认数据范围") {
             ToggleRow("CE 数据", draft.includeCe) { draft = draft.copy(includeCe = it) }
@@ -339,16 +342,39 @@ private fun NumberField(label: String, value: Int, onChange: (Int) -> Unit) {
 }
 
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+private fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    description: String? = null,
+    onChange: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(label, modifier = Modifier.weight(1f).padding(end = 12.dp))
-        UCloneSwitch(
-            checked = checked,
-            onCheckedChange = onChange,
-        )
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            UCloneSwitch(
+                checked = checked,
+                onCheckedChange = onChange,
+            )
+        }
+        if (description != null) {
+            Text(
+                description,
+                modifier = Modifier.padding(end = 4.dp, bottom = 2.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
