@@ -23,6 +23,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -85,6 +89,24 @@ internal val LocalTopBarContentPadding = staticCompositionLocalOf { 16.dp }
 
 @Composable
 internal fun useStackedLayoutForLargeText(): Boolean = LocalDensity.current.fontScale >= 1.3f
+
+@Composable
+internal fun ScrollableTopLevelContent(
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(),
+    state: LazyListState = rememberLazyListState(),
+    header: @Composable () -> Unit,
+    content: LazyListScope.() -> Unit,
+) {
+    LazyColumn(
+        modifier = modifier,
+        state = state,
+        contentPadding = contentPadding,
+    ) {
+        item(key = "top_level_header") { header() }
+        content()
+    }
+}
 
 @Composable
 fun TopLevelHeader(

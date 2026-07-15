@@ -5,12 +5,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FilterList
@@ -32,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,103 +59,102 @@ fun AppListScreen(
             matchesQuery && selectedFilters.matches(it)
         }
     }
-    Column(
-        modifier
-            .fillMaxSize()
-            .padding(
-                start = 16.dp,
-                top = LocalTopBarContentPadding.current,
-                end = 16.dp,
-            ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        TopLevelHeader(
-            title = "App",
-            description = "两侧安装、数据来源与收藏",
-            taskActive = state.currentTask.task != null,
-            onOpenHistory = onOpenHistory,
-        )
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "${apps.size} 个 App",
-                modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    ScrollableTopLevelContent(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            top = LocalTopBarContentPadding.current,
+            end = 16.dp,
+            bottom = LocalBottomBarContentPadding.current,
+        ),
+        header = {
+            TopLevelHeader(
+                title = "App",
+                description = "两侧安装、数据来源与收藏",
+                taskActive = state.currentTask.task != null,
+                onOpenHistory = onOpenHistory,
             )
-            if (!searchExpanded) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AppFilterButton(selectedFilters) { selectedFilters = it }
-                    UtilityIconButton(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "搜索",
-                        onClick = { searchExpanded = true },
-                        framed = true,
-                    )
+        },
+    ) {
+        item(key = "app_header_gap") { Spacer(Modifier.height(10.dp)) }
+        item(key = "app_controls") {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${apps.size} 个 App",
+                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!searchExpanded) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AppFilterButton(selectedFilters) { selectedFilters = it }
+                        UtilityIconButton(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "搜索",
+                            onClick = { searchExpanded = true },
+                            framed = true,
+                        )
+                    }
                 }
             }
         }
         if (searchExpanded) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AppFilterButton(selectedFilters) { selectedFilters = it }
-                GroupedTextField(
-                    value = state.search,
-                    onValueChange = viewModel::updateSearch,
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("App 名称或包名") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                )
-                InlineActionButton(
-                    text = "取消",
-                    onClick = {
-                        viewModel.updateSearch("")
-                        searchExpanded = false
-                    },
-                )
+            item(key = "app_search_gap") { Spacer(Modifier.height(8.dp)) }
+            item(key = "app_search") {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AppFilterButton(selectedFilters) { selectedFilters = it }
+                    GroupedTextField(
+                        value = state.search,
+                        onValueChange = viewModel::updateSearch,
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("App 名称或包名") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    )
+                    InlineActionButton(
+                        text = "取消",
+                        onClick = {
+                            viewModel.updateSearch("")
+                            searchExpanded = false
+                        },
+                    )
+                }
             }
         }
+        item(key = "app_list_gap") { Spacer(Modifier.height(10.dp)) }
         if (apps.isEmpty()) {
-            SectionCard(if (query.isEmpty()) "没有可显示的 App" else "没有匹配结果") {
-                Text(
-                    if (query.isEmpty()) "调整筛选条件后重试。" else "检查名称、包名或清除搜索条件。",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            item(key = "app_empty_state") {
+                SectionCard(if (query.isEmpty()) "没有可显示的 App" else "没有匹配结果") {
+                    Text(
+                        if (query.isEmpty()) "调整筛选条件后重试。" else "检查名称、包名或清除搜索条件。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         } else {
-            Surface(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.ucloneColors.groupedSurface,
-            ) {
-                LazyColumn(contentPadding = PaddingValues(bottom = LocalBottomBarContentPadding.current)) {
-                    itemsIndexed(apps, key = { _, app -> app.packageName }) { index, app ->
-                        AppRow(
-                            app = app,
-                            favorite = app.packageName in state.settings.favoritePackages,
-                            mainUserId = state.settings.mainUserId,
-                            cloneUserId = state.settings.cloneUserId,
-                            dataState = state.dataStateFor(app.packageName),
-                            onFavorite = { viewModel.toggleFavorite(app.packageName) },
-                            onClick = {
-                                viewModel.selectPackage(app.packageName)
-                                openDetail()
-                            },
-                        )
-                        if (index < apps.lastIndex) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = 64.dp),
-                                color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
-                            )
-                        }
-                    }
-                }
+            itemsIndexed(apps, key = { _, app -> app.packageName }) { index, app ->
+                AppRow(
+                    app = app,
+                    favorite = app.packageName in state.settings.favoritePackages,
+                    mainUserId = state.settings.mainUserId,
+                    cloneUserId = state.settings.cloneUserId,
+                    dataState = state.dataStateFor(app.packageName),
+                    first = index == 0,
+                    last = index == apps.lastIndex,
+                    showDivider = index < apps.lastIndex,
+                    onFavorite = { viewModel.toggleFavorite(app.packageName) },
+                    onClick = {
+                        viewModel.selectPackage(app.packageName)
+                        openDetail()
+                    },
+                )
             }
         }
     }
@@ -224,48 +224,71 @@ private fun AppRow(
     mainUserId: Int,
     cloneUserId: Int,
     dataState: AppDataState,
+    first: Boolean,
+    last: Boolean,
+    showDivider: Boolean,
     onFavorite: () -> Unit,
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        color = Color.Transparent,
+        shape = when {
+            first && last -> MaterialTheme.shapes.medium
+            first -> RoundedCornerShape(
+                topStart = UCloneGroupedCornerRadius,
+                topEnd = UCloneGroupedCornerRadius,
+            )
+            last -> RoundedCornerShape(
+                bottomStart = UCloneGroupedCornerRadius,
+                bottomEnd = UCloneGroupedCornerRadius,
+            )
+            else -> RoundedCornerShape(0.dp)
+        },
+        color = MaterialTheme.ucloneColors.groupedSurface,
         shadowElevation = 0.dp,
     ) {
-        Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AppIcon(app.packageName, size = 38.dp, cornerRadius = 10.dp)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(app.label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    app.packageName,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppIcon(app.packageName, size = 38.dp, cornerRadius = 10.dp)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(app.label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        app.packageName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "user$mainUserId ${if (app.user0Installed) "已安装" else "未安装"} · " +
+                            "user$cloneUserId ${if (app.user10Installed) "已安装" else "未安装"} · " +
+                            dataState.listLabel(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                UtilityIconButton(
+                    imageVector = if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
+                    contentDescription = if (favorite) "取消收藏" else "收藏",
+                    onClick = onFavorite,
+                    tint = if (favorite) MaterialTheme.ucloneColors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(
-                    "user$mainUserId ${if (app.user0Installed) "已安装" else "未安装"} · " +
-                        "user$cloneUserId ${if (app.user10Installed) "已安装" else "未安装"} · " +
-                        dataState.listLabel(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                    modifier = Modifier.padding(end = 2.dp).size(18.dp),
                 )
             }
-            UtilityIconButton(
-                imageVector = if (favorite) Icons.Default.Star else Icons.Default.StarBorder,
-                contentDescription = if (favorite) "取消收藏" else "收藏",
-                onClick = onFavorite,
-                tint = if (favorite) MaterialTheme.ucloneColors.warning else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                modifier = Modifier.padding(end = 2.dp).size(18.dp),
-            )
+            if (showDivider) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(start = 64.dp),
+                    color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+                )
+            }
         }
     }
 }

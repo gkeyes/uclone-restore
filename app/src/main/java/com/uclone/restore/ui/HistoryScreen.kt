@@ -6,12 +6,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,30 +40,31 @@ import java.util.Locale
 @Composable
 fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier) {
     var expandedTaskId by remember { mutableStateOf<Long?>(null) }
-    Column(
-        modifier
+    ScrollableTopLevelContent(
+        modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(
-                start = 16.dp,
-                top = LocalTopBarContentPadding.current,
-                end = 16.dp,
-            ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .background(MaterialTheme.colorScheme.background),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            top = LocalTopBarContentPadding.current,
+            end = 16.dp,
+            bottom = LocalBottomBarContentPadding.current,
+        ),
+        header = {
+            TopLevelHeader(
+                title = "历史",
+                description = "已接受的业务任务与执行结果",
+            )
+        },
     ) {
-        TopLevelHeader(
-            title = "历史",
-            description = "已接受的业务任务与执行结果",
-        )
+        item(key = "history_header_gap") { Spacer(Modifier.height(10.dp)) }
         if (state.history.isEmpty()) {
-            SectionCard("暂无任务记录") {
-                Text("执行切换、推送、恢复或维护任务后，结果会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            item(key = "history_empty_state") {
+                SectionCard("暂无任务记录") {
+                    Text("执行切换、推送、恢复或维护任务后，结果会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-        }
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(bottom = LocalBottomBarContentPadding.current),
-        ) {
+        } else {
             itemsIndexed(state.history, key = { _, task -> task.id }) { index, task ->
                 HistoryTaskRow(
                     task = task,

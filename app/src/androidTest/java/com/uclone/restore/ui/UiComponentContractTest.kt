@@ -4,11 +4,15 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.getValue
@@ -38,6 +42,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.unit.Density
@@ -86,6 +92,52 @@ class UiComponentContractTest {
             .assertHeightIsAtLeast(48.dp)
             .performClick()
         composeRule.runOnIdle { assertEquals(1, taskActionClicks) }
+    }
+
+    @Test
+    fun topLevelHeaderScrollsAwayWithTopLevelContent() {
+        lateinit var scrollState: LazyListState
+        composeRule.setContent {
+            UCloneTheme {
+                scrollState = rememberLazyListState()
+                ScrollableTopLevelContent(
+                    modifier = Modifier
+                        .width(360.dp)
+                        .height(240.dp)
+                        .testTag("top_level_scroll_content"),
+                    contentPadding = PaddingValues(),
+                    state = scrollState,
+                    header = {
+                        TopLevelHeader(
+                            title = "历史",
+                            description = "已接受的业务任务与执行结果",
+                        )
+                    },
+                ) {
+                    items(20) { index ->
+                        Text(
+                            "任务 $index",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("uclone_top_level_header").assertExists()
+        composeRule.onNodeWithTag("top_level_scroll_content").performTouchInput { swipeUp() }
+        composeRule.runOnIdle {
+            assertTrue(
+                "top-level header must scroll inside its content list",
+                scrollState.firstVisibleItemIndex > 0 || scrollState.firstVisibleItemScrollOffset > 0,
+            )
+            assertTrue(
+                "top-level header must not remain visible after the list scrolls",
+                scrollState.layoutInfo.visibleItemsInfo.none { it.key == "top_level_header" },
+            )
+        }
     }
 
     @Test
