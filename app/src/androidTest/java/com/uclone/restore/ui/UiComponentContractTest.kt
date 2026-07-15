@@ -1,5 +1,6 @@
 package com.uclone.restore.ui
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +37,6 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -53,6 +53,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import kotlin.math.roundToInt
 
 class UiComponentContractTest {
     @get:Rule
@@ -126,7 +127,13 @@ class UiComponentContractTest {
     fun bottomNavigationKeepsAllLabelsInsideAtTwoPointZeroFontScale() {
         composeRule.setContent {
             UCloneTheme {
-                CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+                val deviceDensity = LocalDensity.current
+                CompositionLocalProvider(
+                    LocalDensity provides Density(
+                        density = deviceDensity.density,
+                        fontScale = 2f,
+                    ),
+                ) {
                     Box(Modifier.width(390.dp).height(100.dp)) {
                         FloatingTabBar(
                             destination = Destination.HOME,
@@ -196,34 +203,41 @@ class UiComponentContractTest {
 
         composeRule.onNodeWithTag("uclone_bottom_navigation").assertHeightIsEqualTo(60.dp)
         composeRule.waitForIdle()
-        val barBounds = composeRule.onNodeWithTag("uclone_bottom_navigation").fetchSemanticsNode().boundsInRoot
-        val before = composeRule.onRoot().captureToImage().toPixelMap()
+        val barNode = composeRule.onNodeWithTag("uclone_bottom_navigation").fetchSemanticsNode()
+        val barPosition = barNode.positionOnScreen
+        val barSize = barNode.size
+        val before = takeDeviceScreenshot()
         composeRule.runOnIdle { invertBackdrop.value = true }
         composeRule.waitForIdle()
-        val after = composeRule.onRoot().captureToImage().toPixelMap()
-        val itemWidth = barBounds.width / topLevelDestinations.size
+        val after = takeDeviceScreenshot()
+        val itemWidth = barSize.width.toFloat() / topLevelDestinations.size
         val samplePoints = buildList {
             repeat(topLevelDestinations.lastIndex) { index ->
-                val x = (barBounds.left + itemWidth * (index + 1)).toInt()
-                add(x to (barBounds.top + 10f).toInt())
-                add(x to barBounds.center.y.toInt())
-                add(x to (barBounds.bottom - 10f).toInt())
+                val x = (barPosition.x + itemWidth * (index + 1)).roundToInt()
+                add(x to (barPosition.y + barSize.height * 0.2f).roundToInt())
+                add(x to (barPosition.y + barSize.height * 0.5f).roundToInt())
+                add(x to (barPosition.y + barSize.height * 0.8f).roundToInt())
             }
         }
         val changedGlassSamples = samplePoints.count { (x, y) ->
             val safeX = x.coerceIn(0, before.width - 1)
             val safeY = y.coerceIn(0, before.height - 1)
-            before[safeX, safeY].toArgb() != after[safeX, safeY].toArgb()
+            before.getPixel(safeX, safeY) != after.getPixel(safeX, safeY)
         }
         assertTrue(
             "glass pixels must respond to the captured background",
             changedGlassSamples >= samplePoints.size / 2,
         )
-        val navigationImage = composeRule.onNodeWithTag("uclone_bottom_navigation").captureToImage()
-        assertTrue("glass surface must render sampled background detail", distinctSampledColorCount(navigationImage) > 8)
-        val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-        assertTrue(screenshot.width > 0)
-        assertTrue(screenshot.height > 0)
+        assertTrue(
+            "glass surface must render sampled background detail",
+            distinctSampledColorCount(
+                image = after,
+                left = barPosition.x.roundToInt(),
+                top = barPosition.y.roundToInt(),
+                right = (barPosition.x + barSize.width).roundToInt(),
+                bottom = (barPosition.y + barSize.height).roundToInt(),
+            ) > 8,
+        )
     }
 
     @Test
@@ -447,6 +461,39 @@ class UiComponentContractTest {
             var x = 0
             while (x < pixels.width) {
                 colors += pixels[x, y].toArgb()
+                x += xStep
+            }
+            y += yStep
+        }
+        return colors.size
+    }
+
+    private fun takeDeviceScreenshot(): Bitmap {
+        val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        assertTrue(screenshot.width > 0)
+        assertTrue(screenshot.height > 0)
+        return screenshot
+    }
+
+    private fun distinctSampledColorCount(
+        image: Bitmap,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+    ): Int {
+        val safeLeft = left.coerceIn(0, image.width - 1)
+        val safeTop = top.coerceIn(0, image.height - 1)
+        val safeRight = right.coerceIn(safeLeft + 1, image.width)
+        val safeBottom = bottom.coerceIn(safeTop + 1, image.height)
+        val colors = mutableSetOf<Int>()
+        val xStep = ((safeRight - safeLeft) / 12).coerceAtLeast(1)
+        val yStep = ((safeBottom - safeTop) / 12).coerceAtLeast(1)
+        var y = safeTop
+        while (y < safeBottom) {
+            var x = safeLeft
+            while (x < safeRight) {
+                colors += image.getPixel(x, y)
                 x += xStep
             }
             y += yStep
