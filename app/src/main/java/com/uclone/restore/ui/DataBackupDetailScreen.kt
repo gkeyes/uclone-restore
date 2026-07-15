@@ -55,15 +55,20 @@ fun DataBackupDetailScreen(
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(
+                start = 16.dp,
+                top = LocalTopBarContentPadding.current,
+                end = 16.dp,
+                bottom = LocalBottomBarContentPadding.current,
+            ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         PageDescription(
             if (isPassive) {
-                "查看指定被动备份，并决定是否用它覆盖主系统 user${state.settings.mainUserId}。"
+                "被动备份来源、大小与恢复操作"
             } else {
-                "查看 active 主动快照，并决定是否用它覆盖主系统 user${state.settings.mainUserId}。"
+                "active 主动快照来源、大小与恢复操作"
             },
         )
         if (packageName == null || !backupExists) {

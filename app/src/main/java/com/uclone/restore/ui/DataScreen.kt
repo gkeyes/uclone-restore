@@ -50,13 +50,16 @@ fun DataScreen(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(start = 16.dp, top = 12.dp, end = 16.dp),
-        contentPadding = PaddingValues(bottom = LocalBottomBarContentPadding.current),
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(
+            top = LocalTopBarContentPadding.current,
+            bottom = LocalBottomBarContentPadding.current,
+        ),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         item {
             Box(Modifier.padding(bottom = 12.dp)) {
-                PageDescription("按主动快照、主系统侧备份和分身回滚分别管理。")
+                PageDescription("主动快照、MAIN 返回点与 CLONE 回滚")
             }
         }
         item {

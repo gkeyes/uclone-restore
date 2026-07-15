@@ -1,21 +1,34 @@
 package com.uclone.restore.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -26,33 +39,21 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(
+                start = 16.dp,
+                top = LocalTopBarContentPadding.current,
+                end = 16.dp,
+                bottom = LocalBottomBarContentPadding.current,
+            ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        PageDescription("先看结论，再按需执行只读检测或分身生命周期操作。")
+        PageDescription("环境状态、只读检测与分身控制")
         val ready = env?.root?.ok == true &&
             env.user0Present &&
             env.user10Present &&
             env.dataAdbWritable.ok &&
             env.snapshotDirReady.ok
-        SectionCard("诊断结论") {
-            StatusChip(
-                ok = ready,
-                label = when {
-                    env == null -> "尚未检测"
-                    ready -> "基础环境正常"
-                    else -> "存在需要处理的项目"
-                },
-            )
-            Text(
-                when {
-                    env == null -> "执行重新检测后，这里会汇总 Root、用户和工作区状态。"
-                    ready -> "Root、目标用户和 UClone 工作区已满足基础条件。"
-                    else -> "请查看下方失败项；只读检测不会修改 App 数据。"
-                },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        DiagnosticSummaryPanel(ready = ready, detected = env != null)
         SectionCard("Root 与用户") {
             InfoRow("Root", if (env?.root?.ok == true) "uid=0" else "不可用")
             InfoRow("当前用户", env?.currentUser ?: "未检测")
@@ -115,6 +116,68 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
                 onClick = viewModel::switchToCloneUser,
                 showDivider = false,
             )
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticSummaryPanel(ready: Boolean, detected: Boolean) {
+    val accent = if (ready) MaterialTheme.ucloneColors.success else MaterialTheme.ucloneColors.warning
+    val container = if (ready) {
+        MaterialTheme.ucloneColors.successContainer
+    } else {
+        MaterialTheme.ucloneColors.warningContainer
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.ucloneColors.groupedSurface,
+        border = BorderStroke(0.5.dp, accent.copy(alpha = 0.20f)),
+    ) {
+        Row(
+            Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(48.dp),
+                shape = CircleShape,
+                color = container,
+                contentColor = accent,
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (ready) Icons.Default.CheckCircle else Icons.Default.WarningAmber,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    "诊断结论",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    when {
+                        !detected -> "尚未检测"
+                        ready -> "基础环境正常"
+                        else -> "存在需要处理的项目"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    when {
+                        !detected -> "重新检测后会汇总 Root、用户与工作区状态。"
+                        ready -> "Root、目标用户和 UClone 工作区已满足基础条件。"
+                        else -> "查看下方失败项；只读检测不会修改 App 数据。"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

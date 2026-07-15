@@ -1,6 +1,7 @@
 package com.uclone.restore.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,11 +17,13 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,6 +32,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.CrossUserInstallMode
@@ -59,15 +64,20 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(
+                start = 16.dp,
+                top = LocalTopBarContentPadding.current,
+                end = 16.dp,
+                bottom = LocalBottomBarContentPadding.current,
+            ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (app == null) {
             PageDescription("请先在 App 页面选择一个目标。")
             return@Column
         }
-        PageDescription("先确认安装和数据状态，再选择对应操作。")
+        PageDescription("安装状态、数据来源与操作")
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -124,30 +134,41 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 )
             }
         }
-        SectionCard("当前数据状态") {
-            InfoRow(
-                "user${state.settings.mainUserId}",
-                when (state.selectedDataState) {
-                    AppDataState.Main -> "主系统数据 MAIN"
-                    is AppDataState.Clone -> "分身数据 CLONE"
-                    AppDataState.Unknown, null -> "状态未知 UNKNOWN"
+        AppDataSourcePanel(
+            mainUserId = state.settings.mainUserId,
+            dataState = state.selectedDataState,
+        )
+        SectionCard("主要操作") {
+            ToolRow(
+                title = when (state.selectedDataState) {
+                    AppDataState.Main -> "切换到分身态"
+                    is AppDataState.Clone -> "还原主系统态"
+                    AppDataState.Unknown, null -> "数据状态待确认"
                 },
+                description = when (state.selectedDataState) {
+                    AppDataState.Main -> SwitchPolicyText
+                        .switchToCloneConfirmation(state.settings, mainReturnPoint != null)
+                        .replace('\n', ' ')
+                    is AppDataState.Clone -> SwitchPolicyText.planSummary(state.settings)
+                    AppDataState.Unknown, null -> "先恢复一份已标明 MAIN 或 CLONE 来源的备份。"
+                },
+                actionLabel = when (state.selectedDataState) {
+                    AppDataState.Main -> "切换"
+                    is AppDataState.Clone -> "还原"
+                    AppDataState.Unknown, null -> "不可用"
+                },
+                icon = Icons.Default.Sync,
+                onClick = {
+                    confirm = when (state.selectedDataState) {
+                        AppDataState.Main -> ConfirmAction.SWITCH
+                        is AppDataState.Clone -> ConfirmAction.RESTORE_SWITCH
+                        AppDataState.Unknown, null -> null
+                    }
+                },
+                enabled = state.selectedDataState != AppDataState.Unknown,
+                primary = state.selectedDataState != AppDataState.Unknown,
+                showDivider = false,
             )
-            StatusBadge(
-                label = when (state.selectedDataState) {
-                    AppDataState.Main -> "MAIN · 主数据正在 user${state.settings.mainUserId} 使用"
-                    is AppDataState.Clone -> "CLONE · 分数据正在 user${state.settings.mainUserId} 使用"
-                    AppDataState.Unknown, null -> "UNKNOWN · 数据来源无法确认"
-                },
-                color = when (state.selectedDataState) {
-                    AppDataState.Main -> MaterialTheme.ucloneColors.success
-                    is AppDataState.Clone -> MaterialTheme.colorScheme.onPrimaryContainer
-                    AppDataState.Unknown, null -> MaterialTheme.ucloneColors.warning
-                },
-            )
-            if (state.selectedDataState == AppDataState.Unknown) {
-                Text("切换状态记录不完整。请从数据页恢复一份已标识来源的备份后再继续。")
-            }
         }
         SectionCard("固定 MAIN 返回点") {
             InfoRow("状态", if (mainReturnPoint == null) "未建立" else "已建立")
@@ -224,38 +245,6 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 }
             }
         }
-        SectionCard("主要操作") {
-            ToolRow(
-                title = when (state.selectedDataState) {
-                    AppDataState.Main -> "切换到分身态"
-                    is AppDataState.Clone -> "还原主系统态"
-                    AppDataState.Unknown, null -> "数据状态待确认"
-                },
-                description = when (state.selectedDataState) {
-                    AppDataState.Main -> SwitchPolicyText
-                        .switchToCloneConfirmation(state.settings, mainReturnPoint != null)
-                        .replace('\n', ' ')
-                    is AppDataState.Clone -> SwitchPolicyText.planSummary(state.settings)
-                    AppDataState.Unknown, null -> "先恢复一份已标明 MAIN 或 CLONE 来源的备份。"
-                },
-                actionLabel = when (state.selectedDataState) {
-                    AppDataState.Main -> "切换"
-                    is AppDataState.Clone -> "还原"
-                    AppDataState.Unknown, null -> "不可用"
-                },
-                icon = Icons.Default.Sync,
-                onClick = {
-                    confirm = when (state.selectedDataState) {
-                        AppDataState.Main -> ConfirmAction.SWITCH
-                        is AppDataState.Clone -> ConfirmAction.RESTORE_SWITCH
-                        AppDataState.Unknown, null -> null
-                    }
-                },
-                enabled = state.selectedDataState != AppDataState.Unknown,
-                primary = state.selectedDataState != AppDataState.Unknown,
-                showDivider = false,
-            )
-        }
         SectionCard("备份与恢复工具") {
             ToolRow(
                 title = "建立主动备份",
@@ -326,6 +315,69 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun AppDataSourcePanel(mainUserId: Int, dataState: AppDataState?) {
+    val accent = when (dataState) {
+        AppDataState.Main -> MaterialTheme.ucloneColors.success
+        is AppDataState.Clone -> MaterialTheme.colorScheme.primary
+        AppDataState.Unknown, null -> MaterialTheme.ucloneColors.warning
+    }
+    val title = when (dataState) {
+        AppDataState.Main -> "MAIN 主数据"
+        is AppDataState.Clone -> "CLONE 分数据"
+        AppDataState.Unknown, null -> "UNKNOWN 来源待确认"
+    }
+    val description = when (dataState) {
+        AppDataState.Main -> "user$mainUserId 当前使用主系统来源的数据。"
+        is AppDataState.Clone -> "user$mainUserId 当前使用从分身系统切换来的数据。"
+        AppDataState.Unknown, null -> "切换记录不足，恢复已标识来源的备份后才能继续安全切换。"
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.ucloneColors.groupedSurface,
+        border = BorderStroke(0.5.dp, accent.copy(alpha = 0.22f)),
+    ) {
+        Row(
+            Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.heightIn(min = 44.dp),
+                shape = CircleShape,
+                color = accent.copy(alpha = 0.12f),
+                contentColor = accent,
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    Modifier.padding(horizontal = 12.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center,
+                ) {
+                    Icon(Icons.Default.Storage, contentDescription = null)
+                }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    "user$mainUserId 当前数据来源",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = accent,
+                )
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

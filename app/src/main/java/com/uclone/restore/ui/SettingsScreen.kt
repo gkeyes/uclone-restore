@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.CloneSessionPolicy
 import com.uclone.restore.model.MainReturnPointPolicy
 import com.uclone.restore.model.SwitchSafetyMode
+import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.model.WorkspaceOwnershipReport
 import com.uclone.restore.util.Formatters
 
@@ -57,6 +58,7 @@ fun SettingsScreen(
     var confirmOwnershipRepair by remember { mutableStateOf(false) }
     var confirmDangerousSwitch by remember { mutableStateOf(false) }
     var switchPolicyDialog by remember { mutableStateOf<SwitchPolicyDialog?>(null) }
+    val hasUnsavedChanges = draft != state.settings
     Column(
         modifier
             .fillMaxSize()
@@ -64,13 +66,22 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState())
             .padding(
                 start = 16.dp,
-                top = 12.dp,
+                top = LocalTopBarContentPadding.current,
                 end = 16.dp,
                 bottom = LocalBottomBarContentPadding.current,
             ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        PageDescription("配置用户、工作区和默认数据范围；危险维护操作集中在页面底部。")
+        PageDescription("切换策略、用户、工作区与维护")
+        if (hasUnsavedChanges) {
+            SettingsSaveBanner(
+                onSave = {
+                    viewModel.saveSettings(draft)
+                    Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show()
+                },
+            )
+        }
+        SwitchStrategySection(draft) { switchPolicyDialog = it }
         SectionCard("诊断与维护") {
             ToolRow(
                 title = "诊断与维护",
@@ -123,54 +134,6 @@ fun SettingsScreen(
                 draft = draft.copy(stopCloneAfterTask = it)
             }
         }
-        SectionCard("切换策略") {
-            PolicySettingRow(
-                title = "MAIN 返回点",
-                value = SwitchPolicyText.mainReturnLabel(draft.mainReturnPointPolicy),
-                description = SwitchPolicyText.mainReturnDescription(draft.mainReturnPointPolicy),
-                onClick = { switchPolicyDialog = SwitchPolicyDialog.MAIN_RETURN },
-            )
-            HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
-            PolicySettingRow(
-                title = "返回 MAIN 时的分数据",
-                value = SwitchPolicyText.cloneSessionLabel(draft.cloneSessionPolicy),
-                description = SwitchPolicyText.cloneSessionDescription(draft.cloneSessionPolicy, draft.cloneUserId),
-                onClick = { switchPolicyDialog = SwitchPolicyDialog.CLONE_SESSION },
-            )
-            HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
-            PolicySettingRow(
-                title = "失败保护",
-                value = SwitchPolicyText.safetyLabel(draft.switchSafetyMode),
-                description = SwitchPolicyText.safetyDescription(draft.switchSafetyMode),
-                onClick = { switchPolicyDialog = SwitchPolicyDialog.SAFETY },
-            )
-            HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
-            Column(
-                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    "当前执行方案 · ${SwitchPolicyText.planLabel(draft)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (draft.switchSafetyMode == SwitchSafetyMode.DANGEROUS_FAST) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    SwitchPolicyText.planSummary(draft),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "切换到 CLONE 始终读取 user${draft.cloneUserId} 当前数据，不使用长期 CLONE 备份。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
         SectionCard("模块控制") {
             ToggleRow(
                 label = "允许模块控制",
@@ -188,19 +151,6 @@ fun SettingsScreen(
             ToggleRow("obb", draft.includeObb) { draft = draft.copy(includeObb = it) }
             ToggleRow("权限/AppOps", draft.includePermissions) { draft = draft.copy(includePermissions = it) }
             ToggleRow("排除 cache/code_cache", draft.excludeCache) { draft = draft.copy(excludeCache = it) }
-        }
-        SectionCard("应用更改") {
-            ToolRow(
-                title = "保存本页设置",
-                description = "应用用户、工作区和数据范围修改。",
-                actionLabel = "保存",
-                onClick = {
-                    viewModel.saveSettings(draft)
-                    Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show()
-                },
-                icon = Icons.Default.Save,
-                showDivider = false,
-            )
         }
         val ownership = state.workspaceOwnership
         SectionCard("备份容量归属") {
@@ -452,6 +402,93 @@ fun SettingsScreen(
             confirmButton = {},
             dismissButton = { DialogActionButton("取消", onClick = { switchPolicyDialog = null }) },
         )
+    }
+}
+
+@Composable
+private fun SwitchStrategySection(
+    draft: UCloneSettings,
+    onSelectPolicy: (SwitchPolicyDialog) -> Unit,
+) {
+    SectionCard("切换策略") {
+        PolicySettingRow(
+            title = "MAIN 返回点",
+            value = SwitchPolicyText.mainReturnLabel(draft.mainReturnPointPolicy),
+            description = SwitchPolicyText.mainReturnDescription(draft.mainReturnPointPolicy),
+            onClick = { onSelectPolicy(SwitchPolicyDialog.MAIN_RETURN) },
+        )
+        HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f))
+        PolicySettingRow(
+            title = "返回 MAIN 时的分数据",
+            value = SwitchPolicyText.cloneSessionLabel(draft.cloneSessionPolicy),
+            description = SwitchPolicyText.cloneSessionDescription(draft.cloneSessionPolicy, draft.cloneUserId),
+            onClick = { onSelectPolicy(SwitchPolicyDialog.CLONE_SESSION) },
+        )
+        HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f))
+        PolicySettingRow(
+            title = "失败保护",
+            value = SwitchPolicyText.safetyLabel(draft.switchSafetyMode),
+            description = SwitchPolicyText.safetyDescription(draft.switchSafetyMode),
+            onClick = { onSelectPolicy(SwitchPolicyDialog.SAFETY) },
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, top = 10.dp, end = 4.dp, bottom = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                "当前方案 · ${SwitchPolicyText.planLabel(draft)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (draft.switchSafetyMode == SwitchSafetyMode.DANGEROUS_FAST) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                SwitchPolicyText.planSummary(draft),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "切换到 CLONE 始终读取 user${draft.cloneUserId} 当前数据，不使用长期 CLONE 备份。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsSaveBanner(onSave: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("有未保存的更改", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "保存后应用到后续任务。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            CompactActionButton(
+                text = "保存",
+                onClick = onSave,
+                primary = true,
+                icon = Icons.Default.Save,
+            )
+        }
     }
 }
 

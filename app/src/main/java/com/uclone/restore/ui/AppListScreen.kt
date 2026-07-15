@@ -55,7 +55,11 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
     Column(
         modifier
             .fillMaxSize()
-            .padding(start = 16.dp, top = 12.dp, end = 16.dp),
+            .padding(
+                start = 16.dp,
+                top = LocalTopBarContentPadding.current,
+                end = 16.dp,
+            ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
@@ -64,7 +68,7 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
             verticalAlignment = Alignment.CenterVertically,
         ) {
             PageDescription(
-                "查找 App、确认两侧安装状态，并管理首页收藏。",
+                "两侧安装、数据来源与收藏",
                 modifier = Modifier.weight(1f),
             )
             if (!searchExpanded) {

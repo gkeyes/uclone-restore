@@ -20,9 +20,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -66,6 +68,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -176,6 +179,14 @@ fun UCloneApp(
             when (layout) {
                 NavigationLayout.COMPACT -> CompactShell(
                     destination = destination,
+                    title = when (destination) {
+                        Destination.HOME -> "UClone"
+                        Destination.DETAIL -> state.selectedApp?.label ?: destination.label
+                        Destination.DATA_DETAIL -> dataDetailPackage
+                            ?.let { packageName -> state.apps.firstOrNull { it.packageName == packageName }?.label }
+                            ?: destination.label
+                        else -> destination.label
+                    },
                     taskActive = state.currentTask.task != null,
                     onSelect = selectDestination,
                     onBack = navigateBack,
@@ -208,49 +219,128 @@ fun UCloneApp(
 @Composable
 private fun CompactShell(
     destination: Destination,
+    title: String,
     taskActive: Boolean,
     onSelect: (Destination) -> Unit,
     onBack: () -> Unit,
     onOpenHistory: () -> Unit,
     content: @Composable (Modifier) -> Unit,
 ) {
-    if (destination in topLevelDestinations) {
-        val bottomContentPadding = WindowInsets.navigationBars
-            .asPaddingValues()
-            .calculateBottomPadding() + 68.dp
-        GlassBackdropHost(
-            modifier = Modifier.fillMaxSize(),
-            background = {
-                CompositionLocalProvider(LocalBottomBarContentPadding provides bottomContentPadding) {
-                    AppScaffold(
-                        destination = destination,
-                        taskActive = taskActive,
-                        navigationIcon = null,
-                        onOpenHistory = onOpenHistory,
-                        content = content,
-                    )
-                }
-            },
-            overlay = {
+    val topContentPadding = WindowInsets.statusBars
+        .asPaddingValues()
+        .calculateTopPadding() + 76.dp
+    val bottomContentPadding = if (destination in topLevelDestinations) {
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 68.dp
+    } else {
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
+    }
+    GlassBackdropHost(
+        modifier = Modifier.fillMaxSize(),
+        background = {
+            CompositionLocalProvider(
+                LocalTopBarContentPadding provides topContentPadding,
+                LocalBottomBarContentPadding provides bottomContentPadding,
+            ) {
+                AppScaffold(
+                    destination = destination,
+                    taskActive = taskActive,
+                    navigationIcon = null,
+                    onOpenHistory = onOpenHistory,
+                    showTopBar = false,
+                    content = content,
+                )
+            }
+        },
+        overlay = {
+            FloatingTopBar(
+                title = title,
+                taskActive = taskActive,
+                onBack = onBack.takeIf { destination !in topLevelDestinations },
+                onOpenHistory = onOpenHistory,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+            if (destination in topLevelDestinations) {
                 FloatingTabBar(
                     destination = destination,
                     onSelect = onSelect,
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
-            },
-        )
-    } else {
-        AppScaffold(
-            destination = destination,
-            taskActive = taskActive,
-            navigationIcon = {
-                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+            }
+        },
+    )
+}
+
+@Composable
+private fun FloatingTopBar(
+    title: String,
+    taskActive: Boolean,
+    onBack: (() -> Unit)?,
+    onOpenHistory: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 12.dp, top = 8.dp, end = 12.dp),
+    ) {
+        LiquidGlassSurface(
+            role = GlassRole.Navigation,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .testTag("uclone_top_navigation"),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onBack != null) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "返回",
+                            modifier = Modifier.size(21.dp),
+                        )
+                    }
+                } else {
+                    Surface(
+                        modifier = Modifier.size(36.dp),
+                        shape = RoundedCornerShape(11.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("U", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
                 }
-            },
-            onOpenHistory = onOpenHistory,
-            content = content,
-        )
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (taskActive) {
+                    IconButton(
+                        onClick = onOpenHistory,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.PendingActions,
+                            contentDescription = "查看当前任务",
+                            modifier = Modifier.size(21.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -295,45 +385,48 @@ private fun AppScaffold(
     modifier: Modifier = Modifier,
     navigationIcon: (@Composable () -> Unit)?,
     onOpenHistory: () -> Unit,
+    showTopBar: Boolean = true,
     content: @Composable (Modifier) -> Unit,
 ) {
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        destination.label,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                },
-                navigationIcon = { navigationIcon?.invoke() },
-                actions = {
-                    if (taskActive) {
-                        Surface(
-                            onClick = onOpenHistory,
-                            modifier = Modifier.size(48.dp).padding(4.dp),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.primary,
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Default.PendingActions,
-                                    contentDescription = "查看当前任务",
-                                    modifier = Modifier.size(21.dp),
-                                )
+            if (showTopBar) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            destination.label,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    },
+                    navigationIcon = { navigationIcon?.invoke() },
+                    actions = {
+                        if (taskActive) {
+                            Surface(
+                                onClick = onOpenHistory,
+                                modifier = Modifier.size(48.dp).padding(4.dp),
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.primary,
+                            ) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.PendingActions,
+                                        contentDescription = "查看当前任务",
+                                        modifier = Modifier.size(21.dp),
+                                    )
+                                }
                             }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    scrolledContainerColor = MaterialTheme.colorScheme.background,
-                ),
-            )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    ),
+                )
+            }
         },
     ) { padding ->
         content(Modifier.fillMaxSize().padding(padding))

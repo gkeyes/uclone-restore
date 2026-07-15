@@ -3,6 +3,7 @@ package com.uclone.restore.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -11,14 +12,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -36,7 +40,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.AppEntry
 import com.uclone.restore.model.StepStatus
@@ -52,11 +60,14 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(start = 16.dp, top = 12.dp, end = 16.dp),
-        contentPadding = PaddingValues(bottom = LocalBottomBarContentPadding.current),
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(
+            top = LocalTopBarContentPadding.current,
+            bottom = LocalBottomBarContentPadding.current,
+        ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PageDescription("先确认系统状态，再处理收藏 App 的切换、还原和推送。") }
+        item { PageDescription("系统状态与常用 App") }
         item { SystemHealthSection(state, viewModel) }
         if (state.currentTask.task != null) item { CurrentTaskCard(state) }
         item { SectionLabel("收藏 App", "每个 App 只突出当前状态对应的主动作。") }
@@ -119,47 +130,179 @@ private fun SystemHealthSection(state: UiState, viewModel: UCloneViewModel) {
     val usable = env?.root?.ok == true && env.dataAdbWritable.ok && env.user10Present
     val cloneRunning = env?.user10CeState is User10CeState.StartedLocked ||
         env?.user10CeState is User10CeState.RunningUnlocked
-    SectionCard(if (usable) "系统可用" else "需要检查") {
-        Text(
-            if (usable) "Root、工作区和分身用户已通过基础检查。" else "至少一项基础条件尚未确认，请先重新检测。",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+    val accent = if (usable) MaterialTheme.ucloneColors.success else MaterialTheme.ucloneColors.warning
+    val accentContainer = if (usable) {
+        MaterialTheme.ucloneColors.successContainer
+    } else {
+        MaterialTheme.ucloneColors.warningContainer
+    }
+    val largeText = LocalDensity.current.fontScale >= 1.4f
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.ucloneColors.groupedSurface,
+        border = BorderStroke(0.5.dp, accent.copy(alpha = 0.18f)),
+        shadowElevation = 0.dp,
+    ) {
+        Column(
+            Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            StatusChip(env?.root?.ok == true, if (env?.root?.ok == true) "Root 正常" else "Root 未就绪")
-            StatusChip(env?.user10Present == true, "分身 user${state.settings.cloneUserId}")
-        }
-        InfoRow("当前用户", env?.currentUser ?: "未检测")
-        InfoRow("分身系统", env?.user10CeState?.cloneLifecycleLabel ?: "未检测")
-        InfoRow("数据状态", env?.user10CeState?.userFacingLabel ?: "未检测")
-        HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            InlineActionButton(
-                text = "重新检测",
-                onClick = viewModel::refreshEnvironment,
-                modifier = Modifier.weight(1f),
-                icon = Icons.Default.Refresh,
-            )
-            if (env != null) {
-                Box(
-                    Modifier
-                        .width(0.5.dp)
-                        .height(30.dp)
-                        .background(MaterialTheme.ucloneColors.separator.copy(alpha = 0.65f)),
-                )
-                InlineActionButton(
-                    text = if (cloneRunning) "关闭分身" else "启动分身",
-                    onClick = if (cloneRunning) viewModel::stopCloneUser else viewModel::startCloneUser,
-                    modifier = Modifier.weight(1f),
-                    danger = cloneRunning,
-                    icon = if (cloneRunning) Icons.Default.PowerSettingsNew else Icons.Default.PlayArrow,
-                )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        "系统状态",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        when {
+                            env == null -> "尚未检测"
+                            usable -> "可以开始切换"
+                            else -> "需要先处理环境"
+                        },
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        when {
+                            env == null -> "先读取 Root、工作区与分身用户状态。"
+                            usable -> "Root、工作区与分身用户均已通过基础检查。"
+                            else -> "至少一项关键条件尚未确认，数据操作暂不建议开始。"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Surface(
+                    modifier = Modifier.size(48.dp),
+                    shape = CircleShape,
+                    color = accentContainer,
+                    contentColor = accent,
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (usable) Icons.Default.CheckCircle else Icons.Default.WarningAmber,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                }
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                StatusChip(env?.root?.ok == true, if (env?.root?.ok == true) "Root 正常" else "Root 未就绪")
+                StatusChip(env?.user10Present == true, "分身 user${state.settings.cloneUserId}")
+            }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.ucloneColors.elevatedSurface,
+            ) {
+                if (largeText) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        InfoRow("当前用户", env?.currentUser ?: "未检测")
+                        InfoRow("分身系统", env?.user10CeState?.cloneLifecycleLabel ?: "未检测")
+                        InfoRow("数据解锁", env?.user10CeState?.userFacingLabel ?: "未检测")
+                    }
+                } else {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        HealthMetric("当前用户", env?.currentUser ?: "未检测", Modifier.weight(0.8f))
+                        HealthMetricDivider()
+                        HealthMetric(
+                            "分身系统",
+                            env?.user10CeState?.cloneLifecycleLabel ?: "未检测",
+                            Modifier.weight(1f),
+                        )
+                        HealthMetricDivider()
+                        HealthMetric(
+                            "数据解锁",
+                            env?.user10CeState?.userFacingLabel ?: "未检测",
+                            Modifier.weight(1.15f),
+                        )
+                    }
+                }
+            }
+            if (largeText) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    InlineActionButton(
+                        text = "重新检测",
+                        onClick = viewModel::refreshEnvironment,
+                        modifier = Modifier.fillMaxWidth(),
+                        icon = Icons.Default.Refresh,
+                    )
+                    if (env != null) {
+                        InlineActionButton(
+                            text = if (cloneRunning) "关闭分身" else "启动分身",
+                            onClick = if (cloneRunning) viewModel::stopCloneUser else viewModel::startCloneUser,
+                            modifier = Modifier.fillMaxWidth(),
+                            danger = cloneRunning,
+                            icon = if (cloneRunning) Icons.Default.PowerSettingsNew else Icons.Default.PlayArrow,
+                        )
+                    }
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    InlineActionButton(
+                        text = "重新检测",
+                        onClick = viewModel::refreshEnvironment,
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.Refresh,
+                    )
+                    if (env != null) {
+                        InlineActionButton(
+                            text = if (cloneRunning) "关闭分身" else "启动分身",
+                            onClick = if (cloneRunning) viewModel::stopCloneUser else viewModel::startCloneUser,
+                            modifier = Modifier.weight(1f),
+                            danger = cloneRunning,
+                            icon = if (cloneRunning) Icons.Default.PowerSettingsNew else Icons.Default.PlayArrow,
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun HealthMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(horizontal = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun HealthMetricDivider() {
+    Box(
+        Modifier
+            .width(0.5.dp)
+            .height(34.dp)
+            .background(MaterialTheme.ucloneColors.separator.copy(alpha = 0.65f)),
+    )
 }
 
 @Composable
@@ -199,71 +342,88 @@ private fun FavoriteAppRow(
     onRestore: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val largeText = LocalDensity.current.fontScale >= 1.4f
+    val actionLabel = when (dataState) {
+        AppDataState.Main -> "切换"
+        is AppDataState.Clone -> "还原"
+        AppDataState.Unknown -> "检查"
+    }
+    val action = when (dataState) {
+        AppDataState.Main -> onSwitch
+        is AppDataState.Clone -> onRestore
+        AppDataState.Unknown -> onOpen
+    }
     Surface(
         onClick = onOpen,
         modifier = Modifier.fillMaxWidth(),
         color = Color.Transparent,
         shadowElevation = 0.dp,
     ) {
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            AppIcon(app.packageName)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(app.label, fontWeight = FontWeight.SemiBold)
-                Text(
-                    app.packageName,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    "${dataState.compactLabel()} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = dataState.color(),
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-            CompactActionButton(
-                text = when (dataState) {
-                    AppDataState.Main -> "切换"
-                    is AppDataState.Clone -> "还原"
-                    AppDataState.Unknown -> "检查"
-                },
-                onClick = when (dataState) {
-                    AppDataState.Main -> onSwitch
-                    is AppDataState.Clone -> onRestore
-                    AppDataState.Unknown -> onOpen
-                },
-                primary = dataState != AppDataState.Unknown,
-            )
-            Box {
-                UtilityIconButton(
-                    imageVector = Icons.Default.MoreHoriz,
-                    contentDescription = "更多操作",
-                    onClick = { menuExpanded = true },
-                    framed = true,
-                )
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text("推送当前主系统数据到分身") },
-                        leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onPush()
-                        },
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppIcon(app.packageName)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(app.label, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        app.packageName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    DropdownMenuItem(
-                        text = { Text("查看 App 详情") },
-                        onClick = {
-                            menuExpanded = false
-                            onOpen()
-                        },
+                    Text(
+                        "${dataState.compactLabel()} · ${Formatters.kilobytes(app.snapshotSizeKb)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = dataState.color(),
+                        fontWeight = FontWeight.Medium,
                     )
                 }
+                if (!largeText) {
+                    CompactActionButton(
+                        text = actionLabel,
+                        onClick = action,
+                        primary = dataState != AppDataState.Unknown,
+                    )
+                }
+                Box {
+                    UtilityIconButton(
+                        imageVector = Icons.Default.MoreHoriz,
+                        contentDescription = "更多操作",
+                        onClick = { menuExpanded = true },
+                    )
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("推送当前主系统数据到分身") },
+                            leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                onPush()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("查看 App 详情") },
+                            onClick = {
+                                menuExpanded = false
+                                onOpen()
+                            },
+                        )
+                    }
+                }
+            }
+            if (largeText) {
+                CompactActionButton(
+                    text = actionLabel,
+                    onClick = action,
+                    modifier = Modifier.fillMaxWidth(),
+                    primary = dataState != AppDataState.Unknown,
+                )
             }
         }
     }

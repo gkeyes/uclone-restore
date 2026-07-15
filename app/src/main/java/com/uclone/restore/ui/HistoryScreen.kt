@@ -41,10 +41,14 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(start = 16.dp, top = 12.dp, end = 16.dp),
+            .padding(
+                start = 16.dp,
+                top = LocalTopBarContentPadding.current,
+                end = 16.dp,
+            ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        PageDescription("这里记录已接受的业务任务；备份文件仍集中在“数据”页管理。")
+        PageDescription("已接受的业务任务与执行结果")
         if (state.history.isEmpty()) {
             SectionCard("暂无任务记录") {
                 Text("执行切换、推送、恢复或维护任务后，结果会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)

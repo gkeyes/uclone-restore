@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
@@ -77,6 +78,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal val LocalBottomBarContentPadding = staticCompositionLocalOf { 16.dp }
+internal val LocalTopBarContentPadding = staticCompositionLocalOf { 16.dp }
 
 @Composable
 fun SectionCard(
@@ -86,7 +88,7 @@ fun SectionCard(
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
             title,
@@ -103,8 +105,8 @@ fun SectionCard(
             shadowElevation = 0.dp,
         ) {
             Column(
-                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 content()
             }
@@ -114,12 +116,25 @@ fun SectionCard(
 
 @Composable
 fun PageDescription(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
-    )
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(18.dp)
+                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(999.dp)),
+        )
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable
@@ -151,7 +166,7 @@ fun InfoRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp),
+            .heightIn(min = 44.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -488,46 +503,116 @@ fun ToolRow(
     danger: Boolean = false,
     showDivider: Boolean = true,
 ) {
+    val largeText = LocalDensity.current.fontScale >= 1.4f
     Column(modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(min = 64.dp)
-                .padding(vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (icon != null) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                    tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        if (largeText) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    ToolRowIcon(icon = icon, primary = primary, danger = danger)
+                    ToolRowText(title = title, description = description, modifier = Modifier.weight(1f))
+                }
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    ToolRowAction(
+                        actionLabel = actionLabel,
+                        onClick = onClick,
+                        enabled = enabled,
+                        primary = primary,
+                        danger = danger,
+                    )
+                }
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (primary) {
-                CompactActionButton(
-                    text = actionLabel,
+        } else {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 64.dp)
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ToolRowIcon(icon = icon, primary = primary, danger = danger)
+                ToolRowText(title = title, description = description, modifier = Modifier.weight(1f))
+                ToolRowAction(
+                    actionLabel = actionLabel,
                     onClick = onClick,
                     enabled = enabled,
-                    primary = true,
-                )
-            } else {
-                InlineActionButton(
-                    text = actionLabel,
-                    onClick = onClick,
-                    enabled = enabled,
+                    primary = primary,
                     danger = danger,
                 )
             }
         }
         if (showDivider) {
-            HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.45f))
+            HorizontalDivider(
+                modifier = Modifier.padding(start = if (icon == null) 0.dp else 48.dp),
+                color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+            )
         }
+    }
+}
+
+@Composable
+private fun ToolRowIcon(icon: ImageVector?, primary: Boolean, danger: Boolean) {
+    if (icon == null) return
+    val iconColor = when {
+        danger -> MaterialTheme.colorScheme.error
+        primary -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        modifier = Modifier.size(36.dp),
+        shape = RoundedCornerShape(10.dp),
+        color = iconColor.copy(alpha = 0.10f),
+        contentColor = iconColor,
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
+        }
+    }
+}
+
+@Composable
+private fun ToolRowText(title: String, description: String, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+        Text(
+            description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ToolRowAction(
+    actionLabel: String,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    primary: Boolean,
+    danger: Boolean,
+) {
+    if (primary) {
+        CompactActionButton(
+            text = actionLabel,
+            onClick = onClick,
+            enabled = enabled,
+            primary = true,
+        )
+    } else {
+        InlineActionButton(
+            text = actionLabel,
+            onClick = onClick,
+            enabled = enabled,
+            danger = danger,
+        )
     }
 }
 

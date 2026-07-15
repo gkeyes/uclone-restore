@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.sp
 
 private val SystemBlue = Color(0xFF007AFF)
 private val SystemBlueDark = Color(0xFF0A84FF)
-internal val UCloneGroupedCornerRadius = 11.dp
+internal val UCloneGroupedCornerRadius = 12.dp
 
 @Immutable
 data class UCloneSemanticColors(
@@ -93,9 +93,9 @@ private val LightColors: ColorScheme = lightColorScheme(
     secondary = Color(0xFF5856D6),
     onSecondary = Color.White,
     tertiary = Color(0xFFFF9500),
-    background = Color(0xFFF5F5F7),
+    background = Color(0xFFF2F2F7),
     onBackground = Color(0xFF1D1D1F),
-    surface = Color(0xFFF5F5F7),
+    surface = Color(0xFFF2F2F7),
     onSurface = Color(0xFF1D1D1F),
     surfaceVariant = Color(0xFFE8E8ED),
     onSurfaceVariant = Color(0xFF6C6C70),
@@ -199,8 +199,8 @@ private val UCloneShapes = Shapes(
     extraSmall = RoundedCornerShape(5.dp),
     small = RoundedCornerShape(8.dp),
     medium = RoundedCornerShape(UCloneGroupedCornerRadius),
-    large = RoundedCornerShape(18.dp),
-    extraLarge = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(22.dp),
 )
 
 @Composable

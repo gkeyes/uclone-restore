@@ -19,7 +19,7 @@
 | Finding | Evidence | Classification | Contract response |
 | --- | --- | --- | --- |
 | 旧主题使用 Material 蓝灰和浅紫容器 | 真机截图、`Theme.kt` | `PROJECT-VERIFIED` | 改为中性 grouped background、纯色内容面和系统蓝强调 |
-| Compact 使用居中标题、汉堡菜单和 drawer | 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 改为左对齐标题和五项悬浮底部导航；诊断从设置进入 |
+| Compact 使用居中标题、汉堡菜单和 drawer | 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 改为紧凑悬浮玻璃标题栏和五项悬浮底部导航；诊断从设置进入 |
 | 第一版 A1 仍使用描边、阴影和 18dp 大圆角卡片 | commit `6edc5d4` 真机截图 | `PROJECT-VERIFIED` | 内容面改为 11dp 无描边、无阴影的 inset grouped surface |
 | 第一版 A1 仍有整行实心按钮和 Material 按钮墙 | commit `6edc5d4` 真机截图、`Components.kt` | `PROJECT-VERIFIED` | 普通命令改为行尾蓝色/红色文字；每个情境只允许一个短实心主动作 |
 | 第一版 A1 底栏选中项显示大面积蓝色矩形 | commit `6edc5d4` 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 选中态只使用蓝色 icon 和文字，不增加背景块或额外指示器 |
@@ -43,7 +43,7 @@
 | 避免嵌套卡片、动效克制、日志使用 monospace | 保留 | `PROJECT-VERIFIED` | 与系统工具的信息效率一致 |
 | 44dp 最小触控 | 由 Android 48dp 规则取代 | `DERIVED` | Android 是真实目标平台，官方 API defaults 优先 |
 | 普通 group/list row 使用 Liquid Glass | 内容层改为不透明 grouped surface，仅导航层允许半透明 | `PROJECT-VERIFIED` | 保证数据面稳定对比，避免 glass-on-glass |
-| 普通容器与命令按钮圆角 | 内容容器/输入 11dp、短命令胶囊、导航 30dp | `PROJECT-VERIFIED` | 内容仍保持克制；只有可点击命令和导航 chrome 使用连续胶囊/圆形轮廓 |
+| 普通容器与命令按钮圆角 | 内容容器/输入 12dp、短命令胶囊、导航 30dp | `PROJECT-VERIFIED` | 内容仍保持克制；只有可点击命令和导航 chrome 使用连续胶囊/圆形轮廓 |
 | Apple 风格色板 | 作为 UClone 产品色选择映射到 semantic light/dark roles | `PROJECT-VERIFIED` | 不以 `Ios*` 命名，不冒充原生 Apple 组件 |
 | Compact 行可省略长包名/路径 | 关键信息换行或进入可复制详情 | `DERIVED` | 不得隐藏危险对象和恢复标识 |
 
@@ -54,7 +54,7 @@
 | ID | Area | Decision | Evidence label | Source/project ID | Responsive/state variants | Acceptance test |
 | --- | --- | --- | --- | --- | --- | --- |
 | VC-001 | Product truth | 全部现有页面和 26 个动作必须可达 | `PROJECT-VERIFIED` | functional inventory/action matrix | 所有 window/state | 自动枚举覆盖 + 手工点击 |
-| VC-002 | Navigation | Compact 使用 5 项等宽悬浮玻璃底栏；诊断从设置进入；详情隐藏底栏并显示返回。本轮冻结底栏的结构、尺寸、镜片、材质和交互 | `PROJECT-VERIFIED` | 用户决定 + current code | compact/详情 | 自动导航合同 + 360dp 真机大字体检查；本轮底栏实现零差异 |
+| VC-002 | Navigation | Compact 使用共享 Backdrop 的悬浮玻璃标题栏和 5 项等宽悬浮玻璃底栏；诊断从设置进入；详情隐藏底栏并在标题栏显示返回。本轮冻结底栏的结构、尺寸、镜片、材质和交互 | `PROJECT-VERIFIED` | 用户决定 + current code | compact/详情 | 自动导航合同 + 360dp 真机大字体检查；本轮底栏实现零差异 |
 | VC-003 | Layout | 页面使用 inset grouped surface，不允许 card 套 card | `PROJECT-VERIFIED` | 用户决定 + grouped utility direction | compact 单列；wide sidebar | 截图层级审查 |
 | VC-004 | Touch | 所有可点击目标最小 48dp | `OFFICIAL-VERIFIED` | Android API defaults | touch/keyboard/TalkBack | Layout Inspector + 点击 |
 | VC-005 | Theme | 使用 semantic light/dark color roles | `OFFICIAL-VERIFIED` | Android M3 + Apple color | light/dark/high contrast | 截图 + 对比检查 |
@@ -64,7 +64,7 @@
 | VC-009 | Destructive | 删除/重置独立危险区并确认后果 | `DERIVED` | action matrix + alerts | default/confirm/error | 实际打开确认框 |
 | VC-010 | Progress | 当前只展示阶段/步骤；未来有可信实时分母才显示百分比 | `DERIVED` | `TaskProgress` 当前无可靠实时总量 | accepted/running/rollback | fixture/真机任务截图；遥测扩展需独立批准 |
 | VC-011 | Content | 中文主文案，技术原值作为可展开次级信息 | `PROJECT-VERIFIED` | product truth | normal/error/diagnostic | 内容审查 + TalkBack |
-| VC-012 | Material | Backdrop 光学只用于与捕获层同级的导航和选中镜片；内容工具控件使用静态半透明珍珠面，唯一情境主动作使用高对比实心短胶囊，数据面保持不透明 | `PROJECT-VERIFIED` | approved direction + imported `DESIGN.md` + Backdrop 1.0.2 glass-on-glass restriction | light/dark/edge-to-edge | 模拟器渲染 + 滚动背景折射、边缘高光和性能真机检查 |
+| VC-012 | Material | Backdrop 光学只用于与捕获层同级的顶部/底部导航和选中镜片；内容工具控件使用静态半透明珍珠面，唯一情境主动作使用高对比实心短胶囊，数据面保持不透明 | `PROJECT-VERIFIED` | approved direction + imported `DESIGN.md` + Backdrop 1.0.2 glass-on-glass restriction | light/dark/edge-to-edge | 模拟器渲染 + 滚动背景折射、边缘高光和性能真机检查 |
 | VC-013 | Motion | 平台默认短过渡；reduced motion 下取消缩放和位移，只保留 150ms 淡入淡出 | `PROJECT-VERIFIED` | platform guidance + current code | normal/reduced | 开发者选项/系统设置测试 |
 | VC-014 | Module | 模块保留 Android View，不因视觉重构换框架 | `PROJECT-VERIFIED` | existing architecture | all module pages | 模块页面逐页截图 |
 
@@ -117,9 +117,9 @@
 | `space-4` | 16dp | 页面水平 padding、标准 section |
 | `space-6` | 24dp | 主要 section 分隔 |
 | `space-8` | 32dp | 危险区或大段分隔 |
-| control radius | 11dp | fields and compact content rows |
+| control radius | 12dp | fields and compact content rows |
 | command shape | capsule | short primary/secondary command controls only |
-| grouped radius | 11dp | content cards and grouped lists |
+| grouped radius | 12dp | content cards and grouped lists |
 | navigation radius | 30dp | floating compact navigation only |
 | status radius | full | status badge and circular icon button |
 | minimum touch | 48dp | 所有 interactive target |
@@ -166,7 +166,7 @@
 | Component | Official/project primitive | Variants | States | Accessibility behavior | Customization boundary |
 | --- | --- | --- | --- | --- | --- |
 | App shell | `Scaffold`, Backdrop tab bar, custom sidebar | compact/medium/expanded | default/task active | 当前目的地有语义；返回可预测 | 五项顶级入口；诊断功能不删除，只下沉到设置 |
-| Top app bar | Material 3 app bar | root/detail | scrolled/default | 标题、导航和 action 描述完整 | chrome 可轻量材质，不遮内容 |
+| Top app bar | Compact 使用共享 Backdrop `LiquidGlassSurface`；wide 保留 Material 3 app bar | root/detail | scrolled/default/task active | 标题、返回和当前任务 action 描述完整 | 不嵌套玻璃；标题超长省略但详情保留完整身份 |
 | Health summary | project composable/View group | ready/warning/error/unknown | 当前可空环境；loading/stale 为候选 | 一次读出结论和原因 | 不只显示绿点；新增状态字段需独立任务 |
 | Task panel | progress indicators + project rows | staged/rollback；determinate 为后续能力 | all task statuses | 宣读动作、阶段和已有耗时 | 当前不伪造百分比或实时文件总量 |
 | State badge | icon + text | MAIN/CLONE/UNKNOWN | normal/stale | 完整 stateDescription | 仅 badge 可 pill |
@@ -243,6 +243,7 @@
 2. `91aab0f`：五项底栏、选中镜片、设置内诊断与返回归属。
 3. `771acf0`：连续分组页面、紧凑列表和行尾操作层级。
 4. 当前提交：组件语义测试、导航合同、循环 Backdrop 隔离、玻璃边缘抛光和视觉 QA 合同。
+5. 当前本地差异：共享顶部玻璃壳、系统就绪仪表盘、App 数据来源面板、首屏主动作、切换策略优先级和紧凑工具行；底部导航实现保持零差异。
 
 每个切片只改 UI，不夹带 Root、状态判定、协议、依赖升级或发布版本变更。逐页 loading/error/stale、可靠实时百分比、审计包导出或新的备份详情类型都需要独立数据/行为契约，不得以“视觉完善”为名加入 UI 切片。
 
@@ -252,7 +253,7 @@
 | --- | --- | --- | --- |
 | 当前 Liquid Glass 真机还原度 | 当前分支尚未安装，旧截图不对应本实现 | 模糊、折射、边缘高光和信息密度仍可能在设备上偏离合同 | 用户授权后安装当前 GitHub 固定签名 APK 并逐页截图 |
 | Light/dark color values | 未渲染 | 对比/品牌平衡未知 | 真机截图与对比检查 |
-| Chrome translucency | 底栏与捕获层为同级，使用 Backdrop 1.0.2 的背景捕获、blur、lens 和 vibrancy；捕获内容树不读取同一 Backdrop | 真机对比和与滚动内容融合程度未知 | GitHub 模拟器先执行渲染测试；固定产物滚动录像和截图继续检查闪黑、错位和卡顿 |
+| Chrome translucency | 顶部/底部导航与捕获层为同级，使用 Backdrop 1.0.2 的背景捕获、blur、lens 和 vibrancy；捕获内容树不读取同一 Backdrop | 真机对比和与滚动内容融合程度未知 | GitHub 模拟器先执行渲染测试；固定产物滚动录像和截图继续检查闪黑、错位和卡顿 |
 | 大字体/TalkBack | 48dp、危险/禁用和导航语义由 GitHub 模拟器执行自动合同，设备阅读顺序未验证 | 可访问性风险 | font scale 1.0/1.3/2.0 和 TalkBack 逐页测试 |
 | Module responsive layout | 当前为 programmatic View | 大字体/横屏风险 | 模块真机截图与操作 |
 | Compact/expanded behavior | 无当前渲染证据 | pane/导航可能不适配 | 手机、横屏/平板或模拟器验证 |
