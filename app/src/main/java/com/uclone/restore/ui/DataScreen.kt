@@ -35,6 +35,7 @@ fun DataScreen(
     modifier: Modifier,
     openActiveBackup: (String) -> Unit,
     openPassiveBackup: (RestoreBackupEntry) -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     var confirmRestore by remember { mutableStateOf<RestoreBackupEntry?>(null) }
     var confirmCloneRestore by remember { mutableStateOf<RestoreBackupEntry?>(null) }
@@ -58,16 +59,21 @@ fun DataScreen(
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         item {
-            Box(Modifier.padding(bottom = 12.dp)) {
-                PageDescription("主动快照、MAIN 返回点与 CLONE 回滚")
+            Box(Modifier.padding(bottom = 10.dp)) {
+                TopLevelHeader(
+                    title = "数据",
+                    description = "主动快照、MAIN 返回点与 CLONE 回滚",
+                    taskActive = state.currentTask.task != null,
+                    onOpenHistory = onOpenHistory,
+                )
             }
         }
         item {
             Box(Modifier.padding(bottom = 12.dp)) {
                 SectionCard("存储区分") {
-                    SingleLinePathText("主动快照: $rootDir/snapshots/<包名>/active")
-                    SingleLinePathText("被动备份: $rootDir/rollback/<包名>/<备份ID>")
-                    SingleLinePathText("分身回滚: $rootDir/clone_rollback/<包名>/latest")
+                    StoragePathRow("主动快照", "$rootDir/snapshots/<包名>/active")
+                    StoragePathRow("MAIN 返回点与事务回滚", "$rootDir/rollback/<包名>/<备份ID>")
+                    StoragePathRow("CLONE 推送回滚", "$rootDir/clone_rollback/<包名>/latest")
                     Text(
                         "MAIN 使用固定返回点；CLONE 切换直接读取 user${state.settings.cloneUserId} 当前数据。本次事务回滚始终单独建立。",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -211,6 +217,23 @@ fun DataScreen(
                 DialogActionButton("取消", onClick = { confirmCloneRestore = null })
             },
         )
+    }
+}
+
+@Composable
+private fun StoragePathRow(label: String, path: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SingleLinePathText(path)
     }
 }
 

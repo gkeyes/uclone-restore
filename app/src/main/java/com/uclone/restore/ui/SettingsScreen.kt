@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.uclone.restore.model.CloneSessionPolicy
 import com.uclone.restore.model.MainReturnPointPolicy
@@ -50,6 +52,7 @@ fun SettingsScreen(
     viewModel: UCloneViewModel,
     modifier: Modifier,
     openDiagnostics: () -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     val context = LocalContext.current
     var draft by remember(state.settings) { mutableStateOf(state.settings) }
@@ -70,9 +73,14 @@ fun SettingsScreen(
                 end = 16.dp,
                 bottom = LocalBottomBarContentPadding.current,
             ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        PageDescription("切换策略、用户、工作区与维护")
+        TopLevelHeader(
+            title = "设置",
+            description = "切换策略、用户、工作区与维护",
+            taskActive = state.currentTask.task != null,
+            onOpenHistory = onOpenHistory,
+        )
         if (hasUnsavedChanges) {
             SettingsSaveBanner(
                 onSave = {
@@ -529,35 +537,12 @@ private fun ToggleRow(
     description: String? = null,
     onChange: (Boolean) -> Unit,
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                label,
-                modifier = Modifier.weight(1f).padding(end = 12.dp),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Normal,
-            )
-            UCloneSwitch(
-                checked = checked,
-                onCheckedChange = onChange,
-            )
-        }
-        if (description != null) {
-            Text(
-                description,
-                modifier = Modifier.padding(end = 4.dp, bottom = 2.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+    ResponsiveSwitchRow(
+        label = label,
+        checked = checked,
+        onCheckedChange = onChange,
+        description = description,
+    )
 }
 
 private enum class SwitchPolicyDialog {
@@ -581,38 +566,56 @@ private fun PolicySettingRow(
     description: String,
     onClick: () -> Unit,
 ) {
+    val largeText = useStackedLayoutForLargeText()
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         color = Color.Transparent,
     ) {
-        Row(
-            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Normal)
                 Text(
-                    "当前：$value",
+                    title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                if (!largeText) {
+                    Text(
+                        value,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = "选择$title",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (largeText) {
+                Text(
+                    value,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
-                    description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
-            Icon(
-                Icons.Default.ChevronRight,
-                contentDescription = "选择$title",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

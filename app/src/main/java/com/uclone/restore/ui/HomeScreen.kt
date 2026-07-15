@@ -42,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,7 +54,13 @@ import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.util.Formatters
 
 @Composable
-fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, openDetail: () -> Unit) {
+fun HomeScreen(
+    state: UiState,
+    viewModel: UCloneViewModel,
+    modifier: Modifier,
+    openDetail: () -> Unit,
+    onOpenHistory: () -> Unit,
+) {
     var confirm by remember { mutableStateOf<HomeConfirm?>(null) }
     LazyColumn(
         modifier = modifier
@@ -65,9 +70,16 @@ fun HomeScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, o
             top = LocalTopBarContentPadding.current,
             bottom = LocalBottomBarContentPadding.current,
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item { PageDescription("系统状态与常用 App") }
+        item {
+            TopLevelHeader(
+                title = "UClone",
+                description = "系统状态与常用 App",
+                taskActive = state.currentTask.task != null,
+                onOpenHistory = onOpenHistory,
+            )
+        }
         item { SystemHealthSection(state, viewModel) }
         if (state.currentTask.task != null) item { CurrentTaskCard(state) }
         item { SectionLabel("收藏 App", "每个 App 只突出当前状态对应的主动作。") }
@@ -136,17 +148,17 @@ private fun SystemHealthSection(state: UiState, viewModel: UCloneViewModel) {
     } else {
         MaterialTheme.ucloneColors.warningContainer
     }
-    val largeText = LocalDensity.current.fontScale >= 1.4f
+    val largeText = useStackedLayoutForLargeText()
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.ucloneColors.groupedSurface,
         border = BorderStroke(0.5.dp, accent.copy(alpha = 0.18f)),
         shadowElevation = 0.dp,
     ) {
         Column(
-            Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -179,7 +191,7 @@ private fun SystemHealthSection(state: UiState, viewModel: UCloneViewModel) {
                     )
                 }
                 Surface(
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(44.dp),
                     shape = CircleShape,
                     color = accentContainer,
                     contentColor = accent,
@@ -188,14 +200,14 @@ private fun SystemHealthSection(state: UiState, viewModel: UCloneViewModel) {
                         Icon(
                             if (usable) Icons.Default.CheckCircle else Icons.Default.WarningAmber,
                             contentDescription = null,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(22.dp),
                         )
                     }
                 }
             }
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 StatusChip(env?.root?.ok == true, if (env?.root?.ok == true) "Root 正常" else "Root 未就绪")
                 StatusChip(env?.user10Present == true, "分身 user${state.settings.cloneUserId}")
@@ -213,7 +225,7 @@ private fun SystemHealthSection(state: UiState, viewModel: UCloneViewModel) {
                     }
                 } else {
                     Row(
-                        Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+                        Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         HealthMetric("当前用户", env?.currentUser ?: "未检测", Modifier.weight(0.8f))
@@ -306,26 +318,39 @@ private fun HealthMetricDivider() {
 }
 
 @Composable
-private fun CurrentTaskCard(state: UiState) {
+internal fun CurrentTaskCard(state: UiState) {
     val task = state.currentTask.task ?: return
+    val largeText = useStackedLayoutForLargeText()
     val activeStep = task.currentStage?.let { TaskStep(it.displayLabel, StepStatus.RUNNING) }
         ?: state.currentTask.steps.firstOrNull { it.status == StepStatus.RUNNING }
         ?: state.currentTask.steps.lastOrNull { it.status == StepStatus.SUCCESS }
     SectionCard("当前任务") {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (largeText) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(task.packageName, fontWeight = FontWeight.SemiBold)
                 Text(
                     "${task.type.displayName} · ${task.status.displayName}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                activeStep?.let { StatusBadge(it.label, it.status.homeBadgeColor()) }
             }
-            activeStep?.let { StatusBadge(it.label, it.status.homeBadgeColor()) }
+        } else {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(task.packageName, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "${task.type.displayName} · ${task.status.displayName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                activeStep?.let { StatusBadge(it.label, it.status.homeBadgeColor()) }
+            }
         }
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
     }
@@ -342,7 +367,7 @@ private fun FavoriteAppRow(
     onRestore: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-    val largeText = LocalDensity.current.fontScale >= 1.4f
+    val largeText = useStackedLayoutForLargeText()
     val actionLabel = when (dataState) {
         AppDataState.Main -> "切换"
         is AppDataState.Clone -> "还原"
@@ -362,15 +387,15 @@ private fun FavoriteAppRow(
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AppIcon(app.packageName)
+                AppIcon(app.packageName, size = 38.dp, cornerRadius = 10.dp)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(app.label, fontWeight = FontWeight.SemiBold)
                     Text(

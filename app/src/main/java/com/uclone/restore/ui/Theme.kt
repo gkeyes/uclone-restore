@@ -133,15 +133,15 @@ private val UCloneTypography = Typography(
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 34.sp,
-        lineHeight = 41.sp,
+        fontSize = 30.sp,
+        lineHeight = 36.sp,
         letterSpacing = 0.sp,
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 21.sp,
-        lineHeight = 26.sp,
+        fontSize = 20.sp,
+        lineHeight = 25.sp,
         letterSpacing = 0.sp,
     ),
     titleMedium = TextStyle(
@@ -161,8 +161,8 @@ private val UCloneTypography = Typography(
     bodyLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
-        fontSize = 17.sp,
-        lineHeight = 22.sp,
+        fontSize = 16.sp,
+        lineHeight = 21.sp,
         letterSpacing = 0.sp,
     ),
     bodyMedium = TextStyle(
@@ -175,8 +175,8 @@ private val UCloneTypography = Typography(
     bodySmall = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
         letterSpacing = 0.sp,
     ),
     labelLarge = TextStyle(
@@ -189,8 +189,8 @@ private val UCloneTypography = Typography(
     labelMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Medium,
-        fontSize = 14.sp,
-        lineHeight = 18.sp,
+        fontSize = 13.sp,
+        lineHeight = 17.sp,
         letterSpacing = 0.sp,
     ),
 )

@@ -40,7 +40,13 @@ import com.uclone.restore.model.AppEntry
 import com.uclone.restore.sync.AppDataState
 
 @Composable
-fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier, openDetail: () -> Unit) {
+fun AppListScreen(
+    state: UiState,
+    viewModel: UCloneViewModel,
+    modifier: Modifier,
+    openDetail: () -> Unit,
+    onOpenHistory: () -> Unit,
+) {
     var searchExpanded by remember { mutableStateOf(state.search.isNotBlank()) }
     var selectedFilters by remember { mutableStateOf(setOf(AppListFilter.ALL)) }
     val query = remember(state.search) { state.search.trim().lowercase() }
@@ -60,16 +66,24 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                 top = LocalTopBarContentPadding.current,
                 end = 16.dp,
             ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        TopLevelHeader(
+            title = "App",
+            description = "两侧安装、数据来源与收藏",
+            taskActive = state.currentTask.task != null,
+            onOpenHistory = onOpenHistory,
+        )
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PageDescription(
-                "两侧安装、数据来源与收藏",
-                modifier = Modifier.weight(1f),
+            Text(
+                "${apps.size} 个 App",
+                modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!searchExpanded) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -114,12 +128,6 @@ fun AppListScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
                 )
             }
         } else {
-            Text(
-                "${apps.size} 个 App",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
             Surface(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
@@ -226,12 +234,12 @@ private fun AppRow(
         shadowElevation = 0.dp,
     ) {
         Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            AppIcon(app.packageName)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            AppIcon(app.packageName, size = 38.dp, cornerRadius = 10.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(app.label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     app.packageName,

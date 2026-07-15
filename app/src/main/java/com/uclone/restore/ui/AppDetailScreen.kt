@@ -71,7 +71,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 end = 16.dp,
                 bottom = LocalBottomBarContentPadding.current,
             ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (app == null) {
             PageDescription("请先在 App 页面选择一个目标。")
@@ -83,7 +83,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
-            AppIcon(app.packageName)
+            AppIcon(app.packageName, size = 44.dp, cornerRadius = 12.dp)
             Column(Modifier.weight(1f)) {
                 Text(app.label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -383,31 +383,40 @@ private fun AppDataSourcePanel(mainUserId: Int, dataState: AppDataState?) {
 
 @Composable
 private fun SettingCheck(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        Text(label, color = MaterialTheme.colorScheme.onSurface)
-        UCloneSwitch(
-            checked = checked,
-            onCheckedChange = onChange,
-        )
-    }
+    ResponsiveSwitchRow(
+        label = label,
+        checked = checked,
+        onCheckedChange = onChange,
+    )
 }
 
 @Composable
-private fun InstallToolRow(title: String, description: String, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+internal fun InstallToolRow(title: String, description: String, onClick: () -> Unit) {
+    if (useStackedLayoutForLargeText()) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            InlineActionButton(
+                text = "执行",
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
-        InlineActionButton(text = "执行", onClick = onClick)
+    } else {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            InlineActionButton(text = "执行", onClick = onClick)
+        }
     }
 }
 

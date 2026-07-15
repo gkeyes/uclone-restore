@@ -19,7 +19,7 @@
 | Finding | Evidence | Classification | Contract response |
 | --- | --- | --- | --- |
 | 旧主题使用 Material 蓝灰和浅紫容器 | 真机截图、`Theme.kt` | `PROJECT-VERIFIED` | 改为中性 grouped background、纯色内容面和系统蓝强调 |
-| Compact 使用居中标题、汉堡菜单和 drawer | 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 改为紧凑悬浮玻璃标题栏和五项悬浮底部导航；诊断从设置进入 |
+| Compact 使用居中标题、汉堡菜单和 drawer | 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 顶级页改为内容区大标题，详情页保留紧凑玻璃返回栏；使用五项悬浮底部导航，诊断从设置进入 |
 | 第一版 A1 仍使用描边、阴影和 18dp 大圆角卡片 | commit `6edc5d4` 真机截图 | `PROJECT-VERIFIED` | 内容面改为 11dp 无描边、无阴影的 inset grouped surface |
 | 第一版 A1 仍有整行实心按钮和 Material 按钮墙 | commit `6edc5d4` 真机截图、`Components.kt` | `PROJECT-VERIFIED` | 普通命令改为行尾蓝色/红色文字；每个情境只允许一个短实心主动作 |
 | 第一版 A1 底栏选中项显示大面积蓝色矩形 | commit `6edc5d4` 真机截图、`UCloneApp.kt` | `PROJECT-VERIFIED` | 选中态只使用蓝色 icon 和文字，不增加背景块或额外指示器 |
@@ -54,7 +54,7 @@
 | ID | Area | Decision | Evidence label | Source/project ID | Responsive/state variants | Acceptance test |
 | --- | --- | --- | --- | --- | --- | --- |
 | VC-001 | Product truth | 全部现有页面和 26 个动作必须可达 | `PROJECT-VERIFIED` | functional inventory/action matrix | 所有 window/state | 自动枚举覆盖 + 手工点击 |
-| VC-002 | Navigation | Compact 使用共享 Backdrop 的悬浮玻璃标题栏和 5 项等宽悬浮玻璃底栏；诊断从设置进入；详情隐藏底栏并在标题栏显示返回。本轮冻结底栏的结构、尺寸、镜片、材质和交互 | `PROJECT-VERIFIED` | 用户决定 + current code | compact/详情 | 自动导航合同 + 360dp 真机大字体检查；本轮底栏实现零差异 |
+| VC-002 | Navigation | Compact 顶级页使用内容区大标题和 5 项等宽悬浮玻璃底栏；诊断从设置进入；详情隐藏底栏并显示玻璃返回栏。底栏结构、尺寸、顺序和交互冻结，只允许降低串色的光学参数调整 | `PROJECT-VERIFIED` | 用户决定 + current code | compact/详情 | 自动导航合同 + 360dp 真机大字体检查；底栏保持 60dp 与五项顺序 |
 | VC-003 | Layout | 页面使用 inset grouped surface，不允许 card 套 card | `PROJECT-VERIFIED` | 用户决定 + grouped utility direction | compact 单列；wide sidebar | 截图层级审查 |
 | VC-004 | Touch | 所有可点击目标最小 48dp | `OFFICIAL-VERIFIED` | Android API defaults | touch/keyboard/TalkBack | Layout Inspector + 点击 |
 | VC-005 | Theme | 使用 semantic light/dark color roles | `OFFICIAL-VERIFIED` | Android M3 + Apple color | light/dark/high contrast | 截图 + 对比检查 |
@@ -72,7 +72,7 @@
 
 ### Standard page
 
-1. Top app bar：页面身份和全局任务/导航。
+1. 内容区大标题：桌面图标、页面身份和可选的当前任务入口。
 2. 状态摘要：能否执行、当前数据/系统状态。
 3. 当前情境主动作。
 4. 主要内容或配置列表。
@@ -101,7 +101,7 @@
 
 | Window class | Direction A | Direction B | Shared behavior |
 | --- | --- | --- | --- |
-| Compact | 左对齐标题 + 5 项悬浮底栏 + 单列 grouped content | 诊断从设置进入；详情隐藏底栏并显示返回 | 行尾动作在大字体时移到下一行；不横向压缩文字 |
+| Compact | 内容区大标题 + 5 项悬浮底栏 + 单列 grouped content | 诊断从设置进入；详情隐藏底栏并显示紧凑玻璃返回栏 | 行尾动作在大字体时移到下一行；不横向压缩文字 |
 | Medium | 92dp 侧栏 + 单列/列表详情内容 | 详情保持稳定宽度 | 选中态使用浅色语义面，不使用 Material rail 指示器 |
 | Expanded | 248dp 侧栏 + 内容区 | 允许后续增加并列信息但不移动功能 | 不放大字体模拟桌面 |
 
@@ -132,7 +132,7 @@
 
 | Role | Material mapping | Use | Localization behavior |
 | --- | --- | --- | --- |
-| Page title | `headlineMedium`/`titleLarge` | 页面身份 | Compact 可换行，不用超大 hero |
+| Page title | `headlineMedium`/`titleLarge` | 顶级页 30sp 内容标题；详情页紧凑标题 | 中文短标题单行；不使用 hero 比例 |
 | Section title | `titleMedium` | 分组标题 | 中文保持短语 |
 | Row title | `bodyLarge`/`titleSmall` | App、工具、设置名称 | 最多按内容自然换行 |
 | Primary value | `bodyLarge` + Medium/Semibold | 状态与关键值 | 不使用轻字重 |
@@ -166,7 +166,7 @@
 | Component | Official/project primitive | Variants | States | Accessibility behavior | Customization boundary |
 | --- | --- | --- | --- | --- | --- |
 | App shell | `Scaffold`, Backdrop tab bar, custom sidebar | compact/medium/expanded | default/task active | 当前目的地有语义；返回可预测 | 五项顶级入口；诊断功能不删除，只下沉到设置 |
-| Top app bar | Compact 使用共享 Backdrop `LiquidGlassSurface`；wide 保留 Material 3 app bar | root/detail | scrolled/default/task active | 标题、返回和当前任务 action 描述完整 | 不嵌套玻璃；标题超长省略但详情保留完整身份 |
+| Page header / top app bar | 顶级页使用内容区 `TopLevelHeader` 与真实桌面图标；详情使用共享 Backdrop `LiquidGlassSurface`，wide 详情保留 Material 3 app bar | root/detail | default/task active | 标题、返回和当前任务 action 描述完整 | 顶级页不再叠加第二层悬浮标题；详情玻璃不嵌套 |
 | Health summary | project composable/View group | ready/warning/error/unknown | 当前可空环境；loading/stale 为候选 | 一次读出结论和原因 | 不只显示绿点；新增状态字段需独立任务 |
 | Task panel | progress indicators + project rows | staged/rollback；determinate 为后续能力 | all task statuses | 宣读动作、阶段和已有耗时 | 当前不伪造百分比或实时文件总量 |
 | State badge | icon + text | MAIN/CLONE/UNKNOWN | normal/stale | 完整 stateDescription | 仅 badge 可 pill |
@@ -243,7 +243,7 @@
 2. `91aab0f`：五项底栏、选中镜片、设置内诊断与返回归属。
 3. `771acf0`：连续分组页面、紧凑列表和行尾操作层级。
 4. 当前提交：组件语义测试、导航合同、循环 Backdrop 隔离、玻璃边缘抛光和视觉 QA 合同。
-5. 当前本地差异：共享顶部玻璃壳、系统就绪仪表盘、App 数据来源面板、首屏主动作、切换策略优先级和紧凑工具行；底部导航实现保持零差异。
+5. 当前本地差异：顶级页内容区大标题与真实桌面图标、系统就绪仪表盘、高密度 App/备份/任务行、切换策略左右层级和紧凑工具行；底部导航结构与交互不变，仅降低 vibrancy/refraction 串色。
 
 每个切片只改 UI，不夹带 Root、状态判定、协议、依赖升级或发布版本变更。逐页 loading/error/stale、可靠实时百分比、审计包导出或新的备份详情类型都需要独立数据/行为契约，不得以“视觉完善”为名加入 UI 切片。
 

@@ -2,6 +2,7 @@ package com.uclone.restore.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,7 +50,10 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        PageDescription("已接受的业务任务与执行结果")
+        TopLevelHeader(
+            title = "历史",
+            description = "已接受的业务任务与执行结果",
+        )
         if (state.history.isEmpty()) {
             SectionCard("暂无任务记录") {
                 Text("执行切换、推送、恢复或维护任务后，结果会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -77,7 +82,7 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
 }
 
 @Composable
-private fun HistoryTaskRow(
+internal fun HistoryTaskRow(
     task: TaskRecord,
     expanded: Boolean,
     first: Boolean,
@@ -86,10 +91,12 @@ private fun HistoryTaskRow(
     selectedPackage: String?,
     onToggle: () -> Unit,
     onSelectPackage: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
+    val largeText = useStackedLayoutForLargeText()
     Surface(
         onClick = onToggle,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.ucloneColors.groupedSurface,
         shape = when {
             first && last -> MaterialTheme.shapes.medium
@@ -108,34 +115,66 @@ private fun HistoryTaskRow(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 72.dp)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    .heightIn(min = 68.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (task.packageName.contains('.')) {
+                    AppIcon(task.packageName, size = 36.dp, cornerRadius = 10.dp)
+                } else {
+                    Surface(
+                        modifier = Modifier.size(36.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.ucloneColors.elevatedSurface,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Apps, contentDescription = null, modifier = Modifier.size(19.dp))
+                        }
+                    }
+                }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        task.packageName.ifBlank { "系统任务" },
+                        task.type.displayName,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        task.type.displayName,
-                        style = MaterialTheme.typography.bodyMedium,
+                        task.packageName.ifBlank { "系统任务" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         Formatters.time(task.startedAt),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (largeText) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            horizontalAlignment = Alignment.Start,
+                        ) {
+                            StatusBadge(task.status.displayName, task.status.historyColor())
+                            task.finishedAt?.let {
+                                Text(
+                                    formatDuration(it - task.startedAt),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                 }
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    StatusBadge(task.status.displayName, task.status.historyColor())
-                    task.finishedAt?.let {
-                        Text(
-                            formatDuration(it - task.startedAt),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                if (!largeText) {
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        StatusBadge(task.status.displayName, task.status.historyColor())
+                        task.finishedAt?.let {
+                            Text(
+                                formatDuration(it - task.startedAt),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -168,7 +207,7 @@ private fun HistoryTaskRow(
             }
             if (showDivider) {
                 HorizontalDivider(
-                    modifier = Modifier.padding(start = 14.dp),
+                    modifier = Modifier.padding(start = 60.dp),
                     color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
                 )
             }

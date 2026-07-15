@@ -14,10 +14,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
@@ -26,21 +32,71 @@ import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertWidthIsAtLeast
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onNode
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
+import com.uclone.restore.model.TaskProgress
+import com.uclone.restore.model.TaskRecord
+import com.uclone.restore.model.TaskStage
+import com.uclone.restore.model.TaskStatus
+import com.uclone.restore.model.TaskType
+import com.uclone.restore.model.WorkspaceOwnershipReport
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
-import com.uclone.restore.model.WorkspaceOwnershipReport
 
 class UiComponentContractTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun topLevelHeaderUsesLauncherIconAndKeepsTaskActionAccessible() {
+        var taskActionClicks = 0
+        composeRule.setContent {
+            UCloneTheme {
+                TopLevelHeader(
+                    title = "UClone",
+                    description = "系统状态与常用 App",
+                    taskActive = true,
+                    onOpenHistory = { taskActionClicks += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("uclone_top_level_header").assertExists()
+        composeRule.onNodeWithTag("uclone_brand_icon").assertExists()
+        composeRule.onNodeWithContentDescription("UClone 桌面图标").assertExists()
+        composeRule.onNodeWithText("C").assertDoesNotExist()
+        val brandImage = composeRule.onNodeWithTag("uclone_brand_icon").captureToImage()
+        assertTrue("launcher bitmap must contain real image detail", distinctSampledColorCount(brandImage) > 8)
+        composeRule.onNodeWithText("UClone").assertExists()
+        composeRule.onNodeWithText("系统状态与常用 App").assertExists()
+        composeRule.onNodeWithContentDescription("查看当前任务")
+            .assertHasClickAction()
+            .assertHeightIsAtLeast(48.dp)
+            .performClick()
+        composeRule.runOnIdle { assertEquals(1, taskActionClicks) }
+    }
+
+    @Test
+    fun responsiveRowsStackAtOnePointThreeFontScale() {
+        assertResponsiveRowsStack(fontScale = 1.3f)
+    }
+
+    @Test
+    fun responsiveRowsRemainStackedAtTwoPointZeroFontScale() {
+        assertResponsiveRowsStack(fontScale = 2f)
+    }
 
     @Test
     fun bottomNavigationExposesFiveTabsAndSelectedState() {
@@ -68,7 +124,39 @@ class UiComponentContractTest {
     }
 
     @Test
+    fun bottomNavigationKeepsAllLabelsInsideAtTwoPointZeroFontScale() {
+        composeRule.setContent {
+            UCloneTheme {
+                CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+                    Box(Modifier.width(390.dp).height(100.dp)) {
+                        FloatingTabBar(
+                            destination = Destination.HOME,
+                            onSelect = {},
+                        )
+                    }
+                }
+            }
+        }
+
+        val bar = composeRule.onNodeWithTag("uclone_bottom_navigation")
+            .assertHeightIsEqualTo(60.dp)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        topLevelDestinations.forEach { destination ->
+            val label = composeRule
+                .onNodeWithText(destination.label, useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot
+            assertTrue("${destination.label} must remain inside the 60dp bar", label.top >= bar.top && label.bottom <= bar.bottom)
+            composeRule.onNodeWithTag("uclone_nav_${destination.name}")
+                .assertHasClickAction()
+                .assertHeightIsAtLeast(48.dp)
+        }
+    }
+
+    @Test
     fun opticalNavigationRendersAsSiblingOfCapturedContent() {
+        val invertBackdrop = mutableStateOf(false)
         composeRule.setContent {
             UCloneTheme {
                 GlassBackdropHost(
@@ -80,12 +168,18 @@ class UiComponentContractTest {
                                 .background(Color(0xFFF2F2F7))
                                 .padding(16.dp),
                         ) {
-                            repeat(6) { index ->
+                            repeat(20) { index ->
                                 Box(
                                     Modifier
                                         .fillMaxWidth()
                                         .height(56.dp)
-                                        .background(if (index % 2 == 0) Color.White else Color(0xFFE2F0FF)),
+                                        .background(
+                                            if ((index + if (invertBackdrop.value) 1 else 0) % 2 == 0) {
+                                                Color.White
+                                            } else {
+                                                Color(0xFFB9DCFF)
+                                            },
+                                        ),
                                 )
                             }
                         }
@@ -103,6 +197,31 @@ class UiComponentContractTest {
 
         composeRule.onNodeWithTag("uclone_bottom_navigation").assertHeightIsEqualTo(60.dp)
         composeRule.waitForIdle()
+        val barBounds = composeRule.onNodeWithTag("uclone_bottom_navigation").fetchSemanticsNode().boundsInRoot
+        val before = composeRule.onRoot().captureToImage().toPixelMap()
+        composeRule.runOnIdle { invertBackdrop.value = true }
+        composeRule.waitForIdle()
+        val after = composeRule.onRoot().captureToImage().toPixelMap()
+        val itemWidth = barBounds.width / topLevelDestinations.size
+        val samplePoints = buildList {
+            repeat(topLevelDestinations.lastIndex) { index ->
+                val x = (barBounds.left + itemWidth * (index + 1)).toInt()
+                add(x to (barBounds.top + 10f).toInt())
+                add(x to barBounds.center.y.toInt())
+                add(x to (barBounds.bottom - 10f).toInt())
+            }
+        }
+        val changedGlassSamples = samplePoints.count { (x, y) ->
+            val safeX = x.coerceIn(0, before.width - 1)
+            val safeY = y.coerceIn(0, before.height - 1)
+            before[safeX, safeY].toArgb() != after[safeX, safeY].toArgb()
+        }
+        assertTrue(
+            "glass pixels must respond to the captured background",
+            changedGlassSamples >= samplePoints.size / 2,
+        )
+        val navigationImage = composeRule.onNodeWithTag("uclone_bottom_navigation").captureToImage()
+        assertTrue("glass surface must render sampled background detail", distinctSampledColorCount(navigationImage) > 8)
         val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
         assertTrue(screenshot.width > 0)
         assertTrue(screenshot.height > 0)
@@ -185,5 +304,154 @@ class UiComponentContractTest {
         composeRule.onNodeWithText("总项数 22513 · 非 root 18").assertExists()
         composeRule.onNodeWithText("容量 4.0 MB · 扫描时间", substring = true).assertExists()
         composeRule.onNodeWithText("规范路径：/data/adb/uclone").assertExists()
+    }
+
+    private fun assertResponsiveRowsStack(fontScale: Float) {
+        composeRule.setContent {
+            UCloneTheme {
+                CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = fontScale)) {
+                    Column(Modifier.width(320.dp)) {
+                        InfoRow("主系统 user0", "已安装 UID 10332")
+                        ToolRow(
+                            title = "生成恢复审计包",
+                            description = "只读采集文件、权限与上下文证据，不修改数据。",
+                            actionLabel = "检查",
+                            onClick = {},
+                            showDivider = false,
+                        )
+                        ResponsiveSwitchRow(
+                            label = "DE Device Protected 数据",
+                            checked = false,
+                            onCheckedChange = {},
+                        )
+                        InstallToolRow(
+                            title = "安装并同步到另一侧",
+                            description = "安装后同步当前数据、权限与 AppOps；长说明必须完整换行。",
+                            onClick = {},
+                        )
+                        CurrentTaskCard(
+                            UiState(
+                                currentTask = TaskProgress(
+                                    task = responsiveTask(
+                                        packageName = "com.example.really.long.package.name",
+                                        status = TaskStatus.RUNNING,
+                                        finishedAt = null,
+                                        currentStage = TaskStage.SOURCE_PREPARE,
+                                    ),
+                                ),
+                            ),
+                        )
+                        HistoryTaskRow(
+                            task = responsiveTask(
+                                packageName = "user10",
+                                status = TaskStatus.SUCCESS_WITH_WARNINGS,
+                                finishedAt = 1_789_632_051_000L,
+                            ),
+                            expanded = false,
+                            first = true,
+                            last = true,
+                            showDivider = false,
+                            selectedPackage = null,
+                            onToggle = {},
+                            onSelectPackage = {},
+                            modifier = Modifier.testTag("responsive_history_row"),
+                        )
+                    }
+                }
+            }
+        }
+
+        val infoLabel = composeRule.onNodeWithText("主系统 user0").fetchSemanticsNode().boundsInRoot
+        val infoValue = composeRule.onNodeWithText("已安装 UID 10332").fetchSemanticsNode().boundsInRoot
+        val toolTitle = composeRule.onNodeWithText("生成恢复审计包").fetchSemanticsNode().boundsInRoot
+        val toolDescription = composeRule
+            .onNodeWithText("只读采集文件、权限与上下文证据，不修改数据。")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val toolActionNode = composeRule.onNodeWithText("检查")
+            .assertHasClickAction()
+            .assertHeightIsAtLeast(48.dp)
+            .fetchSemanticsNode()
+        val toolAction = toolActionNode.boundsInRoot
+        val switchLabel = composeRule.onNodeWithText("DE Device Protected 数据").fetchSemanticsNode().boundsInRoot
+        val switchControl = composeRule
+            .onNode(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Switch))
+            .assertHasClickAction()
+            .assertHeightIsAtLeast(48.dp)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val installDescription = composeRule
+            .onNodeWithText("安装后同步当前数据、权限与 AppOps；长说明必须完整换行。")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val installAction = composeRule.onNodeWithText("执行")
+            .assertHasClickAction()
+            .assertHeightIsAtLeast(48.dp)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val currentSummary = composeRule
+            .onNodeWithText("推送到分身 · 执行中")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val currentStatus = composeRule.onNodeWithText("准备源数据").fetchSemanticsNode().boundsInRoot
+        composeRule.onNodeWithTag("responsive_history_row")
+            .assertHasClickAction()
+            .assertHeightIsAtLeast(48.dp)
+        val historyTime = composeRule
+            .onNodeWithText("2026", substring = true, useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val historyStatus = composeRule
+            .onNodeWithText("完成但有警告", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val historyDuration = composeRule
+            .onNodeWithText("51.0 秒", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+        assertTrue(infoValue.top >= infoLabel.bottom)
+        assertTrue(toolDescription.top >= toolTitle.bottom)
+        assertTrue(toolAction.top >= toolDescription.bottom)
+        assertTrue(switchControl.top >= switchLabel.bottom)
+        assertTrue(installAction.top >= installDescription.bottom)
+        assertTrue(currentStatus.top >= currentSummary.bottom)
+        assertTrue(historyStatus.top >= historyTime.bottom)
+        assertTrue(historyDuration.top >= historyStatus.bottom)
+    }
+
+    private fun responsiveTask(
+        packageName: String,
+        status: TaskStatus,
+        finishedAt: Long?,
+        currentStage: TaskStage? = null,
+    ) = TaskRecord(
+        id = 1L,
+        requestId = "responsive-layout",
+        packageName = packageName,
+        type = TaskType.PUSH_MAIN_TO_CLONE,
+        startedAt = 1_789_632_000_000L,
+        finishedAt = finishedAt,
+        status = status,
+        logPath = "/data/adb/uclone/logs/responsive-layout.log",
+        message = status.name,
+        currentStage = currentStage,
+    )
+
+    private fun distinctSampledColorCount(image: ImageBitmap): Int {
+        val pixels = image.toPixelMap()
+        val colors = mutableSetOf<Int>()
+        val xStep = (pixels.width / 12).coerceAtLeast(1)
+        val yStep = (pixels.height / 12).coerceAtLeast(1)
+        var y = 0
+        while (y < pixels.height) {
+            var x = 0
+            while (x < pixels.width) {
+                colors += pixels[x, y].toArgb()
+                x += xStep
+            }
+            y += yStep
+        }
+        return colors.size
     }
 }

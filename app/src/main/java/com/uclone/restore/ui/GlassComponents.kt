@@ -58,6 +58,8 @@ import com.kyant.backdrop.effects.vibrancy
 internal enum class GlassRole {
     Navigation,
     SelectionLens,
+    BottomNavigation,
+    BottomSelectionLens,
     ToolbarControl,
     PrimaryAction,
 }
@@ -67,6 +69,7 @@ private data class GlassSpec(
     val refractionHeightDp: Float,
     val refractionAmountDp: Float,
     val surfaceAlpha: Float,
+    val useVibrancy: Boolean,
 )
 
 private val LocalGlassBackdrop = staticCompositionLocalOf<Backdrop?> { null }
@@ -127,10 +130,12 @@ internal fun LiquidGlassSurface(
     } else {
         when (role) {
             GlassRole.SelectionLens,
+            GlassRole.BottomSelectionLens,
             GlassRole.PrimaryAction,
             -> MaterialTheme.colorScheme.primary.copy(alpha = spec.surfaceAlpha)
 
             GlassRole.Navigation,
+            GlassRole.BottomNavigation,
             GlassRole.ToolbarControl,
             -> MaterialTheme.ucloneColors.navigationSurface.copy(alpha = spec.surfaceAlpha)
         }
@@ -147,7 +152,7 @@ internal fun LiquidGlassSurface(
             backdrop = backdrop,
             shape = { shape },
             effects = {
-                vibrancy()
+                if (spec.useVibrancy) vibrancy()
                 blur(blurPx)
                 lens(
                     refractionHeight = refractionHeightPx,
@@ -233,6 +238,8 @@ private fun android.content.ContentResolver.animatorDurationScale(): Float = run
 private fun GlassRole.shape(): Shape = when (this) {
     GlassRole.Navigation,
     GlassRole.SelectionLens,
+    GlassRole.BottomNavigation,
+    GlassRole.BottomSelectionLens,
     -> CircleShape
 
     GlassRole.ToolbarControl -> RoundedCornerShape(24.dp)
@@ -245,6 +252,7 @@ private fun GlassRole.spec(): GlassSpec = when (this) {
         refractionHeightDp = 18f,
         refractionAmountDp = 16f,
         surfaceAlpha = 0.18f,
+        useVibrancy = true,
     )
 
     GlassRole.SelectionLens -> GlassSpec(
@@ -252,6 +260,23 @@ private fun GlassRole.spec(): GlassSpec = when (this) {
         refractionHeightDp = 12f,
         refractionAmountDp = 14f,
         surfaceAlpha = 0.12f,
+        useVibrancy = true,
+    )
+
+    GlassRole.BottomNavigation -> GlassSpec(
+        blurDp = 20f,
+        refractionHeightDp = 12f,
+        refractionAmountDp = 8f,
+        surfaceAlpha = 0.30f,
+        useVibrancy = false,
+    )
+
+    GlassRole.BottomSelectionLens -> GlassSpec(
+        blurDp = 12f,
+        refractionHeightDp = 10f,
+        refractionAmountDp = 7f,
+        surfaceAlpha = 0.14f,
+        useVibrancy = false,
     )
 
     GlassRole.ToolbarControl -> GlassSpec(
@@ -259,6 +284,7 @@ private fun GlassRole.spec(): GlassSpec = when (this) {
         refractionHeightDp = 12f,
         refractionAmountDp = 16f,
         surfaceAlpha = 0.16f,
+        useVibrancy = true,
     )
 
     GlassRole.PrimaryAction -> GlassSpec(
@@ -266,6 +292,7 @@ private fun GlassRole.spec(): GlassSpec = when (this) {
         refractionHeightDp = 12f,
         refractionAmountDp = 18f,
         surfaceAlpha = 0.16f,
+        useVibrancy = true,
     )
 }
 

@@ -28,6 +28,7 @@ import com.uclone.restore.util.Formatters
 
 @Composable
 fun ActiveBackupRow(app: AppEntry, shape: Shape, showDivider: Boolean, onClick: () -> Unit) {
+    val largeText = useStackedLayoutForLargeText()
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -39,13 +40,13 @@ fun ActiveBackupRow(app: AppEntry, shape: Shape, showDivider: Boolean, onClick: 
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 72.dp)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .heightIn(min = 68.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AppIcon(app.packageName)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                AppIcon(app.packageName, size = 38.dp, cornerRadius = 10.dp)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(app.label, fontWeight = FontWeight.SemiBold)
                     Text(
                         app.packageName,
@@ -57,8 +58,18 @@ fun ActiveBackupRow(app: AppEntry, shape: Shape, showDivider: Boolean, onClick: 
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (largeText) {
+                        Text(
+                            "主动快照",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
-                StatusBadge("主动快照", MaterialTheme.colorScheme.onPrimaryContainer)
+                if (!largeText) {
+                    StatusBadge("主动快照", MaterialTheme.colorScheme.onPrimaryContainer)
+                }
                 Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (showDivider) {
@@ -80,6 +91,7 @@ fun PassiveBackupRow(
     shape: Shape,
     showDivider: Boolean,
 ) {
+    val largeText = useStackedLayoutForLargeText()
     val stateLabel = when (backup.stateKind) {
         PassiveBackupStateKind.MAIN -> "MAIN 主数据"
         PassiveBackupStateKind.CLONE -> "CLONE 分数据"
@@ -108,12 +120,12 @@ fun PassiveBackupRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = onOpenDetail != null) { onOpenDetail?.invoke() }
-                    .heightIn(min = 72.dp)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .heightIn(min = 68.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AppIcon(backup.packageName)
+                AppIcon(backup.packageName, size = 38.dp, cornerRadius = 10.dp)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         app?.label ?: backup.packageName,
@@ -138,7 +150,17 @@ fun PassiveBackupRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                InlineActionButton(text = "恢复", onClick = onRestore, icon = Icons.Default.RestartAlt)
+                if (!largeText) {
+                    InlineActionButton(text = "恢复", onClick = onRestore, icon = Icons.Default.RestartAlt)
+                }
+            }
+            if (largeText) {
+                InlineActionButton(
+                    text = "恢复",
+                    onClick = onRestore,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                    icon = Icons.Default.RestartAlt,
+                )
             }
             if (showDivider) {
                 HorizontalDivider(

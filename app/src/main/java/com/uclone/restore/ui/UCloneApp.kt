@@ -171,6 +171,7 @@ fun UCloneApp(
                         previousTopLevelDestination = Destination.SETTINGS
                         destination = Destination.DIAGNOSTICS
                     },
+                    onOpenHistory = openHistory,
                     dataDetailPackage = dataDetailPackage,
                     dataDetailRollbackId = dataDetailRollbackId,
                 )
@@ -228,9 +229,9 @@ private fun CompactShell(
 ) {
     val topContentPadding = WindowInsets.statusBars
         .asPaddingValues()
-        .calculateTopPadding() + 76.dp
+        .calculateTopPadding() + if (destination in topLevelDestinations) 12.dp else 68.dp
     val bottomContentPadding = if (destination in topLevelDestinations) {
-        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 68.dp
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 84.dp
     } else {
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
     }
@@ -252,13 +253,15 @@ private fun CompactShell(
             }
         },
         overlay = {
-            FloatingTopBar(
-                title = title,
-                taskActive = taskActive,
-                onBack = onBack.takeIf { destination !in topLevelDestinations },
-                onOpenHistory = onOpenHistory,
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
+            if (destination !in topLevelDestinations) {
+                FloatingTopBar(
+                    title = title,
+                    taskActive = taskActive,
+                    onBack = onBack,
+                    onOpenHistory = onOpenHistory,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            }
             if (destination in topLevelDestinations) {
                 FloatingTabBar(
                     destination = destination,
@@ -288,7 +291,7 @@ private fun FloatingTopBar(
             role = GlassRole.Navigation,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(58.dp)
+                .height(52.dp)
                 .testTag("uclone_top_navigation"),
         ) {
             Row(
@@ -306,16 +309,7 @@ private fun FloatingTopBar(
                         )
                     }
                 } else {
-                    Surface(
-                        modifier = Modifier.size(36.dp),
-                        shape = RoundedCornerShape(11.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("U", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        }
-                    }
+                    UCloneBrandIcon(size = 36.dp)
                     Spacer(Modifier.width(10.dp))
                 }
                 Text(
@@ -372,6 +366,7 @@ private fun SideShell(
                 }
             },
             onOpenHistory = onOpenHistory,
+            showTopBar = destination !in topLevelDestinations,
             content = content,
         )
     }
@@ -452,7 +447,7 @@ internal fun FloatingTabBar(
                 .height(60.dp),
         ) {
             LiquidGlassSurface(
-                role = GlassRole.Navigation,
+                role = GlassRole.BottomNavigation,
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("uclone_bottom_navigation"),
@@ -470,7 +465,7 @@ internal fun FloatingTabBar(
                         label = "bottomNavigationSelectionFade",
                     ) { index ->
                         LiquidGlassSurface(
-                            role = GlassRole.SelectionLens,
+                            role = GlassRole.BottomSelectionLens,
                             modifier = Modifier
                                 .offset(x = (itemWidth * index) + 4.dp, y = 4.dp)
                                 .width(itemWidth - 8.dp)
@@ -485,7 +480,7 @@ internal fun FloatingTabBar(
                         label = "bottomNavigationSelection",
                     )
                     LiquidGlassSurface(
-                        role = GlassRole.SelectionLens,
+                        role = GlassRole.BottomSelectionLens,
                         modifier = Modifier
                             .offset(x = selectionOffset, y = 4.dp)
                             .width(itemWidth - 8.dp)
@@ -519,6 +514,7 @@ private fun androidx.compose.foundation.layout.RowScope.FloatingTabItem(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val largeText = useStackedLayoutForLargeText()
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val reduceMotion = rememberReduceMotionEnabled()
@@ -559,7 +555,7 @@ private fun androidx.compose.foundation.layout.RowScope.FloatingTabItem(
                     scaleY = contentScale
                     alpha = contentAlpha
                 }
-                .padding(vertical = 6.dp),
+                .padding(vertical = if (largeText) 4.dp else 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -602,16 +598,7 @@ private fun SideNavigation(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Surface(
-                    modifier = Modifier.size(44.dp),
-                    shape = RoundedCornerShape(13.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("U", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    }
-                }
+                UCloneBrandIcon(size = 40.dp)
                 if (expanded) {
                     Column {
                         Text("UClone Restore", style = MaterialTheme.typography.titleMedium)
@@ -694,21 +681,23 @@ private fun DestinationContent(
     openActiveBackup: (String) -> Unit,
     openPassiveBackup: (com.uclone.restore.model.RestoreBackupEntry) -> Unit,
     openDiagnostics: () -> Unit,
+    onOpenHistory: () -> Unit,
     dataDetailPackage: String?,
     dataDetailRollbackId: String?,
 ) {
     when (destination) {
-        Destination.HOME -> HomeScreen(state, viewModel, modifier, openAppDetail)
-        Destination.APPS -> AppListScreen(state, viewModel, modifier, openAppDetail)
+        Destination.HOME -> HomeScreen(state, viewModel, modifier, openAppDetail, onOpenHistory)
+        Destination.APPS -> AppListScreen(state, viewModel, modifier, openAppDetail, onOpenHistory)
         Destination.DATA -> DataScreen(
             state = state,
             viewModel = viewModel,
             modifier = modifier,
             openActiveBackup = openActiveBackup,
             openPassiveBackup = openPassiveBackup,
+            onOpenHistory = onOpenHistory,
         )
         Destination.HISTORY -> HistoryScreen(state, viewModel, modifier)
-        Destination.SETTINGS -> SettingsScreen(state, viewModel, modifier, openDiagnostics)
+        Destination.SETTINGS -> SettingsScreen(state, viewModel, modifier, openDiagnostics, onOpenHistory)
         Destination.DIAGNOSTICS -> DiagnosticsScreen(state, viewModel, modifier)
         Destination.DETAIL -> AppDetailScreen(state, viewModel, modifier)
         Destination.DATA_DETAIL -> DataBackupDetailScreen(

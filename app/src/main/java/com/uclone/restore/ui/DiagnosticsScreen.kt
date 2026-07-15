@@ -45,7 +45,7 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
                 end = 16.dp,
                 bottom = LocalBottomBarContentPadding.current,
             ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         PageDescription("环境状态、只读检测与分身控制")
         val ready = env?.root?.ok == true &&
@@ -130,7 +130,7 @@ private fun DiagnosticSummaryPanel(ready: Boolean, detected: Boolean) {
     }
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.ucloneColors.groupedSurface,
         border = BorderStroke(0.5.dp, accent.copy(alpha = 0.20f)),
     ) {

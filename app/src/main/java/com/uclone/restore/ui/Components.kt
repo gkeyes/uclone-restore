@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HourglassTop
+import androidx.compose.material.icons.filled.PendingActions
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -61,11 +62,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -79,6 +82,56 @@ import kotlinx.coroutines.withContext
 
 internal val LocalBottomBarContentPadding = staticCompositionLocalOf { 16.dp }
 internal val LocalTopBarContentPadding = staticCompositionLocalOf { 16.dp }
+
+@Composable
+internal fun useStackedLayoutForLargeText(): Boolean = LocalDensity.current.fontScale >= 1.3f
+
+@Composable
+fun TopLevelHeader(
+    title: String,
+    description: String,
+    taskActive: Boolean = false,
+    onOpenHistory: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("uclone_top_level_header"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            UCloneBrandIcon()
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (taskActive) {
+                UtilityIconButton(
+                    imageVector = Icons.Default.PendingActions,
+                    contentDescription = "查看当前任务",
+                    onClick = onOpenHistory,
+                    tint = MaterialTheme.colorScheme.primary,
+                    framed = true,
+                )
+            }
+        }
+        Text(
+            text = description,
+            modifier = Modifier.padding(horizontal = 2.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
 
 @Composable
 fun SectionCard(
@@ -105,7 +158,7 @@ fun SectionCard(
             shadowElevation = 0.dp,
         ) {
             Column(
-                Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 content()
@@ -116,25 +169,14 @@ fun SectionCard(
 
 @Composable
 fun PageDescription(text: String, modifier: Modifier = Modifier) {
-    Row(
+    Text(
+        text = text,
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .width(3.dp)
-                .height(18.dp)
-                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(999.dp)),
-        )
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
@@ -142,7 +184,7 @@ fun SectionLabel(title: String, caption: String? = null) {
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, top = 8.dp, end = 4.dp, bottom = 4.dp),
+            .padding(start = 4.dp, top = 6.dp, end = 4.dp, bottom = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
@@ -163,28 +205,50 @@ fun InfoRow(
     value: String,
     valueColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 44.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            modifier = Modifier.weight(0.48f),
-            color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        Text(
-            value,
-            modifier = Modifier.weight(0.52f),
-            color = valueColor,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.End,
-            overflow = TextOverflow.Ellipsis,
-        )
+    if (useStackedLayoutForLargeText()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
+                .padding(vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                label,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                value,
+                color = valueColor,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+    } else {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 44.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                modifier = Modifier.weight(0.48f),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Text(
+                value,
+                modifier = Modifier.weight(0.52f),
+                color = valueColor,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.End,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -252,7 +316,12 @@ fun StepIcon(status: StepStatus) {
 }
 
 @Composable
-fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
+fun AppIcon(
+    packageName: String,
+    modifier: Modifier = Modifier,
+    size: Dp = 40.dp,
+    cornerRadius: Dp = 11.dp,
+) {
     val packageManager = LocalContext.current.applicationContext.packageManager
     val loadedState = produceState<LoadedAppIcon?>(
         initialValue = null,
@@ -268,8 +337,8 @@ fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
     if (bitmap == null) {
         Box(
             modifier
-                .size(40.dp)
-                .background(MaterialTheme.ucloneColors.elevatedSurface, RoundedCornerShape(11.dp)),
+                .size(size)
+                .background(MaterialTheme.ucloneColors.elevatedSurface, RoundedCornerShape(cornerRadius)),
             contentAlignment = Alignment.Center,
         ) {
             Text(packageName.take(1).uppercase(), style = MaterialTheme.typography.titleMedium)
@@ -278,9 +347,27 @@ fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
         Image(
             bitmap = bitmap,
             contentDescription = null,
-            modifier = modifier.size(40.dp).clip(RoundedCornerShape(11.dp)),
+            modifier = modifier.size(size).clip(RoundedCornerShape(cornerRadius)),
         )
     }
+}
+
+@Composable
+fun UCloneBrandIcon(modifier: Modifier = Modifier, size: Dp = 40.dp) {
+    val context = LocalContext.current.applicationContext
+    val bitmap = remember(context.packageManager, context.packageName) {
+        requireNotNull(AppIconCache.loadNow(context.packageManager, context.packageName)) {
+            "UClone launcher icon is unavailable"
+        }
+    }
+    Image(
+        bitmap = bitmap,
+        contentDescription = "UClone 桌面图标",
+        modifier = modifier
+            .testTag("uclone_brand_icon")
+            .size(size)
+            .clip(RoundedCornerShape(12.dp)),
+    )
 }
 
 internal fun shouldDisplayAppIcon(requestedPackageName: String, loadedPackageName: String?): Boolean =
@@ -299,8 +386,12 @@ private object AppIconCache {
     }
 
     suspend fun load(packageManager: PackageManager, packageName: String): ImageBitmap? = withContext(Dispatchers.IO) {
+        loadNow(packageManager, packageName)
+    }
+
+    fun loadNow(packageManager: PackageManager, packageName: String): ImageBitmap? {
         val cacheKey = "$packageName:${packageManager.lastUpdateTime(packageName)}"
-        bitmaps.get(cacheKey)?.asImageBitmap() ?: runCatching {
+        return bitmaps.get(cacheKey)?.asImageBitmap() ?: runCatching {
             packageManager.getApplicationIcon(packageName).toBitmap(96, 96)
         }.getOrNull()?.also { bitmaps.put(cacheKey, it) }?.asImageBitmap()
     }
@@ -481,7 +572,7 @@ fun StatusBadge(label: String, color: Color = MaterialTheme.colorScheme.onSurfac
     ) {
         Text(
             label,
-            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
@@ -503,7 +594,7 @@ fun ToolRow(
     danger: Boolean = false,
     showDivider: Boolean = true,
 ) {
-    val largeText = LocalDensity.current.fontScale >= 1.4f
+    val largeText = useStackedLayoutForLargeText()
     Column(modifier.fillMaxWidth()) {
         if (largeText) {
             Column(
@@ -534,8 +625,8 @@ fun ToolRow(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 64.dp)
-                    .padding(vertical = 6.dp),
+                    .heightIn(min = 60.dp)
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -620,6 +711,7 @@ private fun ToolRowAction(
 fun UCloneSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
     val reduceMotion = rememberReduceMotionEnabled()
@@ -631,7 +723,7 @@ fun UCloneSwitch(
     )
     val trackColor = if (checked) MaterialTheme.ucloneColors.switchOn else MaterialTheme.colorScheme.surfaceVariant
     Box(
-        modifier = Modifier
+        modifier = modifier
             .width(55.dp)
             .height(48.dp)
             .toggleable(
@@ -659,6 +751,63 @@ fun UCloneSwitch(
                     .offset(x = thumbOffset)
                     .size(27.dp)
                     .background(Color.White, CircleShape),
+            )
+        }
+    }
+}
+
+@Composable
+fun ResponsiveSwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    description: String? = null,
+) {
+    val largeText = useStackedLayoutForLargeText()
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        if (largeText) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Box(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                UCloneSwitch(
+                    checked = checked,
+                    onCheckedChange = onCheckedChange,
+                )
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    label,
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                UCloneSwitch(
+                    checked = checked,
+                    onCheckedChange = onCheckedChange,
+                )
+            }
+        }
+        description?.let {
+            Text(
+                it,
+                modifier = Modifier.padding(end = 4.dp, bottom = 2.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
