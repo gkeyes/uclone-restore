@@ -181,7 +181,7 @@ class StateBackupShellTest {
 
         assertEquals(1, result.exitCode, result.output)
         assertContains(result.output, "ERR_SWITCH_CE_FILTERED_EMPTY:")
-        assertEquals("old", Files.readString(target.resolve("old.db")))
+        assertEquals("old", readText(target.resolve("old.db")))
     }
 
     @Test
