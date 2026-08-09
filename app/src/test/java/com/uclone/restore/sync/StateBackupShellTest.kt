@@ -150,6 +150,41 @@ class StateBackupShellTest {
     }
 
     @Test
+    fun safeAndFastReturnTreatCacheOnlyDeAsAnEmptySuccessfulState() {
+        SwitchSafetyMode.entries.forEach { mode ->
+            val root = Files.createTempDirectory("uclone-return-cache-only-${mode.name.lowercase()}")
+            val source = Files.createDirectories(root.resolve("source"))
+            Files.createDirectories(source.resolve("cache")).resolve("cache.db").toFile().writeText("cache")
+            Files.createDirectories(source.resolve("code_cache")).resolve("compiled.bin").toFile().writeText("code")
+            val target = Files.createDirectories(root.resolve("target"))
+            target.resolve("old.db").toFile().writeText("old")
+
+            val result = runOptimizedStream(mode, root, source, target, "de")
+
+            assertEquals(0, result.exitCode, "${mode.name}: ${result.output}")
+            assertContains(result.output, "SWITCH_PUSHED_STATE:de state=empty")
+            assertFalse(Files.exists(target.resolve("old.db")), mode.name)
+            assertTrue(Files.isDirectory(target), mode.name)
+            assertFalse(Files.list(target).use { it.findAny().isPresent }, mode.name)
+        }
+    }
+
+    @Test
+    fun optimizedReturnKeepsCeStrictBeforeMutatingTheTarget() {
+        val root = Files.createTempDirectory("uclone-return-cache-only-ce")
+        val source = Files.createDirectories(root.resolve("source"))
+        Files.createDirectories(source.resolve("cache")).resolve("cache.db").toFile().writeText("cache")
+        val target = Files.createDirectories(root.resolve("target"))
+        target.resolve("old.db").toFile().writeText("old")
+
+        val result = runOptimizedStream(SwitchSafetyMode.SAFE, root, source, target, "ce")
+
+        assertEquals(1, result.exitCode, result.output)
+        assertContains(result.output, "ERR_SWITCH_CE_FILTERED_EMPTY:")
+        assertEquals("old", readText(target.resolve("old.db")))
+    }
+
+    @Test
     fun discardSafeUsesAUser0CheckpointAndNeverAccessesUser10() {
         val script = ShellScripts.pushMainToCloneThenRestoreMain(
             packageName = "com.example.app",
@@ -986,11 +1021,41 @@ class StateBackupShellTest {
             "com.uclone.restore",
         )
 
-    private fun shellFunction(script: String, name: String): String =
-        Regex("(?ms)^[ \\t]*${Regex.escape(name)}\\(\\) \\{\\n.*?^[ \\t]*\\}")
-            .find(script)
-            ?.value
-            ?: error("Missing generated shell function: $name")
+    private fun runOptimizedStream(
+        mode: SwitchSafetyMode,
+        root: Path,
+        source: Path,
+        target: Path,
+        partName: String,
+    ): ShellRun {
+        val generated = ShellScripts.pushMainToCloneThenRestoreMain(
+            "com.example.app",
+            "persistent_main",
+            AppRule("com.example.app", excludeCache = true),
+            UCloneSettings(switchSafetyMode = mode),
+            "com.uclone.restore",
+        )
+        return runShell(
+            """
+                set -u
+                ROOT=${shellQuote(root.toString())}
+                SWITCH_PUSHED_PARTS=0
+                SWITCH_PUSHED_ITEMS=0
+                UCLONE_SCANNED_FILES=0
+                UCLONE_COPIED_FILES=0
+                CLONE_TARGET_MUTATED=0
+                uclone_add_written_kb() { :; }
+                uclone_record_temp_path() { :; }
+                validate_clone_target() { :; }
+                read_clone_context() { echo ''; }
+                apply_clone_security() { :; }
+                ${ShellScripts.strictDirectoryFunctions()}
+                ${shellFunction(generated, "stream_to_clone")}
+                ${shellFunction(generated, "apply_clone_part_state")}
+                stream_to_clone ${shellQuote(source.toString())} ${shellQuote(target.toString())} app $partName
+            """.trimIndent(),
+        )
+    }
 
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\"'\"'")}'"
 

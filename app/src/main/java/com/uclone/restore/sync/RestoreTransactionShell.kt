@@ -30,7 +30,7 @@ internal object RestoreTransactionShell {
           RB_STATE=${'$'}(sed -n '1p' "${'$'}RB_STATE_FILE" | tr -d '\r')
           case "${'$'}RB_STATE" in
             absent)
-              rm -rf "${'$'}RB_TARGET" || return 1
+              uclone_remove_path_strict "${'$'}RB_TARGET" || return 1
               echo "AUTO_ROLLBACK_PART_ABSENT:${'$'}RB_TARGET"
               return 0
               ;;
@@ -41,7 +41,7 @@ internal object RestoreTransactionShell {
             empty) ;;
             data)
               [ -d "${'$'}RB_SRC" ] || { echo "ERR_ROLLBACK_DATA_MISSING:${'$'}RB_NAME" >&2; return 1; }
-              RB_ITEMS=${'$'}(count_items "${'$'}RB_SRC")
+              RB_ITEMS=${'$'}(count_items "${'$'}RB_SRC") || { echo "ERR_SCAN_FAILED:${'$'}RB_SRC" >&2; return 1; }
               [ "${'$'}RB_ITEMS" -gt 0 ] || { echo "ERR_ROLLBACK_DATA_EMPTY:${'$'}RB_NAME" >&2; return 1; }
               ;;
             *) echo "ERR_ROLLBACK_STATE_INVALID:${'$'}RB_NAME:${'$'}RB_STATE" >&2; return 1 ;;
@@ -54,9 +54,9 @@ internal object RestoreTransactionShell {
             media) RB_OWNER="${'$'}TRANSACTION_APP_UID:1078" ;;
             *) return 1 ;;
           esac
-          clear_target_contents "${'$'}RB_TARGET"
+          clear_target_contents "${'$'}RB_TARGET" || return 1
           if [ "${'$'}RB_STATE" = "data" ]; then
-            (cd "${'$'}RB_SRC" && tar -cpf - .) | (cd "${'$'}RB_TARGET" && tar -xpf -) || return 1
+            uclone_copy_directory_strict "${'$'}RB_SRC" "${'$'}RB_TARGET" target || return 1
           fi
           apply_target_security "${'$'}RB_TARGET" "${'$'}RB_OWNER" "${'$'}RB_CONTEXT" "${'$'}RB_NAME"
           echo "AUTO_ROLLBACK_PART:${'$'}RB_TARGET"
