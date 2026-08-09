@@ -1905,17 +1905,37 @@ object ShellScripts {
           for SRC in "${'$'}@"; do
             [ -d "${'$'}SRC" ] || { echo "SKIP_MISSING:${'$'}SRC"; continue; }
             SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
-            uclone_set_source_items "${'$'}LINK_NAME" "${'$'}SRC_ITEMS"
             echo "PROBE_PATH:${'$'}SRC ITEMS=${'$'}SRC_ITEMS"
             if [ "${'$'}SRC_ITEMS" -le 0 ]; then
+              uclone_set_source_items "${'$'}LINK_NAME" 0
               printf '%s\n' empty > "${'$'}SWITCH_TEMP/.state/${'$'}LINK_NAME" || exit 14
               echo "LIVE_SOURCE_STATE:${'$'}LINK_NAME state=empty path=${'$'}SRC"
               return 0
             fi
+            STATE_ITEMS="${'$'}SRC_ITEMS"
+            ${if (rule.excludeCache) """
+            if [ "${'$'}LINK_NAME" = "de" ]; then
+              FILTER_SCAN="${'$'}SWITCH_TEMP/.state/.${'$'}LINK_NAME.filtered"
+              if ! (cd "${'$'}SRC" && find . -mindepth 1 ! -path './cache' ! -path './cache/*' ! -path './code_cache' ! -path './code_cache/*' -print > "${'$'}FILTER_SCAN"); then
+                rm -f "${'$'}FILTER_SCAN" 2>/dev/null || true
+                echo "ERR_SOURCE_FILTER_SCAN:${'$'}LINK_NAME:${'$'}SRC" >&2
+                exit 13
+              fi
+              STATE_ITEMS=${'$'}(wc -l < "${'$'}FILTER_SCAN" | tr -d ' ')
+              rm -f "${'$'}FILTER_SCAN" || exit 14
+              if [ "${'$'}STATE_ITEMS" -le 0 ]; then
+                uclone_set_source_items "${'$'}LINK_NAME" 0
+                printf '%s\n' empty > "${'$'}SWITCH_TEMP/.state/${'$'}LINK_NAME" || exit 14
+                echo "LIVE_SOURCE_STATE:${'$'}LINK_NAME state=empty path=${'$'}SRC items=${'$'}SRC_ITEMS filteredItems=0"
+                return 0
+              fi
+            fi
+            """.trimIndent() else ":"}
+            uclone_set_source_items "${'$'}LINK_NAME" "${'$'}STATE_ITEMS"
             ln -s "${'$'}SRC" "${'$'}SWITCH_TEMP/${'$'}LINK_NAME" || exit 14
             printf '%s\n' data > "${'$'}SWITCH_TEMP/.state/${'$'}LINK_NAME" || exit 14
             LINKED_PARTS=${'$'}((LINKED_PARTS + 1))
-            echo "LIVE_SOURCE_STATE:${'$'}LINK_NAME state=data path=${'$'}SRC items=${'$'}SRC_ITEMS"
+            echo "LIVE_SOURCE_STATE:${'$'}LINK_NAME state=data path=${'$'}SRC items=${'$'}STATE_ITEMS"
             return 0
           done
           uclone_set_source_items "${'$'}LINK_NAME" 0

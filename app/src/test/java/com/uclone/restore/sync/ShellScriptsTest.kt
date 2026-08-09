@@ -690,6 +690,46 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun switchFromCloneLatest_recordsCacheOnlyDeAsEmptyAfterFiltering() {
+        val source = Files.createTempDirectory("uclone-switch-cache-only")
+        Files.createDirectories(source.resolve("cache")).resolve("cache.db").toFile().writeText("cache")
+        Files.createDirectories(source.resolve("code_cache")).resolve("compiled.bin").toFile().writeText("code")
+
+        val result = runSwitchLivePart(source, excludeCache = true)
+
+        assertEquals(0, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stdout, "PART_STATE=empty")
+        assertContains(result.stdout, "LINKED_PARTS=0")
+        assertContains(result.stdout, "LINK_PRESENT=0")
+    }
+
+    @Test
+    fun switchFromCloneLatest_recordsNonCacheDeAsData() {
+        val source = Files.createTempDirectory("uclone-switch-data")
+        source.resolve("account.db").toFile().writeText("data")
+        Files.createDirectories(source.resolve("cache")).resolve("cache.db").toFile().writeText("cache")
+
+        val result = runSwitchLivePart(source, excludeCache = true)
+
+        assertEquals(0, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stdout, "PART_STATE=data")
+        assertContains(result.stdout, "LINKED_PARTS=1")
+        assertContains(result.stdout, "LINK_PRESENT=1")
+    }
+
+    @Test
+    fun switchFromCloneLatest_doesNotDowngradeFilterScanFailureToEmpty() {
+        val source = Files.createTempDirectory("uclone-switch-scan-failure")
+        source.resolve("account.db").toFile().writeText("data")
+
+        val result = runSwitchLivePart(source, excludeCache = true, failFilterScan = true)
+
+        assertEquals(13, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stderr, "ERR_SOURCE_FILTER_SCAN:de:")
+        assertFalse(result.stdout.contains("PART_STATE=empty"))
+    }
+
+    @Test
     fun switchFromCloneLatest_doesNotUseHereDocuments() {
         val script = ShellScripts.switchFromCloneLatest(
             "com.example.app",
@@ -1310,6 +1350,60 @@ class ShellScriptsTest {
             cat "${'$'}TRY_TMP/.state/de"
             echo "COPIED_PARTS=${'$'}COPIED_PARTS"
             echo "RECORDED_PARTS=${'$'}RECORDED_PARTS"
+        """.trimIndent()
+        return runPosixShell(script)
+    }
+
+    private fun runSwitchLivePart(
+        source: java.nio.file.Path,
+        excludeCache: Boolean,
+        failFilterScan: Boolean = false,
+    ): PosixShellResult {
+        val switchTemp = Files.createTempDirectory("uclone-switch-result")
+        val findCounter = Files.createTempFile("uclone-switch-find-counter", ".txt")
+        findCounter.toFile().writeText("0")
+        val generated = ShellScripts.switchFromCloneLatest(
+            "com.example.app",
+            AppRule(
+                packageName = "com.example.app",
+                includeCe = false,
+                includeDe = true,
+                includeExternal = false,
+                includeMedia = false,
+                includeObb = false,
+                includePermissions = false,
+                excludeCache = excludeCache,
+            ),
+            settings,
+            appPackage,
+        )
+        val script = """
+            set -u
+            SWITCH_TEMP='${switchTemp.toAbsolutePath()}'
+            LINKED_PARTS=0
+            RECORDED_PARTS=0
+            mkdir -p "${'$'}SWITCH_TEMP/.state"
+            uclone_set_source_items() { :; }
+            ${if (failFilterScan) """
+            UCLONE_TEST_FIND_COUNTER='${findCounter.toAbsolutePath()}'
+            find() {
+              FIND_CALL=${'$'}(cat "${'$'}UCLONE_TEST_FIND_COUNTER")
+              FIND_CALL=${'$'}((FIND_CALL + 1))
+              echo "${'$'}FIND_CALL" > "${'$'}UCLONE_TEST_FIND_COUNTER"
+              [ "${'$'}FIND_CALL" -eq 1 ] && command find "${'$'}@" || return 9
+            }
+            """.trimIndent() else ":"}
+            ${shellFunction(generated, "count_items")}
+            ${shellFunction(generated, "record_live_part")}
+            record_live_part de '${source.toAbsolutePath()}'
+            printf 'PART_STATE='
+            cat "${'$'}SWITCH_TEMP/.state/de"
+            echo "LINKED_PARTS=${'$'}LINKED_PARTS"
+            if [ -L "${'$'}SWITCH_TEMP/de" ]; then
+              echo "LINK_PRESENT=1"
+            else
+              echo "LINK_PRESENT=0"
+            fi
         """.trimIndent()
         return runPosixShell(script)
     }
