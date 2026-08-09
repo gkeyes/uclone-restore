@@ -30,7 +30,7 @@ internal object RestoreTransactionShell {
           RB_STATE=${'$'}(sed -n '1p' "${'$'}RB_STATE_FILE" | tr -d '\r')
           case "${'$'}RB_STATE" in
             absent)
-              rm -rf "${'$'}RB_TARGET" || return 1
+              uclone_remove_path_strict "${'$'}RB_TARGET" || return 1
               echo "AUTO_ROLLBACK_PART_ABSENT:${'$'}RB_TARGET"
               return 0
               ;;

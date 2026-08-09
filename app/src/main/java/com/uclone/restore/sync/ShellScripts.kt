@@ -129,8 +129,18 @@ object ShellScripts {
         uclone_clear_directory_strict() {
           UCLONE_CLEAR_PATH="${'$'}1"
           [ -d "${'$'}UCLONE_CLEAR_PATH" ] && [ ! -L "${'$'}UCLONE_CLEAR_PATH" ] || return 1
-          uclone_remove_path_strict "${'$'}UCLONE_CLEAR_PATH" || return 1
-          mkdir -p "${'$'}UCLONE_CLEAR_PATH" || return 1
+          for UCLONE_CLEAR_CHILD in \
+            "${'$'}UCLONE_CLEAR_PATH"/?* \
+            "${'$'}UCLONE_CLEAR_PATH"/.[!.]* \
+            "${'$'}UCLONE_CLEAR_PATH"/..?*
+          do
+            if [ ! -e "${'$'}UCLONE_CLEAR_CHILD" ] && [ ! -L "${'$'}UCLONE_CLEAR_CHILD" ]; then
+              continue
+            fi
+            uclone_remove_path_strict "${'$'}UCLONE_CLEAR_CHILD" || return 1
+          done
+          UCLONE_CLEAR_REMAINING=${'$'}(uclone_scan_items "${'$'}UCLONE_CLEAR_PATH" all) || return 1
+          [ "${'$'}UCLONE_CLEAR_REMAINING" -eq 0 ] || return 1
           [ -d "${'$'}UCLONE_CLEAR_PATH" ] && [ ! -L "${'$'}UCLONE_CLEAR_PATH" ]
         }
         uclone_copy_directory_strict() {

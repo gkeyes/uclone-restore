@@ -450,6 +450,38 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun strictDirectoryClearPreservesBusyRootAndDeletesEveryChild() {
+        val root = Files.createTempDirectory("uclone-strict-clear")
+        val target = Files.createDirectories(root.resolve("target"))
+        target.resolve("old.db").toFile().writeText("old")
+        target.resolve(".hidden").toFile().writeText("hidden")
+        Files.createDirectories(target.resolve("..nested")).resolve("state").toFile().writeText("nested")
+        val result = runPosixShell(
+            """
+                set -u
+                ROOT='${root.toAbsolutePath()}'
+                TARGET='${target.toAbsolutePath()}'
+                rm() {
+                  if [ "${'$'}#" -ge 2 ] && [ "${'$'}2" = "${'$'}TARGET" ]; then
+                    echo ROOT_REMOVAL_ATTEMPTED
+                    return 16
+                  fi
+                  command rm "${'$'}@"
+                }
+                ${ShellScripts.strictDirectoryFunctions()}
+                uclone_clear_directory_strict "${'$'}TARGET" || exit 98
+                test -d "${'$'}TARGET"
+                test -z "${'$'}(find "${'$'}TARGET" -mindepth 1 -print -quit)"
+                echo MOUNTPOINT_STYLE_ROOT_PRESERVED
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stdout, "MOUNTPOINT_STYLE_ROOT_PRESERVED")
+        assertFalse(result.stdout.contains("ROOT_REMOVAL_ATTEMPTED"))
+    }
+
+    @Test
     fun shellFunctionExtractionPreservesNestedFailureBlocks() {
         val extracted = shellFunction(
             """
