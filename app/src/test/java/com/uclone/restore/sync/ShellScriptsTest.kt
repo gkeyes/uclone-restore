@@ -282,7 +282,11 @@ class ShellScriptsTest {
             assertContains(script, "uclone_decimal_max \"${'$'}RESTORE_SOURCE_KB\" \"${'$'}RESTORE_TARGET_KB\"")
             assertFalse(script.contains("${'$'}ROOT/tmp/prepared_"))
             assertFalse(script.contains("prepare_restore_part()"))
-            assertFalse(script.contains("SOURCE_STATE_FILE="))
+            if (exactSource.contains("/snapshots/")) {
+                assertContains(script, "SOURCE_STATE_FILE=")
+            } else {
+                assertFalse(script.contains("SOURCE_STATE_FILE="))
+            }
             assertFalse(script.contains("rm -rf \"${'$'}ACTIVE\""))
             assertFalse(script.contains("mv \"${'$'}ACTIVE\""))
         }
@@ -844,6 +848,163 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun capture_recordsCacheOnlyDeAsEmptyAfterFiltering() {
+        val source = Files.createTempDirectory("uclone-capture-cache-only")
+        Files.createDirectories(source.resolve("cache")).resolve("cache.db").toFile().writeText("cache")
+        Files.createDirectories(source.resolve("code_cache")).resolve("compiled.bin").toFile().writeText("code")
+
+        val result = runCaptureCopy(source, excludeCache = true)
+
+        assertEquals(0, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stdout, "PART_STATE=empty")
+        assertFalse(result.stderr.contains("ERR_COPY_EMPTY"))
+    }
+
+    @Test
+    fun capture_recordsNonCacheDeAsData() {
+        val source = Files.createTempDirectory("uclone-capture-data")
+        source.resolve("account.db").toFile().writeText("data")
+        Files.createDirectories(source.resolve("cache")).resolve("cache.db").toFile().writeText("cache")
+
+        val result = runCaptureCopy(source, excludeCache = true)
+
+        assertEquals(0, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stdout, "PART_STATE=data")
+        assertContains(result.stdout, "COPIED_PARTS=1")
+    }
+
+    @Test
+    fun capture_recordsMissingDeAsAbsent() {
+        val source = Files.createTempDirectory("uclone-capture-absent").resolve("missing")
+
+        val result = runCaptureCopy(source, excludeCache = true)
+
+        assertEquals(0, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stdout, "PART_STATE=absent")
+        assertContains(result.stdout, "RECORDED_PARTS=1")
+    }
+
+    @Test
+    fun capture_doesNotDowngradeTarFailureToEmpty() {
+        val source = Files.createTempDirectory("uclone-capture-tar-failure")
+        source.resolve("account.db").toFile().writeText("data")
+
+        val result = runCaptureCopy(source, excludeCache = true, failTar = true)
+
+        assertEquals(13, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertFalse(result.stdout.contains("PART_STATE=empty"))
+    }
+
+    @Test
+    fun capture_cleanupRemovesRegisteredTryDirectoryOnFailure() {
+        val root = Files.createTempDirectory("uclone-capture-cleanup")
+        val captureTemp = root.resolve("capture_com.example.app_20260809-010203")
+        val tryTemp = root.resolve("${captureTemp.fileName}.try_10")
+        Files.createDirectories(tryTemp).resolve("partial").toFile().writeText("partial")
+        val generated = ShellScripts.capture(
+            "com.example.app",
+            AppRule(packageName = "com.example.app", includeCe = false),
+            settings,
+            appPackage,
+        )
+        val result = runPosixShell(
+            """
+                TMP='${captureTemp.toAbsolutePath()}'
+                TRY_TMP='${tryTemp.toAbsolutePath()}'
+                ${shellFunction(generated, "cleanup_capture_try_tmp")}
+                trap cleanup_capture_try_tmp EXIT
+                exit 17
+            """.trimIndent(),
+        )
+
+        assertEquals(17, result.exitCode)
+        assertFalse(Files.exists(tryTemp))
+    }
+
+    @Test
+    fun capture_keepsCeStrictAndRegistersTryDirectoryCleanup() {
+        val script = ShellScripts.capture(
+            "com.example.app",
+            AppRule(packageName = "com.example.app"),
+            settings,
+            appPackage,
+        )
+
+        assertContains(script, "CAPTURE_CE_STATE=")
+        assertContains(script, "\"${'$'}CAPTURE_CE_STATE\" != \"data\"")
+        assertContains(script, "cleanup_capture_try_tmp()")
+        assertContains(script, "cleanup_capture_on_exit()")
+        assertTrue(script.indexOf("trap cleanup_capture_on_exit EXIT") < script.indexOf("copy_first_nonempty \"${'$'}TRY_TMP/ce\""))
+    }
+
+    @Test
+    fun restoreSnapshotConsumesCapturedPartStates() {
+        val script = ShellScripts.restore("com.example.app", settings, appPackage)
+
+        assertContains(script, "SOURCE_STATE_FILE=\"${'$'}PREPARED_ROOT/.state/${'$'}PART_NAME\"")
+        assertContains(script, "RESTORED_STATE:${'$'}PART_NAME state=empty")
+        assertContains(script, "RESTORED_STATE:${'$'}PART_NAME state=absent")
+        assertContains(script, "DIRECT_SOURCE_LEGACY:")
+    }
+
+    @Test
+    fun restoreSnapshot_routesDataEmptyAndAbsentStates() {
+        val root = Files.createTempDirectory("uclone-restore-states")
+        val source = Files.createDirectories(root.resolve("source"))
+        val states = Files.createDirectories(source.resolve(".state"))
+        states.resolve("de").toFile().writeText("empty\n")
+        states.resolve("external").toFile().writeText("absent\n")
+        states.resolve("media").toFile().writeText("data\n")
+        Files.createDirectories(source.resolve("media")).resolve("message.db").toFile().writeText("data")
+        val emptyTarget = Files.createDirectories(root.resolve("target-empty"))
+        emptyTarget.resolve("old.db").toFile().writeText("old")
+        val absentTarget = Files.createDirectories(root.resolve("target-absent"))
+        absentTarget.resolve("old.db").toFile().writeText("old")
+        val dataTarget = Files.createDirectories(root.resolve("target-data"))
+        dataTarget.resolve("old.db").toFile().writeText("old")
+        val generated = ShellScripts.restore("com.example.app", settings, appPackage)
+        val result = runPosixShell(
+            """
+                set -u
+                PREPARED_ROOT='${source.toAbsolutePath()}'
+                RESTORED_PARTS=0
+                RESTORED_ITEMS=0
+                UCLONE_SCANNED_FILES=0
+                UCLONE_COPIED_FILES=0
+                TARGET_MUTATED=0
+                validate_target_path() { :; }
+                target_owner_for() { echo '1000:1000'; }
+                read_target_context() { echo ''; }
+                clear_target_contents() { find "${'$'}1" -mindepth 1 -maxdepth 1 -exec rm -rf {} +; }
+                apply_target_security() { echo "SECURITY_APPLIED:${'$'}4"; }
+                uclone_get_source_items() { echo ''; }
+                uclone_set_source_items() { :; }
+                count_items() { find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '; }
+                has_items() { [ -n "${'$'}(find "${'$'}1" -mindepth 1 -print -quit 2>/dev/null)" ]; }
+                uclone_now_ms() { echo 1; }
+                uclone_perf_emit() { :; }
+                ${shellFunction(generated, "restore_part")}
+                restore_part ignored '${emptyTarget.toAbsolutePath()}' 1000 app de
+                restore_part ignored '${absentTarget.toAbsolutePath()}' '' media external
+                restore_part ignored '${dataTarget.toAbsolutePath()}' '' media media
+                test -d '${emptyTarget.toAbsolutePath()}'
+                test -z "${'$'}(find '${emptyTarget.toAbsolutePath()}' -mindepth 1 -print -quit)"
+                test ! -e '${absentTarget.toAbsolutePath()}'
+                test -f '${dataTarget.resolve("message.db").toAbsolutePath()}'
+                test ! -e '${dataTarget.resolve("old.db").toAbsolutePath()}'
+                echo "RESTORED_PARTS=${'$'}RESTORED_PARTS"
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stdout, "RESTORED_STATE:de state=empty")
+        assertContains(result.stdout, "RESTORED_STATE:external state=absent")
+        assertContains(result.stdout, "RESTORED_PARTS=3")
+        assertContains(result.stdout, "SECURITY_APPLIED:de")
+        assertContains(result.stdout, "SECURITY_APPLIED:media")
+    }
+
+    @Test
     fun capture_doesNotRequireCeWhenRuleExcludesCe() {
         val script = ShellScripts.capture(
             "com.example.app",
@@ -1104,6 +1265,53 @@ class ShellScriptsTest {
         val stdout = process.inputStream.bufferedReader().readText()
         val stderr = process.errorStream.bufferedReader().readText()
         return PosixShellResult(process.waitFor(), stdout, stderr)
+    }
+
+    private fun runCaptureCopy(
+        source: java.nio.file.Path,
+        excludeCache: Boolean,
+        failTar: Boolean = false,
+    ): PosixShellResult {
+        val destinationRoot = Files.createTempDirectory("uclone-capture-result")
+        val generated = ShellScripts.capture(
+            "com.example.app",
+            AppRule(
+                packageName = "com.example.app",
+                includeCe = false,
+                includeDe = true,
+                includeExternal = false,
+                includeMedia = false,
+                includeObb = false,
+                includePermissions = false,
+                excludeCache = excludeCache,
+            ),
+            settings,
+            appPackage,
+        )
+        val script = """
+            set -u
+            TRY_TMP='${destinationRoot.toAbsolutePath()}'
+            COPIED_PARTS=0
+            COPIED_ITEMS=0
+            RECORDED_PARTS=0
+            UCLONE_SCANNED_FILES=0
+            UCLONE_COPIED_FILES=0
+            uclone_dir_kb_strict() { du -sk "${'$'}1" | awk '{ print ${'$'}1 }'; }
+            uclone_write_size_hint() { :; }
+            uclone_add_written_kb() { :; }
+            uclone_record_temp_path() { :; }
+            ${if (failTar) "tar() { return 9; }" else ":"}
+            ${shellFunction(generated, "count_items")}
+            ${shellFunction(generated, "record_part_state")}
+            ${shellFunction(generated, "copy_dir_stream")}
+            ${shellFunction(generated, "copy_first_nonempty")}
+            copy_first_nonempty "${'$'}TRY_TMP/de" '${source.toAbsolutePath()}'
+            printf 'PART_STATE='
+            cat "${'$'}TRY_TMP/.state/de"
+            echo "COPIED_PARTS=${'$'}COPIED_PARTS"
+            echo "RECORDED_PARTS=${'$'}RECORDED_PARTS"
+        """.trimIndent()
+        return runPosixShell(script)
     }
 
     private fun shellFunction(script: String, name: String): String = checkNotNull(

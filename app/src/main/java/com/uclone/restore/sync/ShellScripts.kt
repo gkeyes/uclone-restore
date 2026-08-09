@@ -450,6 +450,7 @@ object ShellScripts {
         TS=${'$'}(date +%Y%m%d-%H%M%S)
         BASE="${'$'}ROOT/snapshots/${'$'}PKG"
         TMP="${'$'}ROOT/tmp/capture_${'$'}{PKG}_${'$'}TS"
+        TRY_TMP=""
         ${metricsScript()}
         ${storagePreflightScript()}
         ${PermissionStateShell.functions()}
@@ -457,10 +458,23 @@ object ShellScripts {
         [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
         mkdir -p "${'$'}ROOT/snapshots" "${'$'}ROOT/rollback" "${'$'}ROOT/logs" "${'$'}ROOT/tmp" "${'$'}ROOT/config" "${'$'}BASE/history" || exit 10
         rm -rf "${'$'}TMP" "${'$'}TMP".try_*
+        cleanup_capture_try_tmp() {
+          [ -n "${'$'}{TRY_TMP:-}" ] || return 0
+          case "${'$'}TRY_TMP" in
+            "${'$'}TMP".try_*) rm -rf "${'$'}TRY_TMP" 2>/dev/null || true ;;
+          esac
+        }
+        cleanup_capture_on_exit() {
+          cleanup_capture_try_tmp
+          if command -v cleanup_on_exit >/dev/null 2>&1; then
+            cleanup_on_exit
+          fi
+        }
         uclone_stage_end
         uclone_stage_begin SOURCE_PREPARE
         CAPTURE_REQUIRE_CE=${if (rule.includeCe) "1" else "0"}
         ${ensureCloneCeReadyScript(settings, rule.includeCe, settings.autoUnlockClone, settings.stopCloneAfterTask)}
+        trap cleanup_capture_on_exit EXIT
         CANDIDATE_USERS="${'$'}CONFIG_SRC_USER"
         echo "CANDIDATE_USERS=${'$'}CANDIDATE_USERS"
         [ -n "${'$'}CANDIDATE_USERS" ] || { echo "ERR_NO_CLONE_USER_CANDIDATES" >&2; exit 42; }
@@ -474,9 +488,18 @@ object ShellScripts {
         count_items() {
           find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '
         }
+        record_part_state() {
+          PART_NAME="${'$'}1"
+          PART_STATE="${'$'}2"
+          mkdir -p "${'$'}TRY_TMP/.state" || exit 18
+          printf '%s\n' "${'$'}PART_STATE" > "${'$'}TRY_TMP/.state/${'$'}PART_NAME" || exit 18
+          RECORDED_PARTS=${'$'}((RECORDED_PARTS + 1))
+          echo "CAPTURE_PART_STATE:${'$'}PART_NAME state=${'$'}PART_STATE"
+        }
         copy_dir_stream() {
           SRC="${'$'}1"
           DST="${'$'}2"
+          PART_NAME=${'$'}{DST##*/}
           SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
           [ "${'$'}SRC_ITEMS" -gt 0 ] || { echo "SKIP_EMPTY:${'$'}SRC"; return 0; }
@@ -487,9 +510,15 @@ object ShellScripts {
           mv "${'$'}DST.tmp" "${'$'}DST" || exit 14
           ${if (rule.excludeCache) "rm -rf \"${'$'}DST/cache\" \"${'$'}DST/code_cache\" 2>/dev/null || true" else ":"}
           DST_ITEMS=${'$'}(count_items "${'$'}DST")
-          [ "${'$'}DST_ITEMS" -gt 0 ] || { echo "ERR_COPY_EMPTY:${'$'}SRC" >&2; exit 17; }
+          if [ "${'$'}DST_ITEMS" -le 0 ]; then
+            rm -rf "${'$'}DST"
+            record_part_state "${'$'}PART_NAME" empty
+            echo "COPIED_EMPTY_AFTER_FILTER:${'$'}SRC"
+            return 0
+          fi
           PART_SIZE_KB=${'$'}(uclone_dir_kb_strict "${'$'}DST") || exit 18
-          uclone_write_size_hint "${'$'}TRY_TMP" "${'$'}(basename "${'$'}DST")" "${'$'}PART_SIZE_KB" || exit 18
+          uclone_write_size_hint "${'$'}TRY_TMP" "${'$'}PART_NAME" "${'$'}PART_SIZE_KB" || exit 18
+          record_part_state "${'$'}PART_NAME" data
           COPIED_PARTS=${'$'}((COPIED_PARTS + 1))
           COPIED_ITEMS=${'$'}((COPIED_ITEMS + DST_ITEMS))
           UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + DST_ITEMS))
@@ -499,10 +528,13 @@ object ShellScripts {
         }
         copy_first_nonempty() {
           DST="${'$'}1"
+          PART_NAME=${'$'}{DST##*/}
+          FOUND_SOURCE=0
           shift
           for SRC in "${'$'}@"; do
             [ -n "${'$'}SRC" ] || continue
             if [ -d "${'$'}SRC" ]; then
+              FOUND_SOURCE=1
               SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
               echo "PROBE_PATH:${'$'}SRC ITEMS=${'$'}SRC_ITEMS"
               if [ "${'$'}SRC_ITEMS" -gt 0 ]; then
@@ -514,6 +546,11 @@ object ShellScripts {
               echo "SKIP_MISSING:${'$'}SRC"
             fi
           done
+          if [ "${'$'}FOUND_SOURCE" = "1" ]; then
+            record_part_state "${'$'}PART_NAME" empty
+          else
+            record_part_state "${'$'}PART_NAME" absent
+          fi
           return 0
         }
         try_user() {
@@ -548,18 +585,22 @@ object ShellScripts {
           }
           COPIED_PARTS=0
           COPIED_ITEMS=0
+          RECORDED_PARTS=0
           ${if (rule.includeCe) "copy_first_nonempty \"${'$'}TRY_TMP/ce\" \"/data/user/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_ce/${'$'}TRY_USER/${'$'}PKG\"" else ":"}
           ${if (rule.includeDe) "copy_first_nonempty \"${'$'}TRY_TMP/de\" \"/data/user_de/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/null/${'$'}TRY_USER/${'$'}PKG\" \"/data_mirror/data_de/${'$'}TRY_USER/${'$'}PKG\"" else ":"}
           ${if (rule.includeExternal) "copy_first_nonempty \"${'$'}TRY_TMP/external\" \"/data/media/${'$'}TRY_USER/Android/data/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/data/${'$'}PKG\"" else ":"}
           ${if (rule.includeMedia) "copy_first_nonempty \"${'$'}TRY_TMP/media\" \"/data/media/${'$'}TRY_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/media/${'$'}PKG\"" else ":"}
           ${if (rule.includeObb) "copy_first_nonempty \"${'$'}TRY_TMP/obb\" \"/data/media/${'$'}TRY_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}TRY_USER/Android/obb/${'$'}PKG\"" else ":"}
           ${if (rule.includePermissions) "uclone_capture_permission_state \"${'$'}TRY_TMP/permissions\" \"${'$'}TRY_USER\" || echo \"WARN_PERMISSION_CAPTURE_SKIPPED:${'$'}TRY_USER\"" else ":"}
-          if [ "${'$'}CAPTURE_REQUIRE_CE" = "1" ] && [ ! -d "${'$'}TRY_TMP/ce" ]; then
-            echo "ERR_CAPTURE_CE_MISSING:${'$'}TRY_USER" >&2
-            rm -rf "${'$'}TRY_TMP"
-            return 1
+          if [ "${'$'}CAPTURE_REQUIRE_CE" = "1" ]; then
+            CAPTURE_CE_STATE=${'$'}(sed -n '1p' "${'$'}TRY_TMP/.state/ce" 2>/dev/null | tr -d '\r')
+            if [ "${'$'}CAPTURE_CE_STATE" != "data" ]; then
+              echo "ERR_CAPTURE_CE_MISSING:${'$'}TRY_USER:state=${'$'}CAPTURE_CE_STATE" >&2
+              rm -rf "${'$'}TRY_TMP"
+              return 1
+            fi
           fi
-          if [ "${'$'}COPIED_PARTS" -gt 0 ]; then
+          if [ "${'$'}RECORDED_PARTS" -gt 0 ]; then
             rm -rf "${'$'}TMP"
             mv "${'$'}TRY_TMP" "${'$'}TMP" || exit 14
             DETECTED_USER="${'$'}TRY_USER"
@@ -782,6 +823,8 @@ object ShellScripts {
         rollbackName = """${'$'}RUN_ID""",
         rollbackReason = "恢复到主系统前生成",
         directSource = true,
+        sourceStateAware = true,
+        allowLegacySourceState = true,
     )
 
     fun restoreFromCloneLatest(
@@ -1921,6 +1964,7 @@ object ShellScripts {
         pruneOldRollbacks: Boolean = true,
         directSource: Boolean = false,
         sourceStateAware: Boolean = false,
+        allowLegacySourceState: Boolean = false,
         directSourceExcludeCache: Boolean = false,
         restoreRule: AppRule? = null,
         rollbackProtection: RollbackProtection = RollbackProtection.FRESH,
@@ -2201,7 +2245,19 @@ object ShellScripts {
             PREPARED_PARTS=0
             for PREPARED_NAME in $selectedRestoreParts; do
               PREPARED_STATE_FILE="${'$'}PREPARED_ROOT/.state/${'$'}PREPARED_NAME"
-              [ -f "${'$'}PREPARED_STATE_FILE" ] && [ ! -L "${'$'}PREPARED_STATE_FILE" ] || continue
+              if [ ! -f "${'$'}PREPARED_STATE_FILE" ] || [ -L "${'$'}PREPARED_STATE_FILE" ]; then
+                ${if (allowLegacySourceState) """
+                if [ ! -d "${'$'}PREPARED_ROOT/.state" ] && [ -d "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME" ]; then
+                  PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME")
+                  if [ "${'$'}PREPARED_ITEMS" -gt 0 ]; then
+                    uclone_set_source_items "${'$'}PREPARED_NAME" "${'$'}PREPARED_ITEMS"
+                    PREPARED_PARTS=${'$'}((PREPARED_PARTS + 1))
+                    echo "DIRECT_SOURCE_LEGACY:${'$'}PREPARED_NAME ITEMS=${'$'}PREPARED_ITEMS"
+                  fi
+                fi
+                """.trimIndent() else ":"}
+                continue
+              fi
               PREPARED_STATE=${'$'}(sed -n '1p' "${'$'}PREPARED_STATE_FILE" | tr -d '\r')
               case "${'$'}PREPARED_STATE" in data|empty|absent) ;; *) echo "ERR_SOURCE_STATE_INVALID:${'$'}PREPARED_NAME:${'$'}PREPARED_STATE" >&2; exit 69 ;; esac
               if [ "${'$'}PREPARED_STATE" = "data" ]; then
@@ -2398,11 +2454,22 @@ object ShellScripts {
               PREPARED="${'$'}PREPARED_ROOT/${'$'}PART_NAME"
               ${if (sourceStateAware) """
               SOURCE_STATE_FILE="${'$'}PREPARED_ROOT/.state/${'$'}PART_NAME"
-              if [ ! -f "${'$'}SOURCE_STATE_FILE" ] || [ -L "${'$'}SOURCE_STATE_FILE" ]; then
+              if [ -f "${'$'}SOURCE_STATE_FILE" ] && [ ! -L "${'$'}SOURCE_STATE_FILE" ]; then
+                SOURCE_STATE=${'$'}(sed -n '1p' "${'$'}SOURCE_STATE_FILE" | tr -d '\r')
+              else
+                ${if (allowLegacySourceState) """
+                if [ ! -d "${'$'}PREPARED_ROOT/.state" ] && [ -d "${'$'}PREPARED" ]; then
+                  SOURCE_STATE=data
+                  echo "DIRECT_SOURCE_LEGACY:${'$'}PART_NAME path=${'$'}PREPARED"
+                else
+                  echo "SKIP_UNSELECTED_PART:${'$'}PART_NAME"
+                  return 0
+                fi
+                """.trimIndent() else """
                 echo "SKIP_UNSELECTED_PART:${'$'}PART_NAME"
                 return 0
+                """.trimIndent()}
               fi
-              SOURCE_STATE=${'$'}(sed -n '1p' "${'$'}SOURCE_STATE_FILE" | tr -d '\r')
               case "${'$'}SOURCE_STATE" in
                 absent)
                   TARGET_MUTATED=1
