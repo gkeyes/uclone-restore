@@ -2211,6 +2211,7 @@ object ShellScripts {
             ROLLBACK="${'$'}ROOT/$rollbackRootName/${'$'}PKG/$rollbackName"
             ROLLBACK_CREATED=0
             ROLLBACK_FINALIZED=${if (rollbackProtection == RollbackProtection.FRESH) "0" else "1"}
+            UCLONE_SUSPENDED_USERS=""
             UCLONE_COPY_PASSES=0
             uclone_copy_pass_begin() {
               UCLONE_COPY_PASS_LABEL="${'$'}1"
@@ -2395,12 +2396,48 @@ object ShellScripts {
             RESTORE_REQUIRED_KB=${'$'}(${if (directSource) "uclone_decimal_max" else "uclone_decimal_add"} "${'$'}RESTORE_SOURCE_KB" "${'$'}RESTORE_TARGET_KB") || RESTORE_REQUIRED_KB=""
             uclone_require_space "${'$'}RESTORE_REQUIRED_KB" "${if (directSource) "restore_direct" else "restore_prepared_and_rollback"}"
             PREPARED_ROOT=${if (directSource) "\"${'$'}ACTIVE\"" else "\"${'$'}ROOT/tmp/prepared_${'$'}{PKG}_${'$'}TS\""}
+            uclone_package_suspended_state() {
+              UCLONE_SUSPENDED_STATE_USER="${'$'}1"
+              dumpsys package "${'$'}PKG" 2>/dev/null | awk -v USER_TOKEN="User ${'$'}UCLONE_SUSPENDED_STATE_USER:" '
+                index(${'$'}0, USER_TOKEN) {
+                  for (FIELD_INDEX = 1; FIELD_INDEX <= NF; FIELD_INDEX += 1) {
+                    if (${'$'}FIELD_INDEX == "suspended=true") {
+                      print "true"
+                      FOUND_SUSPENDED_STATE = 1
+                      exit
+                    }
+                    if (${'$'}FIELD_INDEX == "suspended=false") {
+                      print "false"
+                      FOUND_SUSPENDED_STATE = 1
+                      exit
+                    }
+                  }
+                }
+                END { if (!FOUND_SUSPENDED_STATE) exit 1 }
+              '
+            }
+            resume_package_users() {
+              UCLONE_RESUME_FAILED=0
+              UCLONE_REMAINING_SUSPENDED_USERS=""
+              for UCLONE_RESUME_USER in ${'$'}UCLONE_SUSPENDED_USERS; do
+                if pm unsuspend --user "${'$'}UCLONE_RESUME_USER" "${'$'}PKG" >/dev/null 2>&1; then
+                  echo "PACKAGE_UNSUSPENDED:user=${'$'}UCLONE_RESUME_USER package=${'$'}PKG"
+                else
+                  UCLONE_REMAINING_SUSPENDED_USERS="${'$'}UCLONE_REMAINING_SUSPENDED_USERS ${'$'}UCLONE_RESUME_USER"
+                  UCLONE_RESUME_FAILED=1
+                  echo "ERR_PACKAGE_UNSUSPEND_FAILED:${'$'}UCLONE_RESUME_USER:${'$'}PKG" >&2
+                fi
+              done
+              UCLONE_SUSPENDED_USERS="${'$'}UCLONE_REMAINING_SUSPENDED_USERS"
+              [ "${'$'}UCLONE_RESUME_FAILED" -eq 0 ]
+            }
             cleanup_restore_prepared() {
               ${if (directSource) ":" else """
               case "${'$'}{PREPARED_ROOT:-}" in
                 "${'$'}ROOT"/tmp/prepared_"${'$'}PKG"_"${'$'}TS") rm -rf "${'$'}PREPARED_ROOT" 2>/dev/null || true ;;
               esac
               """.trimIndent()}
+              resume_package_users
             }
             cleanup_restore_before_transaction() {
               cleanup_restore_prepared
@@ -2507,11 +2544,54 @@ object ShellScripts {
             uclone_perf_emit source_validate all "${'$'}UCLONE_SOURCE_VALIDATE_STARTED_AT"
             uclone_stage_end
             force_stop_package_users() {
-              am force-stop --user "${'$'}DST_USER" "${'$'}PKG" >/dev/null 2>&1 || {
-                echo "ERR_FORCE_STOP_FAILED:${'$'}DST_USER:${'$'}PKG" >&2
+              UCLONE_FORCE_STOPPED_USERS=""
+              for UCLONE_FORCE_USER in "${'$'}DST_USER" ${settings.mainUserId} ${settings.cloneUserId}; do
+                case " ${'$'}UCLONE_FORCE_STOPPED_USERS " in
+                  *" ${'$'}UCLONE_FORCE_USER "*) continue ;;
+                esac
+                if ! cmd package path --user "${'$'}UCLONE_FORCE_USER" "${'$'}PKG" >/dev/null 2>&1; then
+                  if [ "${'$'}UCLONE_FORCE_USER" = "${'$'}DST_USER" ]; then
+                    echo "ERR_TARGET_PACKAGE_MISSING:${'$'}UCLONE_FORCE_USER:${'$'}PKG" >&2
+                    return 1
+                  fi
+                  continue
+                fi
+                UCLONE_SUSPENDED_STATE=${'$'}(uclone_package_suspended_state "${'$'}UCLONE_FORCE_USER") || {
+                  echo "ERR_PACKAGE_SUSPEND_STATE:${'$'}UCLONE_FORCE_USER:${'$'}PKG" >&2
+                  return 1
+                }
+                case "${'$'}UCLONE_SUSPENDED_STATE" in
+                  false)
+                    pm suspend --user "${'$'}UCLONE_FORCE_USER" "${'$'}PKG" >/dev/null 2>&1 || {
+                      echo "ERR_PACKAGE_SUSPEND_FAILED:${'$'}UCLONE_FORCE_USER:${'$'}PKG" >&2
+                      return 1
+                    }
+                    UCLONE_SUSPENDED_USERS="${'$'}UCLONE_SUSPENDED_USERS ${'$'}UCLONE_FORCE_USER"
+                    echo "PACKAGE_SUSPENDED:user=${'$'}UCLONE_FORCE_USER package=${'$'}PKG"
+                    ;;
+                  true) ;;
+                  *)
+                    echo "ERR_PACKAGE_SUSPEND_STATE:${'$'}UCLONE_FORCE_USER:${'$'}PKG" >&2
+                    return 1
+                    ;;
+                esac
+                am force-stop --user "${'$'}UCLONE_FORCE_USER" "${'$'}PKG" >/dev/null 2>&1 || {
+                  echo "ERR_FORCE_STOP_FAILED:${'$'}UCLONE_FORCE_USER:${'$'}PKG" >&2
+                  return 1
+                }
+                UCLONE_FORCE_STOPPED_USERS="${'$'}UCLONE_FORCE_STOPPED_USERS ${'$'}UCLONE_FORCE_USER"
+              done
+              sleep 1
+              UCLONE_LIVE_PROCESS_COUNT=${'$'}(ps -A -o NAME 2>/dev/null | awk -v PACKAGE_PREFIX="${'$'}PKG" '
+                NR > 1 && (${'$'}1 == PACKAGE_PREFIX || index(${'$'}1, PACKAGE_PREFIX ":") == 1) { PROCESS_COUNT += 1 }
+                END { print PROCESS_COUNT + 0 }
+              ') || return 1
+              case "${'$'}UCLONE_LIVE_PROCESS_COUNT" in ''|*[!0-9]*) return 1 ;; esac
+              [ "${'$'}UCLONE_LIVE_PROCESS_COUNT" -eq 0 ] || {
+                echo "ERR_PACKAGE_NOT_QUIESCENT:${'$'}PKG:processes=${'$'}UCLONE_LIVE_PROCESS_COUNT" >&2
                 return 1
               }
-              echo "FORCE_STOP_USERS:${'$'}DST_USER"
+              echo "FORCE_STOP_USERS:${'$'}{UCLONE_FORCE_STOPPED_USERS# }"
             }
             uclone_stage_begin TARGET_STOP
             force_stop_package_users || exit 76
@@ -2725,14 +2805,16 @@ object ShellScripts {
               """.trimIndent() else ":"}
               apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT" "${'$'}PART_NAME"
               UCLONE_RESTORE_VERIFY_STARTED_AT=${'$'}(uclone_now_ms)
-              if ! has_items "${'$'}TARGET"; then
+              TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET") || {
+                uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_RESTORE_VERIFY_STARTED_AT"
+                echo "ERR_SCAN_FAILED:${'$'}TARGET" >&2
+                exit 16
+              }
+              if [ "${'$'}TARGET_ITEMS" -le 0 ]; then
                 uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_RESTORE_VERIFY_STARTED_AT"
                 echo "ERR_RESTORE_EMPTY:${'$'}TARGET" >&2
                 exit 65
               fi
-              ${if (directSourceExcludeCache) """
-              TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET") || { echo "ERR_SCAN_FAILED:${'$'}TARGET" >&2; exit 16; }
-              """.trimIndent() else "TARGET_ITEMS=\"${'$'}PREPARED_ITEMS\""}
               uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_RESTORE_VERIFY_STARTED_AT"
               RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
               RESTORED_ITEMS=${'$'}((RESTORED_ITEMS + TARGET_ITEMS))
@@ -2968,6 +3050,7 @@ object ShellScripts {
               fi
               exit 70
             fi
+            resume_package_users || exit 77
             TRANSACTION_COMMITTED=1
             ${if (targetUserId == settings.mainUserId && rollbackRootName == "rollback") """
             if [ "${'$'}CURRENT_TARGET_STATE" = "MAIN" ] && [ "${'$'}NEXT_MAIN_STATE" = "CLONE" ]; then

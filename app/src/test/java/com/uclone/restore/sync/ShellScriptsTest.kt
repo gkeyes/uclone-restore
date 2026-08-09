@@ -107,6 +107,50 @@ class ShellScriptsTest {
     }
 
     @Test
+    fun managedRestoreSuspendsEveryConfiguredPackageUserBeforeForceStop() {
+        val commandLog = Files.createTempFile("uclone-package-quiescence", ".log")
+        val generated = ShellScripts.rollback("com.example.app", "rollback-1", settings, appPackage)
+        val result = runPosixShell(
+            """
+                set -u
+                PKG=com.example.app
+                DST_USER=0
+                UCLONE_SUSPENDED_USERS=""
+                UCLONE_COMMAND_LOG='${commandLog.toAbsolutePath()}'
+                cmd() {
+                  [ "${'$'}1 ${'$'}2" = "package path" ] || return 1
+                  return 0
+                }
+                dumpsys() {
+                  printf '%s\n' \
+                    '    User 0: installed=true suspended=false enabled=0' \
+                    '    User 10: installed=true suspended=false enabled=0'
+                }
+                pm() { echo "pm ${'$'}*" >> "${'$'}UCLONE_COMMAND_LOG"; }
+                am() { echo "am ${'$'}*" >> "${'$'}UCLONE_COMMAND_LOG"; }
+                ps() { printf '%s\n' NAME; }
+                sleep() { :; }
+                ${shellFunction(generated, "uclone_package_suspended_state")}
+                ${shellFunction(generated, "resume_package_users")}
+                ${shellFunction(generated, "force_stop_package_users")}
+                force_stop_package_users
+                resume_package_users
+                cat "${'$'}UCLONE_COMMAND_LOG"
+            """.trimIndent(),
+        )
+
+        assertEquals(0, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stdout, "pm suspend --user 0 com.example.app")
+        assertContains(result.stdout, "pm suspend --user 10 com.example.app")
+        assertContains(result.stdout, "am force-stop --user 0 com.example.app")
+        assertContains(result.stdout, "am force-stop --user 10 com.example.app")
+        assertContains(result.stdout, "pm unsuspend --user 0 com.example.app")
+        assertContains(result.stdout, "pm unsuspend --user 10 com.example.app")
+        assertTrue(result.stdout.indexOf("pm suspend --user 0") < result.stdout.indexOf("am force-stop --user 0"))
+        assertTrue(result.stdout.indexOf("pm suspend --user 10") < result.stdout.indexOf("am force-stop --user 10"))
+    }
+
+    @Test
     fun mutationScriptsEmitStructuredPerformanceMetrics() {
         val rule = AppRule(packageName = "com.example.app")
         val capture = ShellScripts.capture("com.example.app", rule, settings, appPackage)
@@ -1271,7 +1315,6 @@ class ShellScriptsTest {
                 uclone_remove_path_strict() { rm -rf "${'$'}1"; }
                 uclone_copy_directory_strict() { cp -R "${'$'}1/." "${'$'}2/"; }
                 count_items() { find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '; }
-                has_items() { [ -n "${'$'}(find "${'$'}1" -mindepth 1 -print -quit 2>/dev/null)" ]; }
                 uclone_now_ms() { echo 1; }
                 uclone_perf_emit() { :; }
                 ${shellFunction(generated, "restore_part")}
@@ -1293,6 +1336,7 @@ class ShellScriptsTest {
         assertContains(result.stdout, "RESTORED_PARTS=3")
         assertContains(result.stdout, "SECURITY_APPLIED:de")
         assertContains(result.stdout, "SECURITY_APPLIED:media")
+        assertFalse(generated.contains("has_items \""))
     }
 
     @Test
