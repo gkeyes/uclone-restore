@@ -254,7 +254,7 @@ internal object OptimizedSwitchPreparationShell {
             return 0
           fi
           mkdir -p "${'$'}BSP_DST" || return 1
-          (cd "${'$'}BSP_SRC" && tar -cpf - .) | (cd "${'$'}BSP_DST" && tar -xopf -) || return 1
+          uclone_copy_directory_strict "${'$'}BSP_SRC" "${'$'}BSP_DST" preserve || return 1
           BSP_WRITTEN=${'$'}(count_items "${'$'}BSP_DST") || { echo "ERR_SCAN_FAILED:${'$'}BSP_DST" >&2; return 1; }
           [ "${'$'}BSP_WRITTEN" -gt 0 ] || return 1
           printf '%s\n' data > "${'$'}ROLLBACK/.state/${'$'}BSP_NAME" || return 1
@@ -327,7 +327,7 @@ internal object OptimizedSwitchPreparationShell {
           case "${'$'}STC_CONTEXT" in u:object_r:*) ;; *) STC_CONTEXT="" ;; esac
           CLONE_TARGET_MUTATED=1
           uclone_clear_directory_strict "${'$'}STC_TARGET" || { echo "ERR_TARGET_CLEAR_FAILED:${'$'}STC_TARGET" >&2; return 1; }
-          (cd "${'$'}STC_SRC" && tar -cpf - .) | (cd "${'$'}STC_TARGET" && tar -xpf -) || return 1
+          uclone_copy_directory_strict "${'$'}STC_SRC" "${'$'}STC_TARGET" target || return 1
           ${if (rule.excludeCache) "uclone_remove_cache_dirs_strict \"${'$'}STC_TARGET\" || { echo \"ERR_CACHE_FILTER_FAILED:${'$'}STC_TARGET\" >&2; return 1; }" else ":"}
           apply_clone_security "${'$'}STC_TARGET" "${'$'}STC_KIND" "${'$'}STC_CONTEXT" || return 1
           STC_WRITTEN=${'$'}(count_items "${'$'}STC_TARGET") || { echo "ERR_SCAN_FAILED:${'$'}STC_TARGET" >&2; return 1; }

@@ -1057,12 +1057,6 @@ class StateBackupShellTest {
         )
     }
 
-    private fun shellFunction(script: String, name: String): String =
-        Regex("(?ms)^[ \\t]*${Regex.escape(name)}\\(\\) \\{\\n.*?^[ \\t]*\\}")
-            .find(script)
-            ?.value
-            ?: error("Missing generated shell function: $name")
-
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\"'\"'")}'"
 
     private fun assertNoCloneUserAccess(script: String) {

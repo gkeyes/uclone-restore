@@ -118,9 +118,8 @@ object ShellScripts {
         }
         uclone_remove_path_strict() {
           UCLONE_REMOVE_PATH="${'$'}1"
-          if [ -e "${'$'}UCLONE_REMOVE_PATH" ] || [ -L "${'$'}UCLONE_REMOVE_PATH" ]; then
-            rm -rf "${'$'}UCLONE_REMOVE_PATH" || return 1
-          fi
+          [ -n "${'$'}UCLONE_REMOVE_PATH" ] && [ "${'$'}UCLONE_REMOVE_PATH" != "/" ] || return 1
+          rm -rf "${'$'}UCLONE_REMOVE_PATH" || return 1
           [ ! -e "${'$'}UCLONE_REMOVE_PATH" ] && [ ! -L "${'$'}UCLONE_REMOVE_PATH" ]
         }
         uclone_remove_cache_dirs_strict() {
@@ -133,6 +132,43 @@ object ShellScripts {
           uclone_remove_path_strict "${'$'}UCLONE_CLEAR_PATH" || return 1
           mkdir -p "${'$'}UCLONE_CLEAR_PATH" || return 1
           [ -d "${'$'}UCLONE_CLEAR_PATH" ] && [ ! -L "${'$'}UCLONE_CLEAR_PATH" ]
+        }
+        uclone_copy_directory_strict() {
+          UCLONE_COPY_SOURCE="${'$'}1"
+          UCLONE_COPY_TARGET="${'$'}2"
+          UCLONE_COPY_MODE="${'$'}3"
+          mkdir -p "${'$'}ROOT/tmp" || return 1
+          UCLONE_TAR_STATUS_FILE="${'$'}ROOT/tmp/.tar_source_${'$'}${'$'}"
+          uclone_remove_path_strict "${'$'}UCLONE_TAR_STATUS_FILE" || return 1
+          (
+            cd "${'$'}UCLONE_COPY_SOURCE" || exit 125
+            tar -cpf - .
+            UCLONE_TAR_SOURCE_EXIT=${'$'}?
+            printf '%s\n' "${'$'}UCLONE_TAR_SOURCE_EXIT" > "${'$'}UCLONE_TAR_STATUS_FILE" || exit 126
+            exit "${'$'}UCLONE_TAR_SOURCE_EXIT"
+          ) | (
+            cd "${'$'}UCLONE_COPY_TARGET" || exit 125
+            case "${'$'}UCLONE_COPY_MODE" in
+              preserve) tar -xopf - ;;
+              target) tar -xpf - ;;
+              *) exit 127 ;;
+            esac
+          )
+          UCLONE_TAR_TARGET_EXIT=${'$'}?
+          UCLONE_TAR_SOURCE_EXIT=""
+          if [ -f "${'$'}UCLONE_TAR_STATUS_FILE" ] && [ ! -L "${'$'}UCLONE_TAR_STATUS_FILE" ]; then
+            IFS= read -r UCLONE_TAR_SOURCE_EXIT < "${'$'}UCLONE_TAR_STATUS_FILE" || UCLONE_TAR_SOURCE_EXIT=""
+          fi
+          uclone_remove_path_strict "${'$'}UCLONE_TAR_STATUS_FILE" || {
+            echo "ERR_TAR_STATUS_CLEANUP_FAILED:${'$'}UCLONE_TAR_STATUS_FILE" >&2
+            return 1
+          }
+          case "${'$'}UCLONE_TAR_SOURCE_EXIT" in ''|*[!0-9]*) UCLONE_TAR_SOURCE_EXIT=missing ;; esac
+          if [ "${'$'}UCLONE_TAR_SOURCE_EXIT" != "0" ] || [ "${'$'}UCLONE_TAR_TARGET_EXIT" -ne 0 ]; then
+            echo "ERR_TAR_COPY_FAILED:${'$'}UCLONE_COPY_SOURCE:${'$'}UCLONE_COPY_TARGET sourceExit=${'$'}UCLONE_TAR_SOURCE_EXIT targetExit=${'$'}UCLONE_TAR_TARGET_EXIT" >&2
+            return 1
+          fi
+          return 0
         }
     """.trimIndent()
 
@@ -577,7 +613,7 @@ object ShellScripts {
           [ "${'$'}SRC_ITEMS" -gt 0 ] || { echo "SKIP_EMPTY:${'$'}SRC"; return 0; }
           uclone_remove_path_strict "${'$'}DST.tmp" || exit 12
           mkdir -p "${'$'}DST.tmp" || exit 12
-          (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST.tmp" && tar -xopf -) || exit 13
+          uclone_copy_directory_strict "${'$'}SRC" "${'$'}DST.tmp" preserve || exit 13
           uclone_remove_path_strict "${'$'}DST" || exit 14
           mv "${'$'}DST.tmp" "${'$'}DST" || exit 14
           ${if (rule.excludeCache) "uclone_remove_cache_dirs_strict \"${'$'}DST\" || { echo \"ERR_CACHE_FILTER_FAILED:${'$'}DST\" >&2; exit 15; }" else ":"}
@@ -821,7 +857,7 @@ object ShellScripts {
             return 0
           fi
           mkdir -p "${'$'}DST" || exit 54
-          (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && tar -xopf -) || exit 55
+          uclone_copy_directory_strict "${'$'}SRC" "${'$'}DST" preserve || exit 55
           DST_ITEMS=${'$'}(count_items "${'$'}DST") || { echo "ERR_SCAN_FAILED:${'$'}DST" >&2; exit 16; }
           [ "${'$'}DST_ITEMS" -gt 0 ] || { echo "ERR_MAIN_RETURN_COPY_EMPTY:${'$'}SRC" >&2; exit 63; }
           printf '%s\n' data > "${'$'}TMP/.state/${'$'}PART_NAME" || exit 54
@@ -1057,7 +1093,7 @@ object ShellScripts {
           [ "${'$'}SRC_ITEMS" -gt 0 ] || { echo "SKIP_EMPTY:${'$'}SRC"; return 0; }
           uclone_remove_path_strict "${'$'}DST.tmp" || exit 12
           mkdir -p "${'$'}DST.tmp" || exit 12
-          (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST.tmp" && tar -xopf -) || exit 13
+          uclone_copy_directory_strict "${'$'}SRC" "${'$'}DST.tmp" preserve || exit 13
           uclone_remove_path_strict "${'$'}DST" || exit 14
           mv "${'$'}DST.tmp" "${'$'}DST" || exit 14
           ${if (rule.excludeCache) "uclone_remove_cache_dirs_strict \"${'$'}DST\" || { echo \"ERR_CACHE_FILTER_FAILED:${'$'}DST\" >&2; exit 15; }" else ":"}
@@ -1121,7 +1157,7 @@ object ShellScripts {
           fi
           uclone_remove_path_strict "${'$'}DST" || exit 54
           mkdir -p "${'$'}DST" || exit 54
-          (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && tar -xopf -) || exit 55
+          uclone_copy_directory_strict "${'$'}SRC" "${'$'}DST" preserve || exit 55
           BACKUP_ITEMS=${'$'}(count_items "${'$'}DST") || { echo "ERR_SCAN_FAILED:${'$'}DST" >&2; exit 16; }
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
           UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + BACKUP_ITEMS))
@@ -1240,7 +1276,7 @@ object ShellScripts {
           fi
           TARGET_MUTATED=1
           clear_target_contents "${'$'}TARGET" || exit 68
-          (cd "${'$'}SNAP" && tar -cpf - .) | (cd "${'$'}TARGET" && tar -xpf -) || exit 58
+          uclone_copy_directory_strict "${'$'}SNAP" "${'$'}TARGET" target || exit 58
           apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT"
           TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET") || { echo "ERR_SCAN_FAILED:${'$'}TARGET" >&2; exit 16; }
           [ "${'$'}TARGET_ITEMS" -gt 0 ] || { echo "ERR_PUSH_EMPTY:${'$'}TARGET" >&2; exit 65; }
@@ -2438,7 +2474,7 @@ object ShellScripts {
               [ "${'$'}PREPARE_ITEMS" -gt 0 ] || { echo "ERR_EMPTY_SNAPSHOT_PART:${'$'}PREPARE_SRC" >&2; exit 64; }
               PREPARE_DST="${'$'}PREPARED_ROOT/${'$'}PREPARE_NAME"
               mkdir -p "${'$'}PREPARE_DST" || exit 56
-              (cd "${'$'}PREPARE_SRC" && tar -cpf - .) | (cd "${'$'}PREPARE_DST" && tar -xopf -) || exit 57
+              uclone_copy_directory_strict "${'$'}PREPARE_SRC" "${'$'}PREPARE_DST" preserve || exit 57
               PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARE_DST") || { echo "ERR_SCAN_FAILED:${'$'}PREPARE_DST" >&2; exit 16; }
               [ "${'$'}PREPARED_ITEMS" -gt 0 ] || { echo "ERR_EXTRACT_EMPTY:${'$'}PREPARE_SRC" >&2; exit 69; }
               uclone_set_source_items "${'$'}PREPARE_NAME" "${'$'}PREPARED_ITEMS"
@@ -2495,7 +2531,7 @@ object ShellScripts {
               mkdir -p "${'$'}DST" || exit 54
               UCLONE_UNDO_COPY_STARTED_AT=${'$'}(uclone_now_ms)
               UCLONE_UNDO_COPY_EXIT=0
-              (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && tar -xopf -) || UCLONE_UNDO_COPY_EXIT=${'$'}?
+              uclone_copy_directory_strict "${'$'}SRC" "${'$'}DST" preserve || UCLONE_UNDO_COPY_EXIT=${'$'}?
               uclone_perf_emit transaction_undo_copy "${'$'}PART_NAME" "${'$'}UCLONE_UNDO_COPY_STARTED_AT"
               [ "${'$'}UCLONE_UNDO_COPY_EXIT" -eq 0 ] || exit 55
               UCLONE_UNDO_VERIFY_STARTED_AT=${'$'}(uclone_now_ms)
@@ -2671,7 +2707,7 @@ object ShellScripts {
               clear_target_contents "${'$'}TARGET" || exit 68
               UCLONE_RESTORE_COPY_STARTED_AT=${'$'}(uclone_now_ms)
               UCLONE_RESTORE_COPY_EXIT=0
-              (cd "${'$'}PREPARED" && tar -cpf - .) | (cd "${'$'}TARGET" && tar -xpf -) || UCLONE_RESTORE_COPY_EXIT=${'$'}?
+              uclone_copy_directory_strict "${'$'}PREPARED" "${'$'}TARGET" target || UCLONE_RESTORE_COPY_EXIT=${'$'}?
               uclone_perf_emit restore_copy "${'$'}PART_NAME" "${'$'}UCLONE_RESTORE_COPY_STARTED_AT"
               [ "${'$'}UCLONE_RESTORE_COPY_EXIT" -eq 0 ] || exit 58
               ${if (directSourceExcludeCache) """

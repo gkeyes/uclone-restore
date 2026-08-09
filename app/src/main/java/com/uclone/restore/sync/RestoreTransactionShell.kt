@@ -56,7 +56,7 @@ internal object RestoreTransactionShell {
           esac
           clear_target_contents "${'$'}RB_TARGET" || return 1
           if [ "${'$'}RB_STATE" = "data" ]; then
-            (cd "${'$'}RB_SRC" && tar -cpf - .) | (cd "${'$'}RB_TARGET" && tar -xpf -) || return 1
+            uclone_copy_directory_strict "${'$'}RB_SRC" "${'$'}RB_TARGET" target || return 1
           fi
           apply_target_security "${'$'}RB_TARGET" "${'$'}RB_OWNER" "${'$'}RB_CONTEXT" "${'$'}RB_NAME"
           echo "AUTO_ROLLBACK_PART:${'$'}RB_TARGET"

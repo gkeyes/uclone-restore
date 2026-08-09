@@ -425,7 +425,7 @@ class ShellScriptsTest {
     }
 
     @Test
-    fun strictRemovalPropagatesRmFailureAndKeepsTheTargetVisible() {
+    fun strictRemovalRejectsReportedSuccessWhenTheTargetStillExists() {
         val root = Files.createTempDirectory("uclone-strict-remove")
         val target = Files.createDirectories(root.resolve("target"))
         target.resolve("old.db").toFile().writeText("old")
@@ -433,7 +433,7 @@ class ShellScriptsTest {
             """
                 set -u
                 ROOT='${root.toAbsolutePath()}'
-                rm() { return 9; }
+                rm() { return 0; }
                 ${ShellScripts.strictDirectoryFunctions()}
                 if uclone_remove_path_strict '${target.toAbsolutePath()}'; then
                   echo UNEXPECTED_REMOVE_SUCCESS
@@ -447,6 +447,29 @@ class ShellScriptsTest {
         assertEquals(0, result.exitCode, "${result.stdout}\n${result.stderr}")
         assertContains(result.stdout, "REMOVE_FAILURE_PROPAGATED")
         assertFalse(result.stdout.contains("UNEXPECTED_REMOVE_SUCCESS"))
+    }
+
+    @Test
+    fun shellFunctionExtractionPreservesNestedFailureBlocks() {
+        val extracted = shellFunction(
+            """
+                before() { :; }
+                target() {
+                  false || {
+                    echo RECOVERED
+                  }
+                  echo AFTER_NESTED_BLOCK
+                }
+                after() { :; }
+            """.trimIndent(),
+            "target",
+        )
+        val result = runPosixShell("$extracted\ntarget")
+
+        assertEquals(0, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stdout, "RECOVERED")
+        assertContains(result.stdout, "AFTER_NESTED_BLOCK")
+        assertFalse(extracted.contains("after()"))
     }
 
     @Test
@@ -573,7 +596,7 @@ class ShellScriptsTest {
         assertTrue(sourceCopied in 0 until targetStop)
         assertContains(script, "force_stop_target_package")
         assertFalse(script.contains("push_restore_${'$'}{PKG}_"))
-        assertContains(script, "(cd \"${'$'}SNAP\" && tar -cpf - .) | (cd \"${'$'}TARGET\" && tar -xpf -)")
+        assertContains(script, "uclone_copy_directory_strict \"${'$'}SNAP\" \"${'$'}TARGET\" target")
     }
 
     @Test
@@ -1088,6 +1111,7 @@ class ShellScriptsTest {
         val result = runCaptureCopy(source, excludeCache = true, failTar = true)
 
         assertEquals(13, result.exitCode, "${result.stdout}\n${result.stderr}")
+        assertContains(result.stderr, "ERR_TAR_COPY_FAILED:")
         assertFalse(result.stdout.contains("PART_STATE=empty"))
     }
 
@@ -1208,11 +1232,12 @@ class ShellScriptsTest {
                 validate_target_path() { :; }
                 target_owner_for() { echo '1000:1000'; }
                 read_target_context() { echo ''; }
-                clear_target_contents() { find "${'$'}1" -mindepth 1 -maxdepth 1 -exec rm -rf {} +; }
+                clear_target_contents() { uclone_remove_path_strict "${'$'}1" && mkdir -p "${'$'}1"; }
                 apply_target_security() { echo "SECURITY_APPLIED:${'$'}4"; }
                 uclone_get_source_items() { echo ''; }
                 uclone_set_source_items() { :; }
                 uclone_remove_path_strict() { rm -rf "${'$'}1"; }
+                uclone_copy_directory_strict() { cp -R "${'$'}1/." "${'$'}2/"; }
                 count_items() { find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '; }
                 has_items() { [ -n "${'$'}(find "${'$'}1" -mindepth 1 -print -quit 2>/dev/null)" ]; }
                 uclone_now_ms() { echo 1; }
@@ -1535,7 +1560,14 @@ class ShellScriptsTest {
             uclone_write_size_hint() { :; }
             uclone_add_written_kb() { :; }
             uclone_record_temp_path() { :; }
-            ${if (failTar) "tar() { return 9; }" else ":"}
+            ${if (failTar) """
+            tar() {
+              case "${'$'}1" in
+                -cpf) return 9 ;;
+                *) cat >/dev/null; return 0 ;;
+              esac
+            }
+            """.trimIndent() else ":"}
             ${ShellScripts.strictDirectoryFunctions()}
             ${shellFunction(generated, "record_part_state")}
             ${shellFunction(generated, "copy_dir_stream")}
@@ -1646,23 +1678,6 @@ class ShellScriptsTest {
             fi
         """.trimIndent()
         return runPosixShell(script)
-    }
-
-    private fun shellFunction(script: String, name: String): String {
-        val lines = script.lines()
-        val header = Regex("^\\s*${Regex.escape(name)}\\(\\) \\{\\s*$")
-        val start = lines.indexOfFirst { header.matches(it) }
-        check(start >= 0) { "Missing shell function: $name" }
-        var depth = 0
-        for (index in start until lines.size) {
-            val trimmed = lines[index].trim()
-            if (trimmed.endsWith("{") && !trimmed.contains("}")) depth += 1
-            if (trimmed == "}") {
-                depth -= 1
-                if (depth == 0) return lines.subList(start, index + 1).joinToString("\n")
-            }
-        }
-        error("Unterminated shell function: $name")
     }
 
     private data class StopScriptResult(val exitCode: Int, val output: String)
