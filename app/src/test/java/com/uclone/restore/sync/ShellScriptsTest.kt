@@ -451,7 +451,6 @@ class ShellScriptsTest {
 
     @Test
     fun directRestoreHelpersProbeNonEmptyAndUseStrictPerPartSizeHintsInPosixShell() {
-        val generated = ShellScripts.restore("com.example.app", settings, appPackage)
         val root = Files.createTempDirectory("uclone-restore-helper-test")
         val empty = Files.createDirectory(root.resolve("empty"))
         val nonEmpty = Files.createDirectory(root.resolve("non-empty"))
@@ -487,7 +486,12 @@ class ShellScriptsTest {
         val result = runPosixShell(
             """
                 set -u
-                ${shellFunction(generated, "has_items")}
+                ROOT='${root.toAbsolutePath()}'
+                ${ShellScripts.strictDirectoryFunctions()}
+                has_items() {
+                  HAS_ITEMS=${'$'}(count_items "${'$'}1") || return 1
+                  [ "${'$'}HAS_ITEMS" -gt 0 ]
+                }
                 ${shellFunction(preflight, "uclone_dir_kb_strict")}
                 ${shellFunction(preflight, "uclone_live_source_dir_kb_strict")}
                 ${shellFunction(preflight, "uclone_validate_direct_source")}
@@ -1644,9 +1648,22 @@ class ShellScriptsTest {
         return runPosixShell(script)
     }
 
-    private fun shellFunction(script: String, name: String): String = checkNotNull(
-        Regex("(?ms)^[ \\t]*${Regex.escape(name)}\\(\\) \\{\\n.*?^[ \\t]*\\}").find(script)?.value,
-    ) { "Missing shell function: $name" }
+    private fun shellFunction(script: String, name: String): String {
+        val lines = script.lines()
+        val header = Regex("^\\s*${Regex.escape(name)}\\(\\) \\{\\s*$")
+        val start = lines.indexOfFirst { header.matches(it) }
+        check(start >= 0) { "Missing shell function: $name" }
+        var depth = 0
+        for (index in start until lines.size) {
+            val trimmed = lines[index].trim()
+            if (trimmed.endsWith("{") && !trimmed.contains("}")) depth += 1
+            if (trimmed == "}") {
+                depth -= 1
+                if (depth == 0) return lines.subList(start, index + 1).joinToString("\n")
+            }
+        }
+        error("Unterminated shell function: $name")
+    }
 
     private data class StopScriptResult(val exitCode: Int, val output: String)
 
