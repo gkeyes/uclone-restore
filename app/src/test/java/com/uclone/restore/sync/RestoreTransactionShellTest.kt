@@ -33,6 +33,20 @@ class RestoreTransactionShellTest {
     }
 
     @Test
+    fun targetClearFailureCannotBeReportedAsAutomaticRollbackSuccess() {
+        val result = runHarness(
+            applyTargetSecurityBody = "echo APPLIED:${'$'}1",
+            clearTargetBody = "echo CLEAR_FAILED:${'$'}1; return 9",
+        )
+
+        assertEquals(91, result.exitCode)
+        assertContains(result.stderr, "AUTO_ROLLBACK_FAILED originalExit=58")
+        assertContains(result.stdout, "CLEAR_FAILED:/data/user/10/com.example.app")
+        assertFalse(result.stdout.contains("AUTO_ROLLBACK_SUCCESS"))
+        assertFalse(result.stdout.contains("APPLIED:"))
+    }
+
+    @Test
     fun missingPartStateFailsBeforeClearingThatTarget() {
         val result = runHarness("echo APPLIED:${'$'}1", missingState = "ce")
 
@@ -81,7 +95,11 @@ class RestoreTransactionShellTest {
         assertFalse(Files.exists(marker))
     }
 
-    private fun runHarness(applyTargetSecurityBody: String, missingState: String? = null): HarnessResult {
+    private fun runHarness(
+        applyTargetSecurityBody: String,
+        missingState: String? = null,
+        clearTargetBody: String = "echo CLEARED:${'$'}1",
+    ): HarnessResult {
         val rollback = Files.createTempDirectory("uclone-transaction-rollback-").toFile().apply { deleteOnExit() }
         val states = rollback.resolve(".state").apply { mkdirs(); deleteOnExit() }
         listOf("ce", "de", "external", "media", "obb").filterNot { it == missingState }.forEach { name ->
@@ -106,7 +124,7 @@ class RestoreTransactionShellTest {
             count_items() { echo 0; }
             validate_target_path() { :; }
             read_target_context() { echo ''; }
-            clear_target_contents() { echo "CLEARED:${'$'}1"; }
+            clear_target_contents() { $clearTargetBody; }
             mkdir() { :; }
             rm() { :; }
             sync() { :; }

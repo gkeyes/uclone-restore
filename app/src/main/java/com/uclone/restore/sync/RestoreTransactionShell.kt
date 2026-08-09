@@ -41,7 +41,7 @@ internal object RestoreTransactionShell {
             empty) ;;
             data)
               [ -d "${'$'}RB_SRC" ] || { echo "ERR_ROLLBACK_DATA_MISSING:${'$'}RB_NAME" >&2; return 1; }
-              RB_ITEMS=${'$'}(count_items "${'$'}RB_SRC")
+              RB_ITEMS=${'$'}(count_items "${'$'}RB_SRC") || { echo "ERR_SCAN_FAILED:${'$'}RB_SRC" >&2; return 1; }
               [ "${'$'}RB_ITEMS" -gt 0 ] || { echo "ERR_ROLLBACK_DATA_EMPTY:${'$'}RB_NAME" >&2; return 1; }
               ;;
             *) echo "ERR_ROLLBACK_STATE_INVALID:${'$'}RB_NAME:${'$'}RB_STATE" >&2; return 1 ;;
@@ -54,7 +54,7 @@ internal object RestoreTransactionShell {
             media) RB_OWNER="${'$'}TRANSACTION_APP_UID:1078" ;;
             *) return 1 ;;
           esac
-          clear_target_contents "${'$'}RB_TARGET"
+          clear_target_contents "${'$'}RB_TARGET" || return 1
           if [ "${'$'}RB_STATE" = "data" ]; then
             (cd "${'$'}RB_SRC" && tar -cpf - .) | (cd "${'$'}RB_TARGET" && tar -xpf -) || return 1
           fi

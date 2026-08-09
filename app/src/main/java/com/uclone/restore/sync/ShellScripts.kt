@@ -79,6 +79,63 @@ object ShellScripts {
         }
     """.trimIndent()
 
+    internal fun strictDirectoryFunctions(): String = """
+        uclone_scan_items() {
+          UCLONE_SCAN_PATH="${'$'}1"
+          UCLONE_SCAN_MODE="${'$'}2"
+          [ -d "${'$'}UCLONE_SCAN_PATH" ] || { echo 0; return 0; }
+          mkdir -p "${'$'}ROOT/tmp" || return 1
+          UCLONE_SCAN_FILE="${'$'}ROOT/tmp/.scan_${'$'}${'$'}"
+          uclone_remove_path_strict "${'$'}UCLONE_SCAN_FILE" || return 1
+          case "${'$'}UCLONE_SCAN_MODE" in
+            all)
+              find "${'$'}UCLONE_SCAN_PATH" -mindepth 1 -print > "${'$'}UCLONE_SCAN_FILE" || {
+                uclone_remove_path_strict "${'$'}UCLONE_SCAN_FILE" || echo "ERR_SCAN_TEMP_CLEANUP_FAILED:${'$'}UCLONE_SCAN_FILE" >&2
+                return 1
+              }
+              ;;
+            exclude_cache)
+              (cd "${'$'}UCLONE_SCAN_PATH" && find . -mindepth 1 ! -path './cache' ! -path './cache/*' ! -path './code_cache' ! -path './code_cache/*' -print > "${'$'}UCLONE_SCAN_FILE") || {
+                uclone_remove_path_strict "${'$'}UCLONE_SCAN_FILE" || echo "ERR_SCAN_TEMP_CLEANUP_FAILED:${'$'}UCLONE_SCAN_FILE" >&2
+                return 1
+              }
+              ;;
+            *) return 1 ;;
+          esac
+          UCLONE_SCAN_COUNT=${'$'}(awk 'END { print NR }' "${'$'}UCLONE_SCAN_FILE") || {
+            uclone_remove_path_strict "${'$'}UCLONE_SCAN_FILE" || echo "ERR_SCAN_TEMP_CLEANUP_FAILED:${'$'}UCLONE_SCAN_FILE" >&2
+            return 1
+          }
+          uclone_remove_path_strict "${'$'}UCLONE_SCAN_FILE" || { echo "ERR_SCAN_TEMP_CLEANUP_FAILED:${'$'}UCLONE_SCAN_FILE" >&2; return 1; }
+          case "${'$'}UCLONE_SCAN_COUNT" in ''|*[!0-9]*) return 1 ;; esac
+          echo "${'$'}UCLONE_SCAN_COUNT"
+        }
+        count_items() {
+          uclone_scan_items "${'$'}1" all
+        }
+        count_items_after_cache_filter() {
+          uclone_scan_items "${'$'}1" exclude_cache
+        }
+        uclone_remove_path_strict() {
+          UCLONE_REMOVE_PATH="${'$'}1"
+          if [ -e "${'$'}UCLONE_REMOVE_PATH" ] || [ -L "${'$'}UCLONE_REMOVE_PATH" ]; then
+            rm -rf "${'$'}UCLONE_REMOVE_PATH" || return 1
+          fi
+          [ ! -e "${'$'}UCLONE_REMOVE_PATH" ] && [ ! -L "${'$'}UCLONE_REMOVE_PATH" ]
+        }
+        uclone_remove_cache_dirs_strict() {
+          uclone_remove_path_strict "${'$'}1/cache" || return 1
+          uclone_remove_path_strict "${'$'}1/code_cache" || return 1
+        }
+        uclone_clear_directory_strict() {
+          UCLONE_CLEAR_PATH="${'$'}1"
+          [ -d "${'$'}UCLONE_CLEAR_PATH" ] && [ ! -L "${'$'}UCLONE_CLEAR_PATH" ] || return 1
+          uclone_remove_path_strict "${'$'}UCLONE_CLEAR_PATH" || return 1
+          mkdir -p "${'$'}UCLONE_CLEAR_PATH" || return 1
+          [ -d "${'$'}UCLONE_CLEAR_PATH" ] && [ ! -L "${'$'}UCLONE_CLEAR_PATH" ]
+        }
+    """.trimIndent()
+
     internal fun storagePreflightScript(): String = """
         UCLONE_ESTIMATED_KB=0
         uclone_decimal_add() {
@@ -453,22 +510,40 @@ object ShellScripts {
         TRY_TMP=""
         ${metricsScript()}
         ${storagePreflightScript()}
+        ${strictDirectoryFunctions()}
         ${PermissionStateShell.functions()}
         uclone_stage_begin PRECHECK
         [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
         mkdir -p "${'$'}ROOT/snapshots" "${'$'}ROOT/rollback" "${'$'}ROOT/logs" "${'$'}ROOT/tmp" "${'$'}ROOT/config" "${'$'}BASE/history" || exit 10
-        rm -rf "${'$'}TMP" "${'$'}TMP".try_*
+        for CAPTURE_STALE in "${'$'}TMP" "${'$'}TMP".try_*; do
+          uclone_remove_path_strict "${'$'}CAPTURE_STALE" || {
+            echo "ERR_CAPTURE_TEMP_CLEANUP_FAILED:${'$'}CAPTURE_STALE" >&2
+            exit 19
+          }
+        done
         cleanup_capture_try_tmp() {
           [ -n "${'$'}{TRY_TMP:-}" ] || return 0
           case "${'$'}TRY_TMP" in
-            "${'$'}TMP".try_*) rm -rf "${'$'}TRY_TMP" 2>/dev/null || true ;;
+            "${'$'}TMP".try_*)
+              uclone_remove_path_strict "${'$'}TRY_TMP" || {
+                echo "ERR_CAPTURE_TRY_CLEANUP_FAILED:${'$'}TRY_TMP" >&2
+                return 1
+              }
+              ;;
           esac
         }
         cleanup_capture_on_exit() {
-          cleanup_capture_try_tmp
+          CAPTURE_EXIT_CODE=${'$'}?
+          trap - EXIT
+          CAPTURE_CLEANUP_FAILED=0
+          cleanup_capture_try_tmp || CAPTURE_CLEANUP_FAILED=1
           if command -v cleanup_on_exit >/dev/null 2>&1; then
-            cleanup_on_exit
+            cleanup_on_exit || true
           fi
+          if [ "${'$'}CAPTURE_CLEANUP_FAILED" = "1" ] && [ "${'$'}CAPTURE_EXIT_CODE" -eq 0 ]; then
+            CAPTURE_EXIT_CODE=19
+          fi
+          exit "${'$'}CAPTURE_EXIT_CODE"
         }
         uclone_stage_end
         uclone_stage_begin SOURCE_PREPARE
@@ -485,9 +560,6 @@ object ShellScripts {
         ${if (rule.includeMedia) "uclone_add_first_dir_kb \"/data/media/${'$'}CONFIG_SRC_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}CONFIG_SRC_USER/Android/media/${'$'}PKG\"" else ":"}
         ${if (rule.includeObb) "uclone_add_first_dir_kb \"/data/media/${'$'}CONFIG_SRC_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}CONFIG_SRC_USER/Android/obb/${'$'}PKG\"" else ":"}
         uclone_require_space "${'$'}UCLONE_ESTIMATED_KB" "capture_snapshot"
-        count_items() {
-          find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '
-        }
         record_part_state() {
           PART_NAME="${'$'}1"
           PART_STATE="${'$'}2"
@@ -500,18 +572,18 @@ object ShellScripts {
           SRC="${'$'}1"
           DST="${'$'}2"
           PART_NAME=${'$'}{DST##*/}
-          SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+          SRC_ITEMS=${'$'}(count_items "${'$'}SRC") || { echo "ERR_SCAN_FAILED:${'$'}SRC" >&2; exit 16; }
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
           [ "${'$'}SRC_ITEMS" -gt 0 ] || { echo "SKIP_EMPTY:${'$'}SRC"; return 0; }
-          rm -rf "${'$'}DST.tmp"
+          uclone_remove_path_strict "${'$'}DST.tmp" || exit 12
           mkdir -p "${'$'}DST.tmp" || exit 12
           (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST.tmp" && tar -xopf -) || exit 13
-          rm -rf "${'$'}DST"
+          uclone_remove_path_strict "${'$'}DST" || exit 14
           mv "${'$'}DST.tmp" "${'$'}DST" || exit 14
-          ${if (rule.excludeCache) "rm -rf \"${'$'}DST/cache\" \"${'$'}DST/code_cache\" 2>/dev/null || true" else ":"}
-          DST_ITEMS=${'$'}(count_items "${'$'}DST")
+          ${if (rule.excludeCache) "uclone_remove_cache_dirs_strict \"${'$'}DST\" || { echo \"ERR_CACHE_FILTER_FAILED:${'$'}DST\" >&2; exit 15; }" else ":"}
+          DST_ITEMS=${'$'}(count_items "${'$'}DST") || { echo "ERR_SCAN_FAILED:${'$'}DST" >&2; exit 16; }
           if [ "${'$'}DST_ITEMS" -le 0 ]; then
-            rm -rf "${'$'}DST"
+            uclone_remove_path_strict "${'$'}DST" || exit 14
             record_part_state "${'$'}PART_NAME" empty
             echo "COPIED_EMPTY_AFTER_FILTER:${'$'}SRC"
             return 0
@@ -535,7 +607,7 @@ object ShellScripts {
             [ -n "${'$'}SRC" ] || continue
             if [ -d "${'$'}SRC" ]; then
               FOUND_SOURCE=1
-              SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+              SRC_ITEMS=${'$'}(count_items "${'$'}SRC") || { echo "ERR_SCAN_FAILED:${'$'}SRC" >&2; exit 16; }
               echo "PROBE_PATH:${'$'}SRC ITEMS=${'$'}SRC_ITEMS"
               if [ "${'$'}SRC_ITEMS" -gt 0 ]; then
                 copy_dir_stream "${'$'}SRC" "${'$'}DST"
@@ -556,7 +628,7 @@ object ShellScripts {
         try_user() {
           TRY_USER="${'$'}1"
           TRY_TMP="${'$'}TMP.try_${'$'}TRY_USER"
-          rm -rf "${'$'}TRY_TMP"
+          cleanup_capture_try_tmp || exit 19
           mkdir -p "${'$'}TRY_TMP" || exit 11
           STATE=${'$'}(am get-started-user-state "${'$'}TRY_USER" 2>/dev/null || true)
           echo "PROBE_USER=${'$'}TRY_USER STATE=${'$'}STATE"
@@ -565,7 +637,7 @@ object ShellScripts {
             *)
               if [ "${'$'}CAPTURE_REQUIRE_CE" = "1" ]; then
                 echo "ERR_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE" >&2
-                rm -rf "${'$'}TRY_TMP"
+                cleanup_capture_try_tmp || exit 19
                 return 1
               fi
               echo "WARN_USER_NOT_UNLOCKED:${'$'}TRY_USER:${'$'}STATE"
@@ -575,12 +647,12 @@ object ShellScripts {
             echo "PACKAGE_LISTED:${'$'}TRY_USER"
           else
             echo "ERR_PACKAGE_NOT_LISTED:${'$'}TRY_USER" >&2
-            rm -rf "${'$'}TRY_TMP"
+            cleanup_capture_try_tmp || exit 19
             return 1
           fi
           am force-stop --user "${'$'}TRY_USER" "${'$'}PKG" >/dev/null 2>&1 || {
             echo "ERR_FORCE_STOP_FAILED:${'$'}TRY_USER:${'$'}PKG" >&2
-            rm -rf "${'$'}TRY_TMP"
+            cleanup_capture_try_tmp || exit 19
             return 1
           }
           COPIED_PARTS=0
@@ -596,18 +668,18 @@ object ShellScripts {
             CAPTURE_CE_STATE=${'$'}(sed -n '1p' "${'$'}TRY_TMP/.state/ce" 2>/dev/null | tr -d '\r')
             if [ "${'$'}CAPTURE_CE_STATE" != "data" ]; then
               echo "ERR_CAPTURE_CE_MISSING:${'$'}TRY_USER:state=${'$'}CAPTURE_CE_STATE" >&2
-              rm -rf "${'$'}TRY_TMP"
+              cleanup_capture_try_tmp || exit 19
               return 1
             fi
           fi
           if [ "${'$'}RECORDED_PARTS" -gt 0 ]; then
-            rm -rf "${'$'}TMP"
+            uclone_remove_path_strict "${'$'}TMP" || exit 14
             mv "${'$'}TRY_TMP" "${'$'}TMP" || exit 14
             DETECTED_USER="${'$'}TRY_USER"
             DETECTED_STATE="${'$'}STATE"
             return 0
           fi
-          rm -rf "${'$'}TRY_TMP"
+          cleanup_capture_try_tmp || exit 19
           return 1
         }
         DETECTED_USER=""
@@ -649,6 +721,7 @@ object ShellScripts {
         TMP="${'$'}ROOT/tmp/main_return_${'$'}{PKG}_${'$'}{TS}_${'$'}${'$'}"
         ${metricsScript()}
         ${storagePreflightScript()}
+        ${strictDirectoryFunctions()}
         ${PermissionStateShell.functions()}
         ${StateBackupShell.functions()}
         uclone_stage_begin PRECHECK
@@ -729,9 +802,6 @@ object ShellScripts {
           fi
         }
         trap cleanup_main_return_update EXIT
-        count_items() {
-          find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '
-        }
         backup_main_part() {
           SRC="${'$'}1"
           PART_NAME="${'$'}2"
@@ -743,7 +813,7 @@ object ShellScripts {
             return 0
           fi
           [ ! -L "${'$'}SRC" ] || { echo "ERR_MAIN_RETURN_SOURCE_SYMLINK:${'$'}SRC" >&2; exit 73; }
-          SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+          SRC_ITEMS=${'$'}(count_items "${'$'}SRC") || { echo "ERR_SCAN_FAILED:${'$'}SRC" >&2; exit 16; }
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
           if [ "${'$'}SRC_ITEMS" -le 0 ]; then
             printf '%s\n' empty > "${'$'}TMP/.state/${'$'}PART_NAME" || exit 54
@@ -752,7 +822,7 @@ object ShellScripts {
           fi
           mkdir -p "${'$'}DST" || exit 54
           (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && tar -xopf -) || exit 55
-          DST_ITEMS=${'$'}(count_items "${'$'}DST")
+          DST_ITEMS=${'$'}(count_items "${'$'}DST") || { echo "ERR_SCAN_FAILED:${'$'}DST" >&2; exit 16; }
           [ "${'$'}DST_ITEMS" -gt 0 ] || { echo "ERR_MAIN_RETURN_COPY_EMPTY:${'$'}SRC" >&2; exit 63; }
           printf '%s\n' data > "${'$'}TMP/.state/${'$'}PART_NAME" || exit 54
           PART_SIZE_KB=${'$'}(uclone_dir_kb_strict "${'$'}DST") || exit 53
@@ -888,6 +958,7 @@ object ShellScripts {
         PUSH_REQUIRE_CE=${if (rule.includeCe) "1" else "0"}
         ${metricsScript()}
         ${storagePreflightScript()}
+        ${strictDirectoryFunctions()}
         ${PermissionStateShell.functions()}
         uclone_stage_begin PRECHECK
         [ "${'$'}PKG" != "${'$'}APP_PKG" ] || { echo "ERR_SELF_SYNC"; exit 41; }
@@ -914,7 +985,8 @@ object ShellScripts {
           mv "${'$'}ROLLBACK_PREVIOUS" "${'$'}ROLLBACK_LATEST" || exit 54
           echo "CLONE_ROLLBACK_RECOVERED=${'$'}ROLLBACK_LATEST"
         fi
-        rm -rf "${'$'}PUSH_TEMP" "${'$'}ROLLBACK_TMP"
+        uclone_remove_path_strict "${'$'}PUSH_TEMP" || exit 11
+        uclone_remove_path_strict "${'$'}ROLLBACK_TMP" || exit 11
         ${ensureCloneCeReadyScript(settings, rule.includeCe, settings.autoUnlockClone, settings.stopCloneAfterTask)}
         if cmd package list packages --user "${'$'}SRC_USER" 2>/dev/null | grep -qx "package:${'$'}PKG"; then
           echo "PACKAGE_LISTED_SOURCE:${'$'}SRC_USER"
@@ -968,24 +1040,36 @@ object ShellScripts {
           force_stop_target_package || return 1
           echo "FORCE_STOP_USERS:${'$'}SRC_USER ${'$'}DST_USER"
         }
-        count_items() {
-          find "${'$'}1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '
+        record_push_part_state() {
+          PART_NAME="${'$'}1"
+          PART_STATE="${'$'}2"
+          mkdir -p "${'$'}PUSH_TEMP/.state" || exit 18
+          printf '%s\n' "${'$'}PART_STATE" > "${'$'}PUSH_TEMP/.state/${'$'}PART_NAME" || exit 18
+          RECORDED_PARTS=${'$'}((RECORDED_PARTS + 1))
+          echo "PUSH_PART_STATE:${'$'}PART_NAME state=${'$'}PART_STATE"
         }
         copy_dir_stream() {
           SRC="${'$'}1"
           DST="${'$'}2"
-          SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+          PART_NAME=${'$'}{DST##*/}
+          SRC_ITEMS=${'$'}(count_items "${'$'}SRC") || { echo "ERR_SCAN_FAILED:${'$'}SRC" >&2; exit 16; }
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
           [ "${'$'}SRC_ITEMS" -gt 0 ] || { echo "SKIP_EMPTY:${'$'}SRC"; return 0; }
-          rm -rf "${'$'}DST.tmp"
+          uclone_remove_path_strict "${'$'}DST.tmp" || exit 12
           mkdir -p "${'$'}DST.tmp" || exit 12
           (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST.tmp" && tar -xopf -) || exit 13
-          rm -rf "${'$'}DST"
+          uclone_remove_path_strict "${'$'}DST" || exit 14
           mv "${'$'}DST.tmp" "${'$'}DST" || exit 14
-          ${if (rule.excludeCache) "rm -rf \"${'$'}DST/cache\" \"${'$'}DST/code_cache\" 2>/dev/null || true" else ":"}
-          DST_ITEMS=${'$'}(count_items "${'$'}DST")
-          [ "${'$'}DST_ITEMS" -gt 0 ] || { echo "ERR_COPY_EMPTY:${'$'}SRC" >&2; exit 17; }
+          ${if (rule.excludeCache) "uclone_remove_cache_dirs_strict \"${'$'}DST\" || { echo \"ERR_CACHE_FILTER_FAILED:${'$'}DST\" >&2; exit 15; }" else ":"}
+          DST_ITEMS=${'$'}(count_items "${'$'}DST") || { echo "ERR_SCAN_FAILED:${'$'}DST" >&2; exit 16; }
+          if [ "${'$'}DST_ITEMS" -le 0 ]; then
+            uclone_remove_path_strict "${'$'}DST" || exit 14
+            record_push_part_state "${'$'}PART_NAME" empty
+            echo "COPIED_EMPTY_AFTER_FILTER:${'$'}SRC"
+            return 0
+          fi
           PART_SIZE_KB=${'$'}(du -sk "${'$'}DST" 2>/dev/null | awk '{print ${'$'}1}')
+          record_push_part_state "${'$'}PART_NAME" data
           COPIED_PARTS=${'$'}((COPIED_PARTS + 1))
           COPIED_ITEMS=${'$'}((COPIED_ITEMS + DST_ITEMS))
           UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + DST_ITEMS))
@@ -995,11 +1079,14 @@ object ShellScripts {
         }
         copy_first_nonempty() {
           DST="${'$'}1"
+          PART_NAME=${'$'}{DST##*/}
+          FOUND_SOURCE=0
           shift
           for SRC in "${'$'}@"; do
             [ -n "${'$'}SRC" ] || continue
             if [ -d "${'$'}SRC" ]; then
-              SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+              FOUND_SOURCE=1
+              SRC_ITEMS=${'$'}(count_items "${'$'}SRC") || { echo "ERR_SCAN_FAILED:${'$'}SRC" >&2; exit 16; }
               echo "PROBE_PATH:${'$'}SRC ITEMS=${'$'}SRC_ITEMS"
               if [ "${'$'}SRC_ITEMS" -gt 0 ]; then
                 copy_dir_stream "${'$'}SRC" "${'$'}DST"
@@ -1010,6 +1097,11 @@ object ShellScripts {
               echo "SKIP_MISSING:${'$'}SRC"
             fi
           done
+          if [ "${'$'}FOUND_SOURCE" = "1" ]; then
+            record_push_part_state "${'$'}PART_NAME" empty
+          else
+            record_push_part_state "${'$'}PART_NAME" absent
+          fi
           return 0
         }
         backup_dir() {
@@ -1021,16 +1113,16 @@ object ShellScripts {
             printf '%s\n' "absent" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
             return 0
           fi
-          SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+          SRC_ITEMS=${'$'}(count_items "${'$'}SRC") || { echo "ERR_SCAN_FAILED:${'$'}SRC" >&2; exit 16; }
           if [ "${'$'}SRC_ITEMS" -le 0 ]; then
             printf '%s\n' "empty" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
             echo "SKIP_BACKUP_EMPTY:${'$'}SRC"
             return 0
           fi
-          rm -rf "${'$'}DST"
+          uclone_remove_path_strict "${'$'}DST" || exit 54
           mkdir -p "${'$'}DST" || exit 54
           (cd "${'$'}SRC" && tar -cpf - .) | (cd "${'$'}DST" && tar -xopf -) || exit 55
-          BACKUP_ITEMS=${'$'}(count_items "${'$'}DST")
+          BACKUP_ITEMS=${'$'}(count_items "${'$'}DST") || { echo "ERR_SCAN_FAILED:${'$'}DST" >&2; exit 16; }
           UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
           UCLONE_COPIED_FILES=${'$'}((UCLONE_COPIED_FILES + BACKUP_ITEMS))
           BACKUP_SIZE_KB=${'$'}(uclone_dir_kb_strict "${'$'}DST") || exit 53
@@ -1094,15 +1186,48 @@ object ShellScripts {
           CLEAR_TARGET="${'$'}1"
           validate_target_path "${'$'}CLEAR_TARGET"
           [ -d "${'$'}CLEAR_TARGET" ] || { echo "ERR_TARGET_MISSING:${'$'}CLEAR_TARGET" >&2; exit 67; }
-          find "${'$'}CLEAR_TARGET" -mindepth 1 -maxdepth 1 -exec rm -rf {} \; || exit 68
+          uclone_clear_directory_strict "${'$'}CLEAR_TARGET" || {
+            echo "ERR_TARGET_CLEAR_FAILED:${'$'}CLEAR_TARGET" >&2
+            return 1
+          }
         }
         restore_part() {
           SNAP="${'$'}1"
           TARGET="${'$'}2"
           OWNER_KIND="${'$'}3"
-          [ -d "${'$'}SNAP" ] || { echo "SKIP_PART:${'$'}SNAP"; return 0; }
+          PART_NAME="${'$'}4"
           validate_target_path "${'$'}TARGET"
-          SNAP_ITEMS=${'$'}(count_items "${'$'}SNAP")
+          SOURCE_STATE_FILE="${'$'}PUSH_TEMP/.state/${'$'}PART_NAME"
+          if [ ! -f "${'$'}SOURCE_STATE_FILE" ] || [ -L "${'$'}SOURCE_STATE_FILE" ]; then
+            echo "SKIP_UNSELECTED_PART:${'$'}PART_NAME"
+            return 0
+          fi
+          SOURCE_STATE=${'$'}(sed -n '1p' "${'$'}SOURCE_STATE_FILE" | tr -d '\r')
+          case "${'$'}SOURCE_STATE" in
+            absent)
+              TARGET_MUTATED=1
+              uclone_remove_path_strict "${'$'}TARGET" || { echo "ERR_TARGET_DELETE_FAILED:${'$'}TARGET" >&2; exit 68; }
+              RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
+              echo "PUSHED_STATE:${'$'}PART_NAME state=absent target=${'$'}TARGET"
+              return 0
+              ;;
+            empty)
+              TARGET_OWNER=${'$'}(target_owner_for "${'$'}TARGET" "${'$'}OWNER_KIND")
+              mkdir -p "${'$'}TARGET" || exit 56
+              TARGET_CONTEXT=${'$'}(read_target_context "${'$'}TARGET")
+              case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
+              TARGET_MUTATED=1
+              clear_target_contents "${'$'}TARGET" || exit 68
+              apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT"
+              RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
+              echo "PUSHED_STATE:${'$'}PART_NAME state=empty target=${'$'}TARGET"
+              return 0
+              ;;
+            data) ;;
+            *) echo "ERR_SOURCE_STATE_INVALID:${'$'}PART_NAME:${'$'}SOURCE_STATE" >&2; exit 69 ;;
+          esac
+          [ -d "${'$'}SNAP" ] || { echo "ERR_SOURCE_DATA_MISSING:${'$'}PART_NAME" >&2; exit 69; }
+          SNAP_ITEMS=${'$'}(count_items "${'$'}SNAP") || { echo "ERR_SCAN_FAILED:${'$'}SNAP" >&2; exit 16; }
           [ "${'$'}SNAP_ITEMS" -gt 0 ] || { echo "ERR_EMPTY_PUSH_PART:${'$'}SNAP" >&2; exit 64; }
           TARGET_OWNER=${'$'}(target_owner_for "${'$'}TARGET" "${'$'}OWNER_KIND")
           mkdir -p "${'$'}TARGET" || exit 56
@@ -1114,10 +1239,10 @@ object ShellScripts {
             case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
           fi
           TARGET_MUTATED=1
-          clear_target_contents "${'$'}TARGET"
+          clear_target_contents "${'$'}TARGET" || exit 68
           (cd "${'$'}SNAP" && tar -cpf - .) | (cd "${'$'}TARGET" && tar -xpf -) || exit 58
           apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT"
-          TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET")
+          TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET") || { echo "ERR_SCAN_FAILED:${'$'}TARGET" >&2; exit 16; }
           [ "${'$'}TARGET_ITEMS" -gt 0 ] || { echo "ERR_PUSH_EMPTY:${'$'}TARGET" >&2; exit 65; }
           RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
           RESTORED_ITEMS=${'$'}((RESTORED_ITEMS + TARGET_ITEMS))
@@ -1132,6 +1257,7 @@ object ShellScripts {
         mkdir -p "${'$'}PUSH_TEMP" "${'$'}ROLLBACK_TMP" || exit 11
         COPIED_PARTS=0
         COPIED_ITEMS=0
+        RECORDED_PARTS=0
         BACKUP_PARTS=0
         RESTORED_PARTS=0
         RESTORED_ITEMS=0
@@ -1141,11 +1267,14 @@ object ShellScripts {
         ${if (rule.includeMedia) "copy_first_nonempty \"${'$'}PUSH_TEMP/media\" \"/data/media/${'$'}SRC_USER/Android/media/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/media/${'$'}PKG\"" else ":"}
         ${if (rule.includeObb) "copy_first_nonempty \"${'$'}PUSH_TEMP/obb\" \"/data/media/${'$'}SRC_USER/Android/obb/${'$'}PKG\" \"/storage/emulated/${'$'}SRC_USER/Android/obb/${'$'}PKG\"" else ":"}
         ${if (rule.includePermissions) "uclone_capture_permission_state \"${'$'}PUSH_TEMP/permissions\" \"${'$'}SRC_USER\" || echo \"WARN_PERMISSION_CAPTURE_SKIPPED:${'$'}SRC_USER\"" else ":"}
-        if [ "${'$'}PUSH_REQUIRE_CE" = "1" ] && [ ! -d "${'$'}PUSH_TEMP/ce" ]; then
-          echo "ERR_PUSH_CE_MISSING:${'$'}SRC_USER" >&2
-          exit 44
+        if [ "${'$'}PUSH_REQUIRE_CE" = "1" ]; then
+          PUSH_CE_STATE=${'$'}(sed -n '1p' "${'$'}PUSH_TEMP/.state/ce" 2>/dev/null | tr -d '\r')
+          if [ "${'$'}PUSH_CE_STATE" != "data" ] || [ ! -d "${'$'}PUSH_TEMP/ce" ]; then
+            echo "ERR_PUSH_CE_MISSING:${'$'}SRC_USER state=${'$'}PUSH_CE_STATE" >&2
+            exit 44
+          fi
         fi
-        [ "${'$'}COPIED_PARTS" -gt 0 ] || { echo "ERR_NOTHING_COPIED: no non-empty selected source paths for main user:${'$'}SRC_USER package:${'$'}PKG" >&2; exit 45; }
+        [ "${'$'}RECORDED_PARTS" -gt 0 ] || { echo "ERR_NO_DATA_PART_SELECTED:user=${'$'}SRC_USER package=${'$'}PKG" >&2; exit 45; }
         uclone_record_temp_path "${'$'}PUSH_TEMP"
         uclone_stage_end
         uclone_stage_begin TARGET_STOP
@@ -1170,11 +1299,11 @@ object ShellScripts {
             manageSwitchMarker = false,
         )}
         uclone_stage_begin RESTORE_DATA
-        restore_part "${'$'}PUSH_TEMP/ce" "/data/user/${'$'}DST_USER/${'$'}PKG" "app"
-        restore_part "${'$'}PUSH_TEMP/de" "/data/user_de/${'$'}DST_USER/${'$'}PKG" "app"
-        restore_part "${'$'}PUSH_TEMP/external" "/data/media/${'$'}DST_USER/Android/data/${'$'}PKG" "media"
-        restore_part "${'$'}PUSH_TEMP/media" "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG" "media"
-        restore_part "${'$'}PUSH_TEMP/obb" "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG" "media"
+        restore_part "${'$'}PUSH_TEMP/ce" "/data/user/${'$'}DST_USER/${'$'}PKG" "app" "ce"
+        restore_part "${'$'}PUSH_TEMP/de" "/data/user_de/${'$'}DST_USER/${'$'}PKG" "app" "de"
+        restore_part "${'$'}PUSH_TEMP/external" "/data/media/${'$'}DST_USER/Android/data/${'$'}PKG" "media" "external"
+        restore_part "${'$'}PUSH_TEMP/media" "/data/media/${'$'}DST_USER/Android/media/${'$'}PKG" "media" "media"
+        restore_part "${'$'}PUSH_TEMP/obb" "/data/media/${'$'}DST_USER/Android/obb/${'$'}PKG" "media" "obb"
         uclone_stage_end
         uclone_stage_begin RESTORE_PERMISSIONS
         ${if (rule.includePermissions) "uclone_restore_permission_state \"${'$'}PUSH_TEMP/permissions\" \"${'$'}DST_USER\"" else ":"}
@@ -1211,7 +1340,7 @@ object ShellScripts {
         UCLONE_TARGET_DOWNTIME_MS=${'$'}(uclone_elapsed_ms "${'$'}UCLONE_TARGET_READY_AT" "${'$'}UCLONE_TARGET_STOPPED_AT")
         uclone_stage_end
         uclone_emit_metrics
-        echo "PUSH_MAIN_TO_CLONE_DONE targetUser=${'$'}DST_USER restoredParts=${'$'}RESTORED_PARTS restoredItems=${'$'}RESTORED_ITEMS copiedParts=${'$'}COPIED_PARTS backupParts=${'$'}BACKUP_PARTS"
+        echo "PUSH_MAIN_TO_CLONE_DONE targetUser=${'$'}DST_USER restoredParts=${'$'}RESTORED_PARTS restoredItems=${'$'}RESTORED_ITEMS copiedParts=${'$'}COPIED_PARTS recordedParts=${'$'}RECORDED_PARTS backupParts=${'$'}BACKUP_PARTS"
     """.trimIndent()
 
     fun pushMainToCloneThenRestoreMain(
@@ -1694,6 +1823,8 @@ object ShellScripts {
             sourceRollbackId = rollbackId,
             clearSwitchMarker = clearSwitchMarker,
             directSource = true,
+            sourceStateAware = true,
+            allowLegacySourceState = true,
         )
     }
 
@@ -1719,6 +1850,8 @@ object ShellScripts {
         rollbackRootName = "clone_rollback",
         pruneOldRollbacks = false,
         directSource = true,
+        sourceStateAware = true,
+        allowLegacySourceState = true,
     )
 
     fun deleteSnapshot(packageName: String, settings: UCloneSettings, appPackage: String): String = """
@@ -1877,6 +2010,7 @@ object ShellScripts {
         mkdir "${'$'}SWITCH_TEMP" || exit 11
         SWITCH_TEMP_CREATED=1
         SWITCH_REQUIRE_CE=${if (rule.includeCe) "1" else "0"}
+        ${strictDirectoryFunctions()}
         ${PermissionStateShell.functions()}
         ${ensureCloneCeReadyScript(settings, rule.includeCe, settings.autoUnlockClone, settings.stopCloneAfterTask)}
         TRY_USER=${settings.cloneUserId}
@@ -1894,17 +2028,13 @@ object ShellScripts {
           echo "ERR_FORCE_STOP_FAILED:${'$'}TRY_USER:${'$'}PKG" >&2
           exit 76
         }
-        count_items() {
-          [ -d "${'$'}1" ] || { echo 0; return 0; }
-          (cd "${'$'}1" && find . -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
-        }
         record_live_part() {
           LINK_NAME="${'$'}1"
           shift
           RECORDED_PARTS=${'$'}((RECORDED_PARTS + 1))
           for SRC in "${'$'}@"; do
             [ -d "${'$'}SRC" ] || { echo "SKIP_MISSING:${'$'}SRC"; continue; }
-            SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+            SRC_ITEMS=${'$'}(count_items "${'$'}SRC") || { echo "ERR_SCAN_FAILED:${'$'}SRC" >&2; exit 16; }
             echo "PROBE_PATH:${'$'}SRC ITEMS=${'$'}SRC_ITEMS"
             if [ "${'$'}SRC_ITEMS" -le 0 ]; then
               uclone_set_source_items "${'$'}LINK_NAME" 0
@@ -1914,15 +2044,11 @@ object ShellScripts {
             fi
             STATE_ITEMS="${'$'}SRC_ITEMS"
             ${if (rule.excludeCache) """
-            if [ "${'$'}LINK_NAME" = "de" ]; then
-              FILTER_SCAN="${'$'}SWITCH_TEMP/.state/.${'$'}LINK_NAME.filtered"
-              if ! (cd "${'$'}SRC" && find . -mindepth 1 ! -path './cache' ! -path './cache/*' ! -path './code_cache' ! -path './code_cache/*' -print > "${'$'}FILTER_SCAN"); then
-                rm -f "${'$'}FILTER_SCAN" 2>/dev/null || true
+            if [ "${'$'}LINK_NAME" != "ce" ]; then
+              STATE_ITEMS=${'$'}(count_items_after_cache_filter "${'$'}SRC") || {
                 echo "ERR_SOURCE_FILTER_SCAN:${'$'}LINK_NAME:${'$'}SRC" >&2
-                exit 13
-              fi
-              STATE_ITEMS=${'$'}(wc -l < "${'$'}FILTER_SCAN" | tr -d ' ')
-              rm -f "${'$'}FILTER_SCAN" || exit 14
+                exit 16
+              }
               if [ "${'$'}STATE_ITEMS" -le 0 ]; then
                 uclone_set_source_items "${'$'}LINK_NAME" 0
                 printf '%s\n' empty > "${'$'}SWITCH_TEMP/.state/${'$'}LINK_NAME" || exit 14
@@ -2050,6 +2176,7 @@ object ShellScripts {
             }
             ${metricsScript()}
             ${storagePreflightScript()}
+            ${strictDirectoryFunctions()}
             ${PermissionStateShell.functions()}
             ${StateBackupShell.functions()}
             uclone_stage_begin PRECHECK
@@ -2171,14 +2298,6 @@ object ShellScripts {
             UID_VALUE=${'$'}(cmd package list packages -U --user "${'$'}DST_USER" | awk -v p="package:${'$'}PKG" '${'$'}1==p { sub("uid:","",${'$'}2); print ${'$'}2; exit }')
             [ -n "${'$'}UID_VALUE" ] || { echo "ERR_TARGET_UID_MISSING" >&2; exit 52; }
             mkdir -p "${'$'}ROOT/$rollbackRootName/${'$'}PKG" "${'$'}ROOT/tmp" || exit 53
-            count_items() {
-              [ -d "${'$'}1" ] || { echo 0; return 0; }
-              (cd "${'$'}1" && find . -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
-            }
-            has_items() {
-              [ -d "${'$'}1" ] || return 1
-              [ -n "${'$'}(find "${'$'}1" -mindepth 1 -print -quit 2>/dev/null)" ]
-            }
             UCLONE_ESTIMATED_KB=0
             ${if (directSource) """
             uclone_validate_direct_source "${'$'}ACTIVE" "${if (sourceKind == RestoreSourceKind.SWITCH_TEMP) "live" else "managed"}" $selectedRestoreParts || {
@@ -2268,7 +2387,7 @@ object ShellScripts {
               if [ ! -f "${'$'}PREPARED_STATE_FILE" ] || [ -L "${'$'}PREPARED_STATE_FILE" ]; then
                 ${if (allowLegacySourceState) """
                 if [ ! -d "${'$'}PREPARED_ROOT/.state" ] && [ -d "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME" ]; then
-                  PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME")
+                  PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME") || { echo "ERR_SCAN_FAILED:${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME" >&2; exit 16; }
                   if [ "${'$'}PREPARED_ITEMS" -gt 0 ]; then
                     uclone_set_source_items "${'$'}PREPARED_NAME" "${'$'}PREPARED_ITEMS"
                     PREPARED_PARTS=${'$'}((PREPARED_PARTS + 1))
@@ -2279,13 +2398,13 @@ object ShellScripts {
                 continue
               fi
               PREPARED_STATE=${'$'}(sed -n '1p' "${'$'}PREPARED_STATE_FILE" | tr -d '\r')
-              case "${'$'}PREPARED_STATE" in data|empty|absent) ;; *) echo "ERR_SOURCE_STATE_INVALID:${'$'}PREPARED_NAME:${'$'}PREPARED_STATE" >&2; exit 69 ;; esac
+              case "${'$'}PREPARED_STATE" in data|empty|absent|unselected) ;; *) echo "ERR_SOURCE_STATE_INVALID:${'$'}PREPARED_NAME:${'$'}PREPARED_STATE" >&2; exit 69 ;; esac
               if [ "${'$'}PREPARED_STATE" = "data" ]; then
                 [ -d "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME" ] || { echo "ERR_SOURCE_DATA_MISSING:${'$'}PREPARED_NAME" >&2; exit 69; }
                 PREPARED_ITEMS=${'$'}(uclone_get_source_items "${'$'}PREPARED_NAME")
                 case "${'$'}PREPARED_ITEMS" in
                   ''|*[!0-9]*)
-                    PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME")
+                    PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME") || { echo "ERR_SCAN_FAILED:${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME" >&2; exit 16; }
                     uclone_set_source_items "${'$'}PREPARED_NAME" "${'$'}PREPARED_ITEMS"
                     ;;
                 esac
@@ -2300,7 +2419,7 @@ object ShellScripts {
             PREPARED_PARTS=0
             for PREPARED_NAME in ce de external media obb; do
               [ -d "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME" ] || continue
-              PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME")
+              PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME") || { echo "ERR_SCAN_FAILED:${'$'}PREPARED_ROOT/${'$'}PREPARED_NAME" >&2; exit 16; }
               [ "${'$'}PREPARED_ITEMS" -gt 0 ] || continue
               uclone_set_source_items "${'$'}PREPARED_NAME" "${'$'}PREPARED_ITEMS"
               PREPARED_PARTS=${'$'}((PREPARED_PARTS + 1))
@@ -2315,12 +2434,12 @@ object ShellScripts {
               PREPARE_SRC="${'$'}1"
               PREPARE_NAME="${'$'}2"
               [ -d "${'$'}PREPARE_SRC" ] || return 0
-              PREPARE_ITEMS=${'$'}(count_items "${'$'}PREPARE_SRC")
+              PREPARE_ITEMS=${'$'}(count_items "${'$'}PREPARE_SRC") || { echo "ERR_SCAN_FAILED:${'$'}PREPARE_SRC" >&2; exit 16; }
               [ "${'$'}PREPARE_ITEMS" -gt 0 ] || { echo "ERR_EMPTY_SNAPSHOT_PART:${'$'}PREPARE_SRC" >&2; exit 64; }
               PREPARE_DST="${'$'}PREPARED_ROOT/${'$'}PREPARE_NAME"
               mkdir -p "${'$'}PREPARE_DST" || exit 56
               (cd "${'$'}PREPARE_SRC" && tar -cpf - .) | (cd "${'$'}PREPARE_DST" && tar -xopf -) || exit 57
-              PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARE_DST")
+              PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARE_DST") || { echo "ERR_SCAN_FAILED:${'$'}PREPARE_DST" >&2; exit 16; }
               [ "${'$'}PREPARED_ITEMS" -gt 0 ] || { echo "ERR_EXTRACT_EMPTY:${'$'}PREPARE_SRC" >&2; exit 69; }
               uclone_set_source_items "${'$'}PREPARE_NAME" "${'$'}PREPARED_ITEMS"
               PREPARED_SIZE_KB=${'$'}(uclone_dir_kb "${'$'}PREPARE_DST")
@@ -2366,13 +2485,13 @@ object ShellScripts {
                 printf '%s\n' "absent" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
                 return 0
               fi
-              SRC_ITEMS=${'$'}(count_items "${'$'}SRC")
+              SRC_ITEMS=${'$'}(count_items "${'$'}SRC") || { echo "ERR_SCAN_FAILED:${'$'}SRC" >&2; exit 16; }
               if [ "${'$'}SRC_ITEMS" -le 0 ]; then
                 printf '%s\n' "empty" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
                 echo "SKIP_BACKUP_EMPTY:${'$'}SRC"
                 return 0
               fi
-              rm -rf "${'$'}DST"
+              uclone_remove_path_strict "${'$'}DST" || exit 54
               mkdir -p "${'$'}DST" || exit 54
               UCLONE_UNDO_COPY_STARTED_AT=${'$'}(uclone_now_ms)
               UCLONE_UNDO_COPY_EXIT=0
@@ -2380,13 +2499,17 @@ object ShellScripts {
               uclone_perf_emit transaction_undo_copy "${'$'}PART_NAME" "${'$'}UCLONE_UNDO_COPY_STARTED_AT"
               [ "${'$'}UCLONE_UNDO_COPY_EXIT" -eq 0 ] || exit 55
               UCLONE_UNDO_VERIFY_STARTED_AT=${'$'}(uclone_now_ms)
-              if ! has_items "${'$'}DST"; then
+              BACKUP_ITEMS=${'$'}(count_items "${'$'}DST") || {
+                uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_UNDO_VERIFY_STARTED_AT"
+                echo "ERR_SCAN_FAILED:${'$'}DST" >&2
+                exit 16
+              }
+              if [ "${'$'}BACKUP_ITEMS" -le 0 ]; then
                 uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_UNDO_VERIFY_STARTED_AT"
                 echo "ERR_BACKUP_EMPTY:${'$'}SRC" >&2
                 exit 63
               fi
               uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_UNDO_VERIFY_STARTED_AT"
-              BACKUP_ITEMS="${'$'}SRC_ITEMS"
               printf '%s\n' "data" > "${'$'}ROLLBACK/.state/${'$'}PART_NAME" || exit 54
               BACKUP_PARTS=${'$'}((BACKUP_PARTS + 1))
               UCLONE_SCANNED_FILES=${'$'}((UCLONE_SCANNED_FILES + SRC_ITEMS))
@@ -2407,7 +2530,10 @@ object ShellScripts {
               CLEAR_TARGET="${'$'}1"
               validate_target_path "${'$'}CLEAR_TARGET"
               [ -d "${'$'}CLEAR_TARGET" ] || { echo "ERR_TARGET_MISSING:${'$'}CLEAR_TARGET" >&2; exit 67; }
-              find "${'$'}CLEAR_TARGET" -mindepth 1 -maxdepth 1 -exec rm -rf {} \; || exit 68
+              uclone_clear_directory_strict "${'$'}CLEAR_TARGET" || {
+                echo "ERR_TARGET_CLEAR_FAILED:${'$'}CLEAR_TARGET" >&2
+                return 1
+              }
             }
             read_target_context() {
               CONTEXT_TARGET="${'$'}1"
@@ -2491,9 +2617,13 @@ object ShellScripts {
                 """.trimIndent()}
               fi
               case "${'$'}SOURCE_STATE" in
+                unselected)
+                  echo "SKIP_UNSELECTED_PART:${'$'}PART_NAME"
+                  return 0
+                  ;;
                 absent)
                   TARGET_MUTATED=1
-                  rm -rf "${'$'}TARGET" || exit 68
+                  uclone_remove_path_strict "${'$'}TARGET" || { echo "ERR_TARGET_DELETE_FAILED:${'$'}TARGET" >&2; exit 68; }
                   RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
                   echo "RESTORED_STATE:${'$'}PART_NAME state=absent target=${'$'}TARGET"
                   return 0
@@ -2504,7 +2634,7 @@ object ShellScripts {
                   TARGET_CONTEXT=${'$'}(read_target_context "${'$'}TARGET")
                   case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
                   TARGET_MUTATED=1
-                  clear_target_contents "${'$'}TARGET"
+                  clear_target_contents "${'$'}TARGET" || exit 68
                   apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT" "${'$'}PART_NAME"
                   RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))
                   echo "RESTORED_STATE:${'$'}PART_NAME state=empty target=${'$'}TARGET"
@@ -2522,7 +2652,7 @@ object ShellScripts {
               PREPARED_ITEMS=${'$'}(uclone_get_source_items "${'$'}PART_NAME")
               case "${'$'}PREPARED_ITEMS" in
                 ''|*[!0-9]*)
-                  PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED")
+                  PREPARED_ITEMS=${'$'}(count_items "${'$'}PREPARED") || { echo "ERR_SCAN_FAILED:${'$'}PREPARED" >&2; exit 16; }
                   uclone_set_source_items "${'$'}PART_NAME" "${'$'}PREPARED_ITEMS"
                   ;;
               esac
@@ -2538,16 +2668,14 @@ object ShellScripts {
                 case "${'$'}TARGET_CONTEXT" in u:object_r:*) ;; *) TARGET_CONTEXT="" ;; esac
               fi
               TARGET_MUTATED=1
-              clear_target_contents "${'$'}TARGET"
+              clear_target_contents "${'$'}TARGET" || exit 68
               UCLONE_RESTORE_COPY_STARTED_AT=${'$'}(uclone_now_ms)
               UCLONE_RESTORE_COPY_EXIT=0
               (cd "${'$'}PREPARED" && tar -cpf - .) | (cd "${'$'}TARGET" && tar -xpf -) || UCLONE_RESTORE_COPY_EXIT=${'$'}?
               uclone_perf_emit restore_copy "${'$'}PART_NAME" "${'$'}UCLONE_RESTORE_COPY_STARTED_AT"
               [ "${'$'}UCLONE_RESTORE_COPY_EXIT" -eq 0 ] || exit 58
               ${if (directSourceExcludeCache) """
-              case "${'$'}PART_NAME" in
-                ce|de) rm -rf "${'$'}TARGET/cache" "${'$'}TARGET/code_cache" 2>/dev/null || true ;;
-              esac
+              uclone_remove_cache_dirs_strict "${'$'}TARGET" || { echo "ERR_CACHE_FILTER_FAILED:${'$'}TARGET" >&2; exit 15; }
               """.trimIndent() else ":"}
               apply_target_security "${'$'}TARGET" "${'$'}TARGET_OWNER" "${'$'}TARGET_CONTEXT" "${'$'}PART_NAME"
               UCLONE_RESTORE_VERIFY_STARTED_AT=${'$'}(uclone_now_ms)
@@ -2557,10 +2685,7 @@ object ShellScripts {
                 exit 65
               fi
               ${if (directSourceExcludeCache) """
-              case "${'$'}PART_NAME" in
-                ce|de) TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET") ;;
-                *) TARGET_ITEMS="${'$'}PREPARED_ITEMS" ;;
-              esac
+              TARGET_ITEMS=${'$'}(count_items "${'$'}TARGET") || { echo "ERR_SCAN_FAILED:${'$'}TARGET" >&2; exit 16; }
               """.trimIndent() else "TARGET_ITEMS=\"${'$'}PREPARED_ITEMS\""}
               uclone_perf_emit post_copy_verify "${'$'}PART_NAME" "${'$'}UCLONE_RESTORE_VERIFY_STARTED_AT"
               RESTORED_PARTS=${'$'}((RESTORED_PARTS + 1))

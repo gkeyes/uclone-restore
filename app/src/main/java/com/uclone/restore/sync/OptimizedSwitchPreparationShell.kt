@@ -234,10 +234,7 @@ internal object OptimizedSwitchPreparationShell {
     private fun commonFunctions(rule: AppRule): String = """
         SWITCH_PUSHED_PARTS=0
         SWITCH_PUSHED_ITEMS=0
-        count_items() {
-          [ -d "${'$'}1" ] || { echo 0; return 0; }
-          (cd "${'$'}1" && find . -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
-        }
+        ${ShellScripts.strictDirectoryFunctions()}
         force_stop_switch_users() {
           am force-stop --user "${'$'}MAIN_USER" "${'$'}PKG" >/dev/null 2>&1 || return 1
           am force-stop --user "${'$'}CLONE_USER" "${'$'}PKG" >/dev/null 2>&1 || return 1
@@ -251,14 +248,14 @@ internal object OptimizedSwitchPreparationShell {
             printf '%s\n' absent > "${'$'}ROLLBACK/.state/${'$'}BSP_NAME" || return 1
             return 0
           fi
-          BSP_ITEMS=${'$'}(count_items "${'$'}BSP_SRC")
+          BSP_ITEMS=${'$'}(count_items "${'$'}BSP_SRC") || { echo "ERR_SCAN_FAILED:${'$'}BSP_SRC" >&2; return 1; }
           if [ "${'$'}BSP_ITEMS" -le 0 ]; then
             printf '%s\n' empty > "${'$'}ROLLBACK/.state/${'$'}BSP_NAME" || return 1
             return 0
           fi
           mkdir -p "${'$'}BSP_DST" || return 1
           (cd "${'$'}BSP_SRC" && tar -cpf - .) | (cd "${'$'}BSP_DST" && tar -xopf -) || return 1
-          BSP_WRITTEN=${'$'}(count_items "${'$'}BSP_DST")
+          BSP_WRITTEN=${'$'}(count_items "${'$'}BSP_DST") || { echo "ERR_SCAN_FAILED:${'$'}BSP_DST" >&2; return 1; }
           [ "${'$'}BSP_WRITTEN" -gt 0 ] || return 1
           printf '%s\n' data > "${'$'}ROLLBACK/.state/${'$'}BSP_NAME" || return 1
           BSP_SIZE_KB=${'$'}(du -sk "${'$'}BSP_DST" 2>/dev/null | awk '{print ${'$'}1}')
@@ -310,20 +307,30 @@ internal object OptimizedSwitchPreparationShell {
           STC_KIND="${'$'}3"
           STC_NAME="${'$'}4"
           [ -d "${'$'}STC_SRC" ] || return 2
-          STC_ITEMS=${'$'}(count_items "${'$'}STC_SRC")
+          STC_ITEMS=${'$'}(count_items "${'$'}STC_SRC") || { echo "ERR_SCAN_FAILED:${'$'}STC_SRC" >&2; return 1; }
           [ "${'$'}STC_ITEMS" -gt 0 ] || return 2
           validate_clone_target "${'$'}STC_TARGET" || return 1
+          ${if (rule.excludeCache) """
+          STC_FILTERED_ITEMS=${'$'}(count_items_after_cache_filter "${'$'}STC_SRC") || { echo "ERR_SOURCE_FILTER_SCAN:${'$'}STC_NAME:${'$'}STC_SRC" >&2; return 1; }
+          if [ "${'$'}STC_FILTERED_ITEMS" -le 0 ]; then
+            if [ "${'$'}STC_NAME" = "ce" ]; then
+              echo "ERR_SWITCH_CE_FILTERED_EMPTY:${'$'}STC_SRC" >&2
+              return 1
+            fi
+            apply_clone_part_state empty "${'$'}STC_TARGET" "${'$'}STC_KIND" "${'$'}STC_NAME"
+            return ${'$'}?
+          fi
+          STC_ITEMS="${'$'}STC_FILTERED_ITEMS"
+          """.trimIndent() else ":"}
           mkdir -p "${'$'}STC_TARGET" || return 1
           STC_CONTEXT=${'$'}(read_clone_context "${'$'}STC_TARGET")
           case "${'$'}STC_CONTEXT" in u:object_r:*) ;; *) STC_CONTEXT="" ;; esac
           CLONE_TARGET_MUTATED=1
-          find "${'$'}STC_TARGET" -mindepth 1 -maxdepth 1 -exec rm -rf {} \; || return 1
+          uclone_clear_directory_strict "${'$'}STC_TARGET" || { echo "ERR_TARGET_CLEAR_FAILED:${'$'}STC_TARGET" >&2; return 1; }
           (cd "${'$'}STC_SRC" && tar -cpf - .) | (cd "${'$'}STC_TARGET" && tar -xpf -) || return 1
-          ${if (rule.excludeCache) """
-          case "${'$'}STC_NAME" in ce|de) rm -rf "${'$'}STC_TARGET/cache" "${'$'}STC_TARGET/code_cache" 2>/dev/null || true ;; esac
-          """.trimIndent() else ":"}
+          ${if (rule.excludeCache) "uclone_remove_cache_dirs_strict \"${'$'}STC_TARGET\" || { echo \"ERR_CACHE_FILTER_FAILED:${'$'}STC_TARGET\" >&2; return 1; }" else ":"}
           apply_clone_security "${'$'}STC_TARGET" "${'$'}STC_KIND" "${'$'}STC_CONTEXT" || return 1
-          STC_WRITTEN=${'$'}(count_items "${'$'}STC_TARGET")
+          STC_WRITTEN=${'$'}(count_items "${'$'}STC_TARGET") || { echo "ERR_SCAN_FAILED:${'$'}STC_TARGET" >&2; return 1; }
           [ "${'$'}STC_WRITTEN" -gt 0 ] || return 1
           STC_SIZE_KB=${'$'}(du -sk "${'$'}STC_TARGET" 2>/dev/null | awk '{print ${'$'}1}')
           SWITCH_PUSHED_PARTS=${'$'}((SWITCH_PUSHED_PARTS + 1))
@@ -342,7 +349,7 @@ internal object OptimizedSwitchPreparationShell {
           case "${'$'}ACPS_STATE" in
             absent)
               CLONE_TARGET_MUTATED=1
-              rm -rf "${'$'}ACPS_TARGET" || return 1
+              uclone_remove_path_strict "${'$'}ACPS_TARGET" || { echo "ERR_TARGET_DELETE_FAILED:${'$'}ACPS_TARGET" >&2; return 1; }
               SWITCH_PUSHED_PARTS=${'$'}((SWITCH_PUSHED_PARTS + 1))
               echo "SWITCH_PUSHED_STATE:${'$'}ACPS_NAME state=absent target=${'$'}ACPS_TARGET"
               ;;
@@ -351,7 +358,7 @@ internal object OptimizedSwitchPreparationShell {
               ACPS_CONTEXT=${'$'}(read_clone_context "${'$'}ACPS_TARGET")
               case "${'$'}ACPS_CONTEXT" in u:object_r:*) ;; *) ACPS_CONTEXT="" ;; esac
               CLONE_TARGET_MUTATED=1
-              find "${'$'}ACPS_TARGET" -mindepth 1 -maxdepth 1 -exec rm -rf {} \; || return 1
+              uclone_clear_directory_strict "${'$'}ACPS_TARGET" || { echo "ERR_TARGET_CLEAR_FAILED:${'$'}ACPS_TARGET" >&2; return 1; }
               apply_clone_security "${'$'}ACPS_TARGET" "${'$'}ACPS_KIND" "${'$'}ACPS_CONTEXT" || return 1
               SWITCH_PUSHED_PARTS=${'$'}((SWITCH_PUSHED_PARTS + 1))
               echo "SWITCH_PUSHED_STATE:${'$'}ACPS_NAME state=empty target=${'$'}ACPS_TARGET"
@@ -379,7 +386,7 @@ internal object OptimizedSwitchPreparationShell {
           shift 3
           for SLPC_SRC in "${'$'}@"; do
             [ -d "${'$'}SLPC_SRC" ] || continue
-            SLPC_ITEMS=${'$'}(count_items "${'$'}SLPC_SRC")
+            SLPC_ITEMS=${'$'}(count_items "${'$'}SLPC_SRC") || { echo "ERR_SCAN_FAILED:${'$'}SLPC_SRC" >&2; return 1; }
             if [ "${'$'}SLPC_ITEMS" -gt 0 ]; then
               stream_to_clone "${'$'}SLPC_SRC" "${'$'}SLPC_TARGET" "${'$'}SLPC_KIND" "${'$'}SLPC_NAME"
               return ${'$'}?
