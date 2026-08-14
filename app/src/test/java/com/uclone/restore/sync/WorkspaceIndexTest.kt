@@ -74,7 +74,7 @@ class WorkspaceIndexTest {
         val index = WorkspaceIndexParser.parse(
             listOf(
                 "BACKUP\tmanual\tcom.example.app\tmanual_1\t100\t20\t10\t0\tCLONE\t命名备份\t手动命名备份\t中文备注\t/data/adb/uclone/snapshots/com.example.app/manual/manual_1\t",
-                "BACKUP\tmain_rollback\tcom.example.app\tpersistent_main\t90\t10\t0\t0\tMAIN\t主系统侧备份\t固定 MAIN\t/data/adb/uclone/rollback/com.example.app/persistent_main\t当前 CLONE 状态依赖的 MAIN 返回点",
+                "BACKUP\tmain_rollback\tcom.example.app\tpersistent_main\t90\t10\t0\t0\tMAIN\t主系统侧备份\t固定 MAIN\t固定 MAIN\t/data/adb/uclone/rollback/com.example.app/persistent_main\t当前 CLONE 状态依赖的 MAIN 返回点",
                 "WORKSPACE_INDEX_OK",
             ).joinToString("\n"),
         )
@@ -172,10 +172,13 @@ class WorkspaceIndexTest {
         val packageName = "com.example.app"
         val active = Files.createDirectories(root.resolve("snapshots/$packageName/active"))
         Files.write(active.resolve("manifest.json"), "{\"snapshotSizeKb\":\"11\",\"sourceUser\":\"10\",\"capturedFromUserId\":\"10\",\"stateKind\":\"CLONE\"}\n".toByteArray())
+        createCompleteBackupSnapshot(active)
         val history = Files.createDirectories(root.resolve("snapshots/$packageName/history/hist_1"))
         Files.write(history.resolve("manifest.json"), "{\"sizeKb\":\"12\",\"stateKind\":\"CLONE\"}\n".toByteArray())
+        createCompleteBackupSnapshot(history)
         val manual = Files.createDirectories(root.resolve("snapshots/$packageName/manual/manual_1"))
         Files.write(manual.resolve("manifest.json"), "{\"sizeKb\":\"13\",\"reason\":\"手动命名备份\",\"stateKind\":\"MAIN\"}\n".toByteArray())
+        createCompleteBackupSnapshot(manual)
         val metadata = Files.createDirectories(manual.resolve(".uclone-meta"))
         Files.write(metadata.resolve("name"), "微信 主系统\n".toByteArray())
         Files.write(metadata.resolve("source_user_id"), "0\n".toByteArray())
@@ -202,6 +205,25 @@ class WorkspaceIndexTest {
         assertEquals(10, named.capturedFromUserId)
         assertEquals(PassiveBackupStateKind.MAIN, named.stateKind)
         assertFalse(index.backups.single { it.ref.kind == BackupKind.MAIN_ROLLBACK }.canDelete)
+    }
+
+    @Test
+    fun executableIndexOmitsIncompleteSnapshotsFromUnifiedBackupList() {
+        val root = Files.createTempDirectory("uclone-workspace-index-incomplete-backups")
+        val packageName = "com.example.app"
+        val manual = Files.createDirectories(root.resolve("snapshots/$packageName/manual/manual_incomplete"))
+        Files.write(manual.resolve("manifest.json"), "{\"sizeKb\":\"13\",\"stateKind\":\"MAIN\"}\n".toByteArray())
+        val complete = Files.createDirectories(root.resolve("snapshots/$packageName/manual/manual_complete"))
+        Files.write(complete.resolve("manifest.json"), "{\"sizeKb\":\"14\",\"stateKind\":\"MAIN\"}\n".toByteArray())
+        createCompleteBackupSnapshot(complete)
+
+        val result = runShell(workspaceIndexScript(root.toString()))
+        val index = WorkspaceIndexParser.parse(result.output)
+
+        assertEquals(0, result.exitCode, result.output)
+        assertFalse(result.output.contains("BACKUP\tmanual\t$packageName\tmanual_incomplete"), result.output)
+        assertContains(result.output, "BACKUP\tmanual\t$packageName\tmanual_complete")
+        assertEquals(listOf("manual_complete"), index.backups.map { it.ref.id })
     }
 
     @Test
@@ -358,6 +380,13 @@ class WorkspaceIndexTest {
     private fun createCompleteMainReturn(backup: Path) {
         val state = Files.createDirectories(backup.resolve(".state"))
         Files.write(backup.resolve("manifest.json"), "{\"stateKind\":\"MAIN\"}\n".toByteArray())
+        listOf("ce", "de", "external", "media", "obb").forEach { part ->
+            Files.write(state.resolve(part), "absent\n".toByteArray())
+        }
+    }
+
+    private fun createCompleteBackupSnapshot(backup: Path) {
+        val state = Files.createDirectories(backup.resolve(".state"))
         listOf("ce", "de", "external", "media", "obb").forEach { part ->
             Files.write(state.resolve(part), "absent\n".toByteArray())
         }

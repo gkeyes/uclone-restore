@@ -662,6 +662,7 @@ private fun RestorePickerDialog(
                     if (current != null && target != null) onConfirm(current, target)
                 },
                 primary = true,
+                enabled = current != null && targetUserId != null,
             )
         },
         dismissButton = {

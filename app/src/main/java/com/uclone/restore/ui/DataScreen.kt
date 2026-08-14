@@ -415,6 +415,7 @@ private fun RestoreSelectedBackupDialog(
                 text = "恢复",
                 onClick = { targetUserId?.let(onConfirm) },
                 primary = true,
+                enabled = targetUserId != null,
             )
         },
         dismissButton = { DialogActionButton("取消", onDismiss) },

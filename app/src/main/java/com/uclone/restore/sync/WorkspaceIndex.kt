@@ -259,6 +259,35 @@ internal fun workspaceIndexScript(
       case "${'$'}NOE_VALUE" in ''|*[!0-9]*) echo "" ;; *) echo "${'$'}NOE_VALUE" ;; esac
     }
 
+    valid_backup_snapshot() {
+      VBS_DIR="${'$'}1"
+      [ -d "${'$'}VBS_DIR" ] && [ ! -L "${'$'}VBS_DIR" ] || return 1
+      [ -f "${'$'}VBS_DIR/manifest.json" ] && [ ! -L "${'$'}VBS_DIR/manifest.json" ] || return 1
+      for VBS_PART in ce de external media obb; do
+        VBS_STATE_FILE="${'$'}VBS_DIR/.state/${'$'}VBS_PART"
+        [ -f "${'$'}VBS_STATE_FILE" ] && [ ! -L "${'$'}VBS_STATE_FILE" ] || return 1
+        VBS_PART_STATE=${'$'}(sed -n '1p' "${'$'}VBS_STATE_FILE" | tr -d '\r')
+        case "${'$'}VBS_PART_STATE" in
+          data)
+            [ -d "${'$'}VBS_DIR/${'$'}VBS_PART" ] && [ ! -L "${'$'}VBS_DIR/${'$'}VBS_PART" ] || return 1
+            [ -n "${'$'}(find "${'$'}VBS_DIR/${'$'}VBS_PART" -mindepth 1 -print -quit 2>/dev/null)" ] || return 1
+            ;;
+          absent|empty)
+            [ ! -L "${'$'}VBS_DIR/${'$'}VBS_PART" ] || return 1
+            if [ -e "${'$'}VBS_DIR/${'$'}VBS_PART" ]; then
+              [ -d "${'$'}VBS_DIR/${'$'}VBS_PART" ] || return 1
+              [ -z "${'$'}(find "${'$'}VBS_DIR/${'$'}VBS_PART" -mindepth 1 -print -quit 2>/dev/null)" ] || return 1
+            fi
+            ;;
+          unselected)
+            [ ! -e "${'$'}VBS_DIR/${'$'}VBS_PART" ] && [ ! -L "${'$'}VBS_DIR/${'$'}VBS_PART" ] || return 1
+            ;;
+          *) return 1 ;;
+        esac
+      done
+      return 0
+    }
+
     emit_backup() {
       EB_KIND="${'$'}1"
       EB_PKG="${'$'}2"
@@ -274,6 +303,7 @@ internal fun workspaceIndexScript(
       [ -d "${'$'}EB_DIR" ] && [ ! -L "${'$'}EB_DIR" ] || return 0
       EB_MANIFEST="${'$'}EB_DIR/manifest.json"
       [ -f "${'$'}EB_MANIFEST" ] && [ ! -L "${'$'}EB_MANIFEST" ] || return 0
+      valid_backup_snapshot "${'$'}EB_DIR" || return 0
       EB_TS=${'$'}(stat -c %Y "${'$'}EB_DIR" 2>/dev/null || echo 0)
       EB_SIZE=${'$'}(manifest_size_kb "${'$'}EB_MANIFEST") || EB_SIZE=${'$'}(du -sk "${'$'}EB_DIR" 2>/dev/null | awk '{print ${'$'}1}')
       EB_META="${'$'}EB_DIR/.uclone-meta"
