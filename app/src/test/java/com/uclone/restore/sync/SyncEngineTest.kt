@@ -22,6 +22,8 @@ class SyncEngineTest {
     @Test
     fun hostTimeoutIsDisabledForEveryTransactionalMutationTask() {
         val transactional = setOf(
+            TaskType.BACKUP_USER_STATE,
+            TaskType.RESTORE_SELECTED_BACKUP,
             TaskType.RESTORE_SNAPSHOT_TO_MAIN,
             TaskType.ROLLBACK_MAIN_DATA,
             TaskType.RESTORE_FROM_CLONE_LATEST,

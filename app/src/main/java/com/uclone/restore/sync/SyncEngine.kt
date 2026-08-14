@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.BackupKind
 import com.uclone.restore.model.CloneReturnPlan
 import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.EnvironmentStatus
@@ -91,6 +92,63 @@ class SyncEngine(
         type = TaskType.RESTORE_SNAPSHOT_TO_MAIN,
         packageName = packageName,
         settings = settings,
+        report = report,
+        requestId = requestId,
+    )
+
+    suspend fun backupUserState(
+        packageName: String,
+        captureUserId: Int,
+        sourceUserId: Int,
+        backupName: String,
+        rule: AppRule,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.BACKUP_USER_STATE,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查 root", "停止来源 App", "复制数据", "采集权限/AppOps", "写入元数据", "完成"),
+        script = ShellScripts.backupUserState(packageName, captureUserId, sourceUserId, backupName, rule, settings, appPackage),
+        report = report,
+        requestId = requestId,
+    )
+
+    suspend fun restoreSelectedBackup(
+        packageName: String,
+        backupKind: BackupKind,
+        backupId: String,
+        targetUserId: Int,
+        rule: AppRule,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.RESTORE_SELECTED_BACKUP,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查 root", "读取指定备份", "生成目标回滚", "覆盖目标数据", "恢复权限/AppOps", "完成"),
+        script = ShellScripts.restoreSelectedBackup(packageName, backupKind, backupId, targetUserId, rule, settings, appPackage),
+        report = report,
+        requestId = requestId,
+    )
+
+    suspend fun updateBackupMetadata(
+        packageName: String,
+        backupKind: BackupKind,
+        backupId: String,
+        backupName: String,
+        sourceUserId: Int,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.UPDATE_BACKUP_METADATA,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查备份", "写入备注", "写入来源 user", "完成"),
+        script = ShellScripts.updateBackupMetadata(packageName, backupKind, backupId, backupName, sourceUserId, settings, appPackage),
         report = report,
         requestId = requestId,
     )
@@ -322,6 +380,23 @@ class SyncEngine(
         settings = settings,
         labels = listOf("检查 root", "读取被动备份", "删除备份目录", "清理切换标记", "完成"),
         script = ShellScripts.deleteRestoreBackup(packageName, rollbackId, settings, appPackage),
+        report = report,
+        requestId = requestId,
+    )
+
+    suspend fun deleteBackup(
+        packageName: String,
+        backupKind: BackupKind,
+        backupId: String,
+        settings: UCloneSettings,
+        report: (TaskProgress) -> Unit,
+        requestId: String = newRequestId(),
+    ): TaskRecord = runScriptTask(
+        type = TaskType.DELETE_BACKUP,
+        packageName = packageName,
+        settings = settings,
+        labels = listOf("检查备份", "统计大小", "删除备份", "刷新状态"),
+        script = ShellScripts.deleteBackup(packageName, backupKind, backupId, settings, appPackage),
         report = report,
         requestId = requestId,
     )
@@ -573,6 +648,8 @@ class SyncEngine(
             "ERR_PACKAGE_NOT_LISTED_TARGET" in output -> "分身系统未安装此 App，无法推送"
             "ERR_PACKAGE_NOT_LISTED_SOURCE" in output -> "主系统未安装此 App，无法推送"
             "ERR_PACKAGE_NOT_LISTED" in output -> "分身系统未安装此 App，未执行备份或切换"
+            "ERR_DELETE_REQUIRED_MAIN_RETURN" in output -> "当前 CLONE 状态依赖这份 MAIN 返回点，需先恢复 MAIN 或建立替代返回点"
+            "ERR_MAIN_RETURN_UNCONFIRMED" in output -> "当前 user0 不是已确认 MAIN，无法直接覆盖；请先选择一份 MAIN 备份恢复"
             "ERR_PUSH_CE_MISSING" in output -> "主系统 CE 数据缺失，未执行推送"
             "ERR_FORCE_STOP_FAILED" in output -> "无法停止分身 App，未读取或写入数据"
             "ERR_NOTHING_PUSHED" in output || "ERR_NOTHING_COPIED" in output -> "没有找到可推送的数据"
@@ -612,6 +689,8 @@ internal fun taskHostTimeoutSeconds(type: TaskType): Long =
     if (type in TRANSACTIONAL_TASK_TYPES) 0 else 900
 
 private val TRANSACTIONAL_TASK_TYPES = setOf(
+    TaskType.BACKUP_USER_STATE,
+    TaskType.RESTORE_SELECTED_BACKUP,
     TaskType.RESTORE_SNAPSHOT_TO_MAIN,
     TaskType.ROLLBACK_MAIN_DATA,
     TaskType.RESTORE_FROM_CLONE_LATEST,

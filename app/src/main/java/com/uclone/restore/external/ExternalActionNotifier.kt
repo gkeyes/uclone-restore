@@ -119,8 +119,11 @@ class ExternalActionNotifier(private val context: Context) {
     }
 
     private fun operationLabel(operation: String?): String = when (operation) {
+        ExternalActionContract.OPERATION_BACKUP_USER_STATE -> "命名备份"
         ExternalActionContract.OPERATION_BACKUP_DEFAULT -> "备份"
+        ExternalActionContract.OPERATION_RESTORE_SELECTED_BACKUP -> "选择恢复"
         ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP -> "恢复"
+        ExternalActionContract.OPERATION_UPDATE_BACKUP_METADATA -> "编辑备份"
         ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE -> "推送分身"
         ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK -> "分身回滚"
         ExternalActionContract.OPERATION_SWITCH_TO_CLONE -> "切换"
@@ -129,6 +132,7 @@ class ExternalActionNotifier(private val context: Context) {
         ExternalActionContract.OPERATION_SWITCH_OR_RESTORE -> "切换/还原"
         ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST -> "分身恢复"
         ExternalActionContract.OPERATION_RESTORE_ROLLBACK -> "恢复回滚"
+        ExternalActionContract.OPERATION_DELETE_BACKUP -> "删除备份"
         ExternalActionContract.OPERATION_DELETE_SNAPSHOT -> "删除快照"
         ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP -> "删除回滚"
         ExternalActionContract.OPERATION_PROBE_CLONE_CE -> "分身检测"

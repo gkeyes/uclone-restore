@@ -20,6 +20,11 @@ object ExternalActionContract {
     const val EXTRA_ROLLBACK_ID = "com.uclone.restore.extra.ROLLBACK_ID"
     const val EXTRA_EXPECTED_WORKSPACE_ROOT = "com.uclone.restore.extra.EXPECTED_WORKSPACE_ROOT"
     const val EXTRA_TARGET_USER_ID = "com.uclone.restore.extra.TARGET_USER_ID"
+    const val EXTRA_SOURCE_USER_ID = "com.uclone.restore.extra.SOURCE_USER_ID"
+    const val EXTRA_CAPTURE_USER_ID = "com.uclone.restore.extra.CAPTURE_USER_ID"
+    const val EXTRA_BACKUP_KIND = "com.uclone.restore.extra.BACKUP_KIND"
+    const val EXTRA_BACKUP_ID = "com.uclone.restore.extra.BACKUP_ID"
+    const val EXTRA_BACKUP_NAME = "com.uclone.restore.extra.BACKUP_NAME"
     internal const val EXTRA_INTERNAL_TOKEN = "com.uclone.restore.extra.INTERNAL_TOKEN"
 
     const val PROTOCOL_VERSION = 1
@@ -28,6 +33,10 @@ object ExternalActionContract {
     const val OPERATION_SWITCH_TO_CLONE = "SWITCH_TO_CLONE"
     const val OPERATION_RESTORE_MAIN = "RESTORE_MAIN"
     const val OPERATION_UPDATE_MAIN_RETURN_POINT = "UPDATE_MAIN_RETURN_POINT"
+    const val OPERATION_BACKUP_USER_STATE = "BACKUP_USER_STATE"
+    const val OPERATION_RESTORE_SELECTED_BACKUP = "RESTORE_SELECTED_BACKUP"
+    const val OPERATION_UPDATE_BACKUP_METADATA = "UPDATE_BACKUP_METADATA"
+    const val OPERATION_DELETE_BACKUP = "DELETE_BACKUP"
     const val OPERATION_BACKUP_DEFAULT = "BACKUP_DEFAULT"
     const val OPERATION_RESTORE_LATEST_BACKUP = "RESTORE_LATEST_BACKUP"
     const val OPERATION_PUSH_MAIN_TO_CLONE = "PUSH_MAIN_TO_CLONE"

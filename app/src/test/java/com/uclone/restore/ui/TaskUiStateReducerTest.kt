@@ -40,8 +40,11 @@ class TaskUiStateReducerTest {
     @Test
     fun everyTaskHasAnExplicitRefreshPolicy() {
         val expected = mapOf(
+            TaskType.BACKUP_USER_STATE to cloneWorkspacePolicy(),
             TaskType.CAPTURE_SNAPSHOT_FROM_CLONE to cloneWorkspacePolicy(),
+            TaskType.RESTORE_SELECTED_BACKUP to workspacePolicy(),
             TaskType.RESTORE_SNAPSHOT_TO_MAIN to workspacePolicy(),
+            TaskType.UPDATE_BACKUP_METADATA to workspacePolicy(),
             TaskType.ROLLBACK_MAIN_DATA to workspacePolicy(),
             TaskType.RESTORE_FROM_CLONE_LATEST to cloneWorkspacePolicy(),
             TaskType.SWITCH_TO_CLONE_STATE to cloneWorkspacePolicy(),
@@ -49,6 +52,7 @@ class TaskUiStateReducerTest {
             TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE to cloneWorkspacePolicy(),
             TaskType.RESTORE_SWITCH_MAIN_STATE to cloneWorkspacePolicy(),
             TaskType.UPDATE_MAIN_RETURN_POINT to workspacePolicy(),
+            TaskType.DELETE_BACKUP to workspacePolicy(),
             TaskType.DELETE_SNAPSHOT to workspacePolicy(),
             TaskType.DELETE_RESTORE_BACKUP to workspacePolicy(),
             TaskType.PROBE_CLONE_CE to fullEnvironmentPolicy(),
@@ -172,6 +176,7 @@ class TaskUiStateReducerTest {
         assertEquals(emptyList(), refreshed.rollbackIds)
         assertEquals(emptyList(), refreshed.restoreBackups)
         assertEquals(emptyList(), refreshed.cloneRollbackBackups)
+        assertEquals(emptyList(), refreshed.backups)
         assertEquals(emptyMap(), refreshed.switchRollbackIds)
         assertEquals(emptySet(), refreshed.confirmedMainPackages)
         assertNull(refreshed.apps.single().lastSnapshotAt)

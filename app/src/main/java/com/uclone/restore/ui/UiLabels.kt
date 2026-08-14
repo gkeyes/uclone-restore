@@ -6,8 +6,11 @@ import com.uclone.restore.model.User10CeState
 
 internal val TaskType.displayName: String
     get() = when (this) {
+        TaskType.BACKUP_USER_STATE -> "生成命名备份"
         TaskType.CAPTURE_SNAPSHOT_FROM_CLONE -> "建立主动备份"
+        TaskType.RESTORE_SELECTED_BACKUP -> "选择恢复"
         TaskType.RESTORE_SNAPSHOT_TO_MAIN -> "恢复主动快照"
+        TaskType.UPDATE_BACKUP_METADATA -> "编辑备份信息"
         TaskType.ROLLBACK_MAIN_DATA -> "恢复主系统回滚"
         TaskType.RESTORE_FROM_CLONE_LATEST -> "备份并恢复分身数据"
         TaskType.SWITCH_TO_CLONE_STATE -> "切换到分身态"
@@ -15,6 +18,7 @@ internal val TaskType.displayName: String
         TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE -> "恢复分身回滚"
         TaskType.RESTORE_SWITCH_MAIN_STATE -> "还原主系统态"
         TaskType.UPDATE_MAIN_RETURN_POINT -> "更新 MAIN 返回点"
+        TaskType.DELETE_BACKUP -> "删除备份"
         TaskType.DELETE_SNAPSHOT -> "删除主动快照"
         TaskType.DELETE_RESTORE_BACKUP -> "删除被动备份"
         TaskType.PROBE_CLONE_CE -> "检测分身数据状态"

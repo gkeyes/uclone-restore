@@ -70,6 +70,10 @@ class ExternalServicePolicyTest {
             ExternalActionContract.OPERATION_START_CLONE_USER,
             ExternalActionContract.OPERATION_SWITCH_TO_CLONE_USER,
             ExternalActionContract.OPERATION_STOP_CLONE_USER,
+            ExternalActionContract.OPERATION_BACKUP_USER_STATE,
+            ExternalActionContract.OPERATION_RESTORE_SELECTED_BACKUP,
+            ExternalActionContract.OPERATION_UPDATE_BACKUP_METADATA,
+            ExternalActionContract.OPERATION_DELETE_BACKUP,
         ).forEach { operation ->
             assertEquals("模块不允许执行此操作", module.copy(operation = operation).sourceOperationRejection(), operation)
         }

@@ -144,6 +144,18 @@ Optional extras:
 com.uclone.restore.extra.SOURCE = module
 ```
 
+The main app also uses internal-only extras for named backup management:
+
+```text
+com.uclone.restore.extra.SOURCE_USER_ID
+com.uclone.restore.extra.CAPTURE_USER_ID
+com.uclone.restore.extra.BACKUP_KIND
+com.uclone.restore.extra.BACKUP_ID
+com.uclone.restore.extra.BACKUP_NAME
+```
+
+These extras require an in-process internal token when `SOURCE = app`; the launcher module must not construct or forward them.
+
 ## Query Interface
 
 The launcher module must not decide whether an app is currently in main state or clone state by reading files, switch markers, or UClone private storage.
@@ -218,6 +230,17 @@ RESTORE_LATEST_CLONE_ROLLBACK
 Meanings:
 
 - `SWITCH_OR_RESTORE`: UClone parses the marker value as explicit MAIN, valid CLONE return point, or UNKNOWN; it never decides direction from file existence alone.
+
+The following operation names exist only for the main app UI and are intentionally not part of the launcher module allow-list:
+
+```text
+BACKUP_USER_STATE
+RESTORE_SELECTED_BACKUP
+UPDATE_BACKUP_METADATA
+DELETE_BACKUP
+```
+
+They address backups by validated `<kind, id>` pairs only. The UI never passes arbitrary filesystem paths to the service.
 - `SWITCH_TO_CLONE`: force switch current main app data to latest clone state.
 - `RESTORE_MAIN`: restore using the current switch rollback marker.
 - `BACKUP_DEFAULT`: create the default active backup using current UClone settings.

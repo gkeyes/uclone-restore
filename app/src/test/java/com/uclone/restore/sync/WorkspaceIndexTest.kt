@@ -1,5 +1,6 @@
 package com.uclone.restore.sync
 
+import com.uclone.restore.model.BackupKind
 import com.uclone.restore.model.PassiveBackupStateKind
 import java.nio.file.Files
 import java.nio.file.Path
@@ -66,6 +67,28 @@ class WorkspaceIndexTest {
         assertEquals(true, index.mainRollbackBackups.all { it.isPersistentStateBackup })
         assertEquals(PassiveBackupStateKind.CLONE, index.cloneRollbackBackups.single().stateKind)
         assertEquals(true, index.cloneRollbackBackups.single().isPersistentStateBackup)
+    }
+
+    @Test
+    fun backupRecordsParseEverySupportedField() {
+        val index = WorkspaceIndexParser.parse(
+            listOf(
+                "BACKUP\tmanual\tcom.example.app\tmanual_1\t100\t20\t10\t0\tCLONE\t命名备份\t中文备注\t/data/adb/uclone/snapshots/com.example.app/manual/manual_1\t",
+                "BACKUP\tmain_rollback\tcom.example.app\tpersistent_main\t90\t10\t0\t0\tMAIN\t主系统侧备份\t固定 MAIN\t/data/adb/uclone/rollback/com.example.app/persistent_main\t当前 CLONE 状态依赖的 MAIN 返回点",
+                "WORKSPACE_INDEX_OK",
+            ).joinToString("\n"),
+        )
+
+        val manual = index.backups.single { it.ref.kind == BackupKind.MANUAL }
+        val protected = index.backups.single { it.ref.kind == BackupKind.MAIN_ROLLBACK }
+        assertEquals("manual_1", manual.ref.id)
+        assertEquals("中文备注", manual.name)
+        assertEquals(10, manual.sourceUserId)
+        assertEquals(0, manual.capturedFromUserId)
+        assertEquals(PassiveBackupStateKind.CLONE, manual.stateKind)
+        assertEquals("/data/adb/uclone/snapshots/com.example.app/manual/manual_1", manual.path)
+        assertFalse(protected.canDelete)
+        assertEquals("当前 CLONE 状态依赖的 MAIN 返回点", protected.deleteBlockedReason)
     }
 
     @Test
@@ -141,6 +164,44 @@ class WorkspaceIndexTest {
         assertContains(result.output, "MAIN\t$packageName")
         assertEquals(true, parsed.hasConfirmedMainState(packageName))
         assertEquals(AppDataState.Main, parsed.dataState(packageName))
+    }
+
+    @Test
+    fun executableIndexUnifiesManualHistoryActiveAndProtectedRollbackBackups() {
+        val root = Files.createTempDirectory("uclone-workspace-index-backups")
+        val packageName = "com.example.app"
+        val active = Files.createDirectories(root.resolve("snapshots/$packageName/active"))
+        Files.write(active.resolve("manifest.json"), "{\"snapshotSizeKb\":\"11\",\"sourceUser\":\"10\",\"capturedFromUserId\":\"10\",\"stateKind\":\"CLONE\"}\n".toByteArray())
+        val history = Files.createDirectories(root.resolve("snapshots/$packageName/history/hist_1"))
+        Files.write(history.resolve("manifest.json"), "{\"sizeKb\":\"12\",\"stateKind\":\"CLONE\"}\n".toByteArray())
+        val manual = Files.createDirectories(root.resolve("snapshots/$packageName/manual/manual_1"))
+        Files.write(manual.resolve("manifest.json"), "{\"sizeKb\":\"13\",\"reason\":\"手动命名备份\",\"stateKind\":\"MAIN\"}\n".toByteArray())
+        val metadata = Files.createDirectories(manual.resolve(".uclone-meta"))
+        Files.write(metadata.resolve("name"), "微信 主系统\n".toByteArray())
+        Files.write(metadata.resolve("source_user_id"), "0\n".toByteArray())
+        Files.write(metadata.resolve("captured_from_user_id"), "10\n".toByteArray())
+        Files.write(metadata.resolve("source_state_kind"), "MAIN\n".toByteArray())
+        val mainRollback = root.resolve("rollback/$packageName/persistent_main")
+        createCompleteMainReturn(mainRollback)
+        val marker = root.resolve("switches/$packageName/active")
+        Files.createDirectories(marker.parent)
+        Files.write(marker, "persistent_main\n".toByteArray())
+
+        val result = runShell(workspaceIndexScript(root.toString()))
+        val index = WorkspaceIndexParser.parse(result.output)
+
+        assertEquals(0, result.exitCode, result.output)
+        assertContains(result.output, "BACKUP\tmanual\t$packageName\tmanual_1")
+        assertEquals(
+            setOf(BackupKind.ACTIVE, BackupKind.HISTORY, BackupKind.MANUAL, BackupKind.MAIN_ROLLBACK),
+            index.backups.map { it.ref.kind }.toSet(),
+        )
+        val named = index.backups.single { it.ref.kind == BackupKind.MANUAL }
+        assertEquals("微信 主系统", named.name)
+        assertEquals(0, named.sourceUserId)
+        assertEquals(10, named.capturedFromUserId)
+        assertEquals(PassiveBackupStateKind.MAIN, named.stateKind)
+        assertFalse(index.backups.single { it.ref.kind == BackupKind.MAIN_ROLLBACK }.canDelete)
     }
 
     @Test
