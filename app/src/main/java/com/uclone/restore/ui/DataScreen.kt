@@ -14,12 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -29,7 +24,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
@@ -326,62 +320,20 @@ private fun UnifiedBackupRow(
     onRestore: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val largeText = useStackedLayoutForLargeText()
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = shape,
         color = MaterialTheme.ucloneColors.groupedSurface,
     ) {
-        Column {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AppIcon(backup.packageName, size = 38.dp, cornerRadius = 10.dp)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(appLabel ?: backup.packageName, fontWeight = FontWeight.SemiBold)
-                    Text(backup.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "${backup.typeLabel} · 来源 ${backup.sourceUserLabel()} · 实采 ${backup.capturedUserLabel()}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = backup.stateColor(),
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "${Formatters.kilobytes(backup.sizeKb)} · ${Formatters.time(backup.createdAt)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    backup.deleteBlockedReason?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.ucloneColors.warning)
-                    }
-                }
-                if (!largeText) {
-                    InlineActionButton("编辑", onEdit, icon = Icons.Default.Edit)
-                    InlineActionButton("恢复", onRestore, icon = Icons.Default.RestartAlt)
-                    InlineActionButton("删除", onDelete, enabled = backup.canDelete, danger = true, icon = Icons.Default.Delete)
-                }
-            }
-            if (largeText) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    InlineActionButton("编辑", onEdit, icon = Icons.Default.Edit)
-                    InlineActionButton("恢复", onRestore, icon = Icons.Default.RestartAlt)
-                    InlineActionButton("删除", onDelete, enabled = backup.canDelete, danger = true, icon = Icons.Default.Delete)
-                }
-            }
-            if (showDivider) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(start = 64.dp),
-                    color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
-                )
-            }
-        }
+        BackupEntryActionRow(
+            backup = backup,
+            appLabel = appLabel ?: backup.packageName,
+            showAppIcon = true,
+            showDivider = showDivider,
+            onEdit = onEdit,
+            onRestore = onRestore,
+            onDelete = onDelete,
+        )
     }
 }
 

@@ -50,6 +50,10 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
+import com.uclone.restore.model.BackupEntry
+import com.uclone.restore.model.BackupKind
+import com.uclone.restore.model.BackupRef
+import com.uclone.restore.model.PassiveBackupStateKind
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskStage
@@ -349,6 +353,68 @@ class UiComponentContractTest {
             .assertHasClickAction()
             .assertHeightIsAtLeast(48.dp)
             .assertWidthIsAtLeast(48.dp)
+    }
+
+    @Test
+    fun toolRowSupportsFixedPillActionsForDangerousOperations() {
+        composeRule.setContent {
+            UCloneTheme {
+                Column(Modifier.width(320.dp)) {
+                    ToolRow(
+                        title = "当前 user0 覆盖 user10",
+                        description = "复用安全推送链路，先保存 user10 回滚。",
+                        actionLabel = "覆盖",
+                        onClick = {},
+                        danger = true,
+                        actionVariant = ToolRowActionVariant.Pill,
+                        showDivider = false,
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithText("覆盖")
+            .assertHasClickAction()
+            .assertHeightIsAtLeast(48.dp)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "危险操作"))
+    }
+
+    @Test
+    fun backupEntryActionRowSeparatesMetadataActionsAndDeleteProtection() {
+        composeRule.setContent {
+            UCloneTheme {
+                BackupEntryActionRow(
+                    backup = BackupEntry(
+                        packageName = "com.taobao.taobao",
+                        ref = BackupRef(BackupKind.CLONE_ROLLBACK, "latest"),
+                        name = "分身回滚 Latest",
+                        createdAt = 1_789_632_278_000L,
+                        sizeKb = 259_174,
+                        sourceUserId = 10,
+                        capturedFromUserId = 10,
+                        stateKind = PassiveBackupStateKind.CLONE,
+                        typeLabel = "分身回滚",
+                        path = "/data/adb/uclone/clone_rollback/com.taobao.taobao/latest",
+                        reason = "推送到分身前生成",
+                        deleteBlockedReason = "当前 CLONE 状态依赖的 MAIN 返回点",
+                    ),
+                    appLabel = "淘宝",
+                    showAppIcon = false,
+                    onEdit = {},
+                    onRestore = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("淘宝").assertExists()
+        composeRule.onNodeWithText("分身回滚 Latest").assertExists()
+        composeRule.onNodeWithText("最新").assertExists()
+        composeRule.onNodeWithText("分身回滚 · 来源 user10 · 实采 user10").assertExists()
+        composeRule.onNodeWithText("编辑").assertHasClickAction()
+        composeRule.onNodeWithText("恢复").assertHasClickAction()
+        composeRule.onNodeWithText("删除").assertIsNotEnabled()
+        composeRule.onNodeWithText("当前 CLONE 状态依赖的 MAIN 返回点").assertExists()
     }
 
     @Test
