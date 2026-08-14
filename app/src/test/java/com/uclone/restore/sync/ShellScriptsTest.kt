@@ -738,7 +738,7 @@ class ShellScriptsTest {
         assertContains(script, "BACKUP_NAME='微信 分系统'")
         assertContains(script, "am force-stop --user \"${'$'}CAPTURE_USER\" \"${'$'}PKG\"")
         assertContains(script, "printf '%s\\n' \"${'$'}BACKUP_NAME\" > \"${'$'}TMP/.uclone-meta/name\"")
-        assertContains(script, "\"backupKind\":\"manual_snapshot\"")
+        assertContains(script, "\\\"backupKind\\\":\\\"manual_snapshot\\\"")
         assertFalse(script.contains("\"${'$'}BASE/active\""))
     }
 
@@ -1160,7 +1160,7 @@ class ShellScriptsTest {
         assertContains(script, "DST_USER=10")
         assertContains(script, "SOURCE_KIND='clone_rollback'")
         assertContains(script, "ACTIVE='/data/adb/uclone/clone_rollback/com.example.app/latest'")
-        assertContains(script, "EXPECTED_ACTIVE=\"${'$'}ROOT/clone_rollback/${'$'}PKG/latest\"")
+        assertContains(script, "EXPECTED_ACTIVE=\"${'$'}ACTIVE\"")
         assertContains(script, "ROLLBACK=\"${'$'}ROOT/clone_rollback/${'$'}PKG/restore_${'$'}RUN_ID\"")
         assertContains(script, "restore_part \"${'$'}ACTIVE/ce\" \"/data/user/${'$'}DST_USER/${'$'}PKG\"")
         assertFalse(script.contains("prune_old_rollbacks\n"))

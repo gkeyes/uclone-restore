@@ -251,7 +251,7 @@ internal fun workspaceIndexScript(
       [ -f "${'$'}ML_FILE" ] && [ ! -L "${'$'}ML_FILE" ] || return 1
       ML_LINES=${'$'}(awk 'END { print NR + 0 }' "${'$'}ML_FILE" 2>/dev/null) || return 1
       [ "${'$'}ML_LINES" -eq 1 ] || return 1
-      sed -n '1p' "${'$'}ML_FILE" | tr '\t\r\n' '   '
+      sed -n '1p' "${'$'}ML_FILE" | tr '\t\r' '  '
     }
 
     numeric_or_empty() {

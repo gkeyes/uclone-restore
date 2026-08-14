@@ -260,8 +260,11 @@ class TaskUiStateReducerTest {
     @Test
     fun everyUiActionHasAUniqueExternalOperation() {
         val expectedOperations = setOf(
+            ExternalActionContract.OPERATION_BACKUP_USER_STATE,
             ExternalActionContract.OPERATION_BACKUP_DEFAULT,
+            ExternalActionContract.OPERATION_RESTORE_SELECTED_BACKUP,
             ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP,
+            ExternalActionContract.OPERATION_UPDATE_BACKUP_METADATA,
             ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST,
             ExternalActionContract.OPERATION_SWITCH_TO_CLONE,
             ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
@@ -270,6 +273,7 @@ class TaskUiStateReducerTest {
             ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE,
             ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK,
             ExternalActionContract.OPERATION_RESTORE_ROLLBACK,
+            ExternalActionContract.OPERATION_DELETE_BACKUP,
             ExternalActionContract.OPERATION_DELETE_SNAPSHOT,
             ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP,
             ExternalActionContract.OPERATION_PROBE_CLONE_CE,

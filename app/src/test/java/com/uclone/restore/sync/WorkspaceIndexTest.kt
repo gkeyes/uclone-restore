@@ -73,7 +73,7 @@ class WorkspaceIndexTest {
     fun backupRecordsParseEverySupportedField() {
         val index = WorkspaceIndexParser.parse(
             listOf(
-                "BACKUP\tmanual\tcom.example.app\tmanual_1\t100\t20\t10\t0\tCLONE\t命名备份\t中文备注\t/data/adb/uclone/snapshots/com.example.app/manual/manual_1\t",
+                "BACKUP\tmanual\tcom.example.app\tmanual_1\t100\t20\t10\t0\tCLONE\t命名备份\t手动命名备份\t中文备注\t/data/adb/uclone/snapshots/com.example.app/manual/manual_1\t",
                 "BACKUP\tmain_rollback\tcom.example.app\tpersistent_main\t90\t10\t0\t0\tMAIN\t主系统侧备份\t固定 MAIN\t/data/adb/uclone/rollback/com.example.app/persistent_main\t当前 CLONE 状态依赖的 MAIN 返回点",
                 "WORKSPACE_INDEX_OK",
             ).joinToString("\n"),
