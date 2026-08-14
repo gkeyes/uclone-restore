@@ -1,6 +1,7 @@
 package com.uclone.restore.sync
 
 import com.uclone.restore.model.AppRule
+import com.uclone.restore.model.BackupKind
 import com.uclone.restore.model.CloneSessionPolicy
 import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.SwitchSafetyMode
@@ -717,6 +718,110 @@ class ShellScriptsTest {
         assertContains(script, "chmod 700 \"${'$'}BASE\" \"${'$'}BASE/active\" \"${'$'}BASE/history\"")
     }
 
+    @Test
+    fun namedBackupCreatesIndependentManualSnapshotWithMetadata() {
+        val script = ShellScripts.backupUserState(
+            packageName = "com.example.app",
+            captureUserId = 0,
+            sourceUserId = 10,
+            backupName = "微信 分系统",
+            rule = AppRule(packageName = "com.example.app"),
+            settings = settings,
+            appPackage = appPackage,
+        )
+
+        assertContains(script, "BASE=\"${'$'}ROOT/snapshots/${'$'}PKG/manual\"")
+        assertContains(script, "BACKUP_ID=\"manual_${'$'}{TS}_${'$'}${'$'}\"")
+        assertContains(script, "CAPTURE_USER=0")
+        assertContains(script, "SOURCE_USER=10")
+        assertContains(script, "SOURCE_STATE_KIND='CLONE'")
+        assertContains(script, "BACKUP_NAME='微信 分系统'")
+        assertContains(script, "am force-stop --user \"${'$'}CAPTURE_USER\" \"${'$'}PKG\"")
+        assertContains(script, "printf '%s\\n' \"${'$'}BACKUP_NAME\" > \"${'$'}TMP/.uclone-meta/name\"")
+        assertContains(script, "\\\"backupKind\\\":\\\"manual_snapshot\\\"")
+        assertFalse(script.contains("\"${'$'}BASE/active\""))
+    }
+
+    @Test
+    fun selectedRestoreUsesFixedBackupRootsAndCanPromoteSelectedCloneBackupToMain() {
+        val manualToMain = ShellScripts.restoreSelectedBackup(
+            packageName = "com.example.app",
+            backupKind = BackupKind.MANUAL,
+            backupId = "manual_1",
+            targetUserId = settings.mainUserId,
+            rule = AppRule(packageName = "com.example.app"),
+            settings = settings,
+            appPackage = appPackage,
+        )
+        val cloneRollbackToClone = ShellScripts.restoreSelectedBackup(
+            packageName = "com.example.app",
+            backupKind = BackupKind.CLONE_ROLLBACK,
+            backupId = "clone_1",
+            targetUserId = settings.cloneUserId,
+            rule = AppRule(packageName = "com.example.app"),
+            settings = settings,
+            appPackage = appPackage,
+        )
+
+        assertContains(manualToMain, "SOURCE_KIND='manual'")
+        assertContains(manualToMain, "ACTIVE='/data/adb/uclone/snapshots/com.example.app/manual/manual_1'")
+        assertContains(manualToMain, "ALLOW_MAIN_RETURN_PROMOTION=1")
+        assertContains(manualToMain, "ERR_MAIN_RETURN_UNCONFIRMED:selected_restore_requires_main")
+        assertContains(manualToMain, "ROLLBACK=\"${'$'}ROOT/rollback/${'$'}PKG/selected_${'$'}RUN_ID\"")
+        assertContains(cloneRollbackToClone, "SOURCE_KIND='clone_rollback'")
+        assertContains(cloneRollbackToClone, "ACTIVE='/data/adb/uclone/clone_rollback/com.example.app/clone_1'")
+        assertContains(cloneRollbackToClone, "ALLOW_MAIN_RETURN_PROMOTION=0")
+        assertContains(cloneRollbackToClone, "ROLLBACK=\"${'$'}ROOT/clone_rollback/${'$'}PKG/selected_${'$'}RUN_ID\"")
+    }
+
+    @Test
+    fun selectedBackupOperationsRejectUnsafeIdsAndResolveOnlyKnownDirectories() {
+        assertFailsWith<IllegalArgumentException> {
+            ShellScripts.restoreSelectedBackup(
+                packageName = "com.example.app",
+                backupKind = BackupKind.MANUAL,
+                backupId = "../manual_1",
+                targetUserId = settings.mainUserId,
+                rule = AppRule(packageName = "com.example.app"),
+                settings = settings,
+                appPackage = appPackage,
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            ShellScripts.deleteBackup(
+                packageName = "com.example.app",
+                backupKind = BackupKind.ACTIVE,
+                backupId = "not_active",
+                settings = settings,
+                appPackage = appPackage,
+            )
+        }
+
+        val update = ShellScripts.updateBackupMetadata(
+            packageName = "com.example.app",
+            backupKind = BackupKind.HISTORY,
+            backupId = "hist_1",
+            backupName = "新备注",
+            sourceUserId = settings.mainUserId,
+            settings = settings,
+            appPackage = appPackage,
+        )
+        val delete = ShellScripts.deleteBackup(
+            packageName = "com.example.app",
+            backupKind = BackupKind.MAIN_ROLLBACK,
+            backupId = "persistent_main",
+            settings = settings,
+            appPackage = appPackage,
+        )
+
+        assertContains(update, "TARGET=\"${'$'}ROOT/snapshots/${'$'}PKG/history/${'$'}BACKUP_ID\"")
+        assertContains(update, "write_meta_atomic name \"${'$'}BACKUP_NAME\"")
+        assertContains(delete, "TARGET=\"${'$'}ROOT/rollback/${'$'}PKG/${'$'}BACKUP_ID\"")
+        assertContains(delete, "ERR_DELETE_REQUIRED_MAIN_RETURN:${'$'}TARGET")
+        assertContains(delete, "rm -rf \"${'$'}TARGET\"")
+        assertFalse(delete.contains("rm -rf \"${'$'}ROOT\""))
+    }
+
     private val settings = UCloneSettings(rootDir = "/data/adb/uclone")
     private val appPackage = "com.uclone.restore"
 
@@ -1055,7 +1160,7 @@ class ShellScriptsTest {
         assertContains(script, "DST_USER=10")
         assertContains(script, "SOURCE_KIND='clone_rollback'")
         assertContains(script, "ACTIVE='/data/adb/uclone/clone_rollback/com.example.app/latest'")
-        assertContains(script, "EXPECTED_ACTIVE=\"${'$'}ROOT/clone_rollback/${'$'}PKG/latest\"")
+        assertContains(script, "EXPECTED_ACTIVE=\"${'$'}ACTIVE\"")
         assertContains(script, "ROLLBACK=\"${'$'}ROOT/clone_rollback/${'$'}PKG/restore_${'$'}RUN_ID\"")
         assertContains(script, "restore_part \"${'$'}ACTIVE/ce\" \"/data/user/${'$'}DST_USER/${'$'}PKG\"")
         assertFalse(script.contains("prune_old_rollbacks\n"))

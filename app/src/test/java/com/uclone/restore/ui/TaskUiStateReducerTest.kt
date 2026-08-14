@@ -40,8 +40,11 @@ class TaskUiStateReducerTest {
     @Test
     fun everyTaskHasAnExplicitRefreshPolicy() {
         val expected = mapOf(
+            TaskType.BACKUP_USER_STATE to cloneWorkspacePolicy(),
             TaskType.CAPTURE_SNAPSHOT_FROM_CLONE to cloneWorkspacePolicy(),
+            TaskType.RESTORE_SELECTED_BACKUP to workspacePolicy(),
             TaskType.RESTORE_SNAPSHOT_TO_MAIN to workspacePolicy(),
+            TaskType.UPDATE_BACKUP_METADATA to workspacePolicy(),
             TaskType.ROLLBACK_MAIN_DATA to workspacePolicy(),
             TaskType.RESTORE_FROM_CLONE_LATEST to cloneWorkspacePolicy(),
             TaskType.SWITCH_TO_CLONE_STATE to cloneWorkspacePolicy(),
@@ -49,6 +52,7 @@ class TaskUiStateReducerTest {
             TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE to cloneWorkspacePolicy(),
             TaskType.RESTORE_SWITCH_MAIN_STATE to cloneWorkspacePolicy(),
             TaskType.UPDATE_MAIN_RETURN_POINT to workspacePolicy(),
+            TaskType.DELETE_BACKUP to workspacePolicy(),
             TaskType.DELETE_SNAPSHOT to workspacePolicy(),
             TaskType.DELETE_RESTORE_BACKUP to workspacePolicy(),
             TaskType.PROBE_CLONE_CE to fullEnvironmentPolicy(),
@@ -172,6 +176,7 @@ class TaskUiStateReducerTest {
         assertEquals(emptyList(), refreshed.rollbackIds)
         assertEquals(emptyList(), refreshed.restoreBackups)
         assertEquals(emptyList(), refreshed.cloneRollbackBackups)
+        assertEquals(emptyList(), refreshed.backups)
         assertEquals(emptyMap(), refreshed.switchRollbackIds)
         assertEquals(emptySet(), refreshed.confirmedMainPackages)
         assertNull(refreshed.apps.single().lastSnapshotAt)
@@ -255,8 +260,11 @@ class TaskUiStateReducerTest {
     @Test
     fun everyUiActionHasAUniqueExternalOperation() {
         val expectedOperations = setOf(
+            ExternalActionContract.OPERATION_BACKUP_USER_STATE,
             ExternalActionContract.OPERATION_BACKUP_DEFAULT,
+            ExternalActionContract.OPERATION_RESTORE_SELECTED_BACKUP,
             ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP,
+            ExternalActionContract.OPERATION_UPDATE_BACKUP_METADATA,
             ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST,
             ExternalActionContract.OPERATION_SWITCH_TO_CLONE,
             ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
@@ -265,6 +273,7 @@ class TaskUiStateReducerTest {
             ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE,
             ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK,
             ExternalActionContract.OPERATION_RESTORE_ROLLBACK,
+            ExternalActionContract.OPERATION_DELETE_BACKUP,
             ExternalActionContract.OPERATION_DELETE_SNAPSHOT,
             ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP,
             ExternalActionContract.OPERATION_PROBE_CLONE_CE,

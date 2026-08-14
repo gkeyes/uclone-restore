@@ -912,10 +912,12 @@ fun DialogActionButton(
     onClick: () -> Unit,
     primary: Boolean = false,
     danger: Boolean = false,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     TextButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier
             .heightIn(min = 48.dp)
             .semantics {

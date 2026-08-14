@@ -3,8 +3,11 @@ package com.uclone.restore.external
 import com.uclone.restore.model.TaskType
 
 internal fun taskTypeForOperation(operation: String): TaskType = when (operation) {
+    ExternalActionContract.OPERATION_BACKUP_USER_STATE -> TaskType.BACKUP_USER_STATE
     ExternalActionContract.OPERATION_BACKUP_DEFAULT -> TaskType.CAPTURE_SNAPSHOT_FROM_CLONE
+    ExternalActionContract.OPERATION_RESTORE_SELECTED_BACKUP -> TaskType.RESTORE_SELECTED_BACKUP
     ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP -> TaskType.RESTORE_SNAPSHOT_TO_MAIN
+    ExternalActionContract.OPERATION_UPDATE_BACKUP_METADATA -> TaskType.UPDATE_BACKUP_METADATA
     ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST -> TaskType.RESTORE_FROM_CLONE_LATEST
     ExternalActionContract.OPERATION_SWITCH_OR_RESTORE,
     ExternalActionContract.OPERATION_SWITCH_TO_CLONE,
@@ -14,6 +17,7 @@ internal fun taskTypeForOperation(operation: String): TaskType = when (operation
     ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE -> TaskType.PUSH_MAIN_TO_CLONE
     ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK -> TaskType.RESTORE_CLONE_ROLLBACK_TO_CLONE
     ExternalActionContract.OPERATION_RESTORE_ROLLBACK -> TaskType.ROLLBACK_MAIN_DATA
+    ExternalActionContract.OPERATION_DELETE_BACKUP -> TaskType.DELETE_BACKUP
     ExternalActionContract.OPERATION_DELETE_SNAPSHOT -> TaskType.DELETE_SNAPSHOT
     ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP -> TaskType.DELETE_RESTORE_BACKUP
     ExternalActionContract.OPERATION_PROBE_CLONE_CE -> TaskType.PROBE_CLONE_CE

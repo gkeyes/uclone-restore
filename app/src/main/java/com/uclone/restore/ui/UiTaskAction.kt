@@ -3,8 +3,11 @@ package com.uclone.restore.ui
 import com.uclone.restore.external.ExternalActionContract
 
 internal enum class UiTaskAction(val operation: String) {
+    BACKUP_USER_STATE(ExternalActionContract.OPERATION_BACKUP_USER_STATE),
     CAPTURE(ExternalActionContract.OPERATION_BACKUP_DEFAULT),
+    RESTORE_SELECTED_BACKUP(ExternalActionContract.OPERATION_RESTORE_SELECTED_BACKUP),
     RESTORE_ACTIVE(ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP),
+    UPDATE_BACKUP_METADATA(ExternalActionContract.OPERATION_UPDATE_BACKUP_METADATA),
     RESTORE_CLONE_LATEST(ExternalActionContract.OPERATION_RESTORE_FROM_CLONE_LATEST),
     SWITCH_TO_CLONE(ExternalActionContract.OPERATION_SWITCH_TO_CLONE),
     SWITCH_OR_RESTORE(ExternalActionContract.OPERATION_SWITCH_OR_RESTORE),
@@ -13,6 +16,7 @@ internal enum class UiTaskAction(val operation: String) {
     PUSH_MAIN(ExternalActionContract.OPERATION_PUSH_MAIN_TO_CLONE),
     RESTORE_CLONE_ROLLBACK(ExternalActionContract.OPERATION_RESTORE_LATEST_CLONE_ROLLBACK),
     RESTORE_ROLLBACK(ExternalActionContract.OPERATION_RESTORE_ROLLBACK),
+    DELETE_BACKUP(ExternalActionContract.OPERATION_DELETE_BACKUP),
     DELETE_SNAPSHOT(ExternalActionContract.OPERATION_DELETE_SNAPSHOT),
     DELETE_ROLLBACK(ExternalActionContract.OPERATION_DELETE_RESTORE_BACKUP),
     PROBE_CLONE(ExternalActionContract.OPERATION_PROBE_CLONE_CE),

@@ -171,6 +171,44 @@ data class RestoreBackupEntry(
     val isPersistentStateBackup: Boolean = false,
 )
 
+data class BackupEntry(
+    val packageName: String,
+    val ref: BackupRef,
+    val name: String,
+    val createdAt: Long,
+    val sizeKb: Long?,
+    val sourceUserId: Int?,
+    val capturedFromUserId: Int?,
+    val stateKind: PassiveBackupStateKind?,
+    val typeLabel: String,
+    val path: String,
+    val reason: String,
+    val deleteBlockedReason: String? = null,
+) {
+    val canDelete: Boolean = deleteBlockedReason == null
+}
+
+data class BackupRef(
+    val kind: BackupKind,
+    val id: String,
+) {
+    val stableKey: String = "${kind.wireName}:$id"
+}
+
+enum class BackupKind(val wireName: String) {
+    MANUAL("manual"),
+    ACTIVE("active"),
+    HISTORY("history"),
+    MAIN_ROLLBACK("main_rollback"),
+    CLONE_ROLLBACK("clone_rollback"),
+    ;
+
+    companion object {
+        fun fromWireName(value: String): BackupKind? =
+            entries.firstOrNull { it.wireName == value }
+    }
+}
+
 enum class PassiveBackupStateKind {
     MAIN,
     CLONE,
@@ -230,8 +268,11 @@ enum class RiskLevel {
 }
 
 enum class TaskType {
+    BACKUP_USER_STATE,
     CAPTURE_SNAPSHOT_FROM_CLONE,
+    RESTORE_SELECTED_BACKUP,
     RESTORE_SNAPSHOT_TO_MAIN,
+    UPDATE_BACKUP_METADATA,
     ROLLBACK_MAIN_DATA,
     RESTORE_FROM_CLONE_LATEST,
     SWITCH_TO_CLONE_STATE,
@@ -239,6 +280,7 @@ enum class TaskType {
     RESTORE_CLONE_ROLLBACK_TO_CLONE,
     RESTORE_SWITCH_MAIN_STATE,
     UPDATE_MAIN_RETURN_POINT,
+    DELETE_BACKUP,
     DELETE_SNAPSHOT,
     DELETE_RESTORE_BACKUP,
     PROBE_CLONE_CE,

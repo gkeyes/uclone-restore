@@ -23,8 +23,8 @@ android {
         applicationId = "com.uclone.restore"
         minSdk = 29
         targetSdk = 36
-        versionCode = 26
-        versionName = "0.3.0-rc.2"
+        versionCode = 27
+        versionName = "0.3.0-rc.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

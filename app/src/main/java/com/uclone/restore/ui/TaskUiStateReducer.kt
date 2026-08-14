@@ -44,6 +44,7 @@ internal data class RefreshPolicy(
 ) {
     companion object {
         fun forTask(type: TaskType): RefreshPolicy = when (type) {
+            TaskType.BACKUP_USER_STATE,
             TaskType.CAPTURE_SNAPSHOT_FROM_CLONE,
             TaskType.RESTORE_FROM_CLONE_LATEST,
             TaskType.SWITCH_TO_CLONE_STATE,
@@ -55,6 +56,9 @@ internal data class RefreshPolicy(
                 workspace = true,
                 shortcuts = true,
             )
+            TaskType.RESTORE_SELECTED_BACKUP,
+            TaskType.UPDATE_BACKUP_METADATA,
+            TaskType.DELETE_BACKUP,
             TaskType.RESTORE_SNAPSHOT_TO_MAIN,
             TaskType.ROLLBACK_MAIN_DATA,
             TaskType.UPDATE_MAIN_RETURN_POINT,
@@ -175,6 +179,11 @@ internal object TaskUiStateReducer {
                 reset -> emptyList()
                 workspace != null -> workspace.cloneRollbackBackups
                 else -> state.cloneRollbackBackups
+            },
+            backups = when {
+                reset -> emptyList()
+                workspace != null -> workspace.backups
+                else -> state.backups
             },
             switchRollbackIds = when {
                 reset -> emptyMap()

@@ -8,10 +8,13 @@ import androidx.lifecycle.viewModelScope
 import com.uclone.restore.AppContainer
 import com.uclone.restore.external.ExternalActionService
 import com.uclone.restore.launcher.FavoriteShortcutEntry
+import com.uclone.restore.model.BackupEntry
+import com.uclone.restore.model.BackupKind
 import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskType
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.sync.WorkspaceIndex
 import com.uclone.restore.sync.WorkspaceOwnershipReportParser
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,6 +74,7 @@ class UCloneViewModel(
                                 rollbackIds = state.selectedPackage?.let(workspace::rollbackIds).orEmpty(),
                                 restoreBackups = workspace.restoreBackups,
                                 cloneRollbackBackups = workspace.cloneRollbackBackups,
+                                backups = workspace.backups,
                                 switchRollbackIds = workspace.switchMarkers,
                                 confirmedMainPackages = workspace.confirmedMainPackages,
                                 unknownSwitchPackages = if (workspace.readSucceeded) {
@@ -178,6 +182,52 @@ class UCloneViewModel(
         submitTask(UiTaskAction.RESTORE_CLONE_LATEST, packageName, "正在从分身最新恢复")
     }
 
+    fun backupUserStateSelected(captureUserId: Int, sourceUserId: Int, backupName: String) {
+        val packageName = _state.value.selectedPackage ?: return
+        submitTask(
+            UiTaskAction.BACKUP_USER_STATE,
+            packageName,
+            "正在生成命名备份",
+            captureUserId = captureUserId,
+            sourceUserId = sourceUserId,
+            backupName = backupName,
+        )
+    }
+
+    fun restoreSelectedBackup(packageName: String, backupKind: BackupKind, backupId: String, targetUserId: Int) {
+        _state.update { it.copy(selectedPackage = packageName) }
+        submitTask(
+            UiTaskAction.RESTORE_SELECTED_BACKUP,
+            packageName,
+            "正在恢复选择的备份",
+            backupKind = backupKind,
+            backupId = backupId,
+            targetUserId = targetUserId,
+        )
+    }
+
+    fun updateBackupMetadata(backup: BackupEntry, backupName: String, sourceUserId: Int) {
+        submitTask(
+            UiTaskAction.UPDATE_BACKUP_METADATA,
+            backup.packageName,
+            "正在保存备份信息",
+            backupKind = backup.ref.kind,
+            backupId = backup.ref.id,
+            backupName = backupName,
+            sourceUserId = sourceUserId,
+        )
+    }
+
+    fun deleteBackup(backup: BackupEntry) {
+        submitTask(
+            UiTaskAction.DELETE_BACKUP,
+            backup.packageName,
+            "正在删除备份",
+            backupKind = backup.ref.kind,
+            backupId = backup.ref.id,
+        )
+    }
+
     fun switchToCloneState(packageName: String) {
         _state.update { it.copy(selectedPackage = packageName) }
         submitTask(UiTaskAction.SWITCH_TO_CLONE, packageName, "正在切换到分身态")
@@ -191,6 +241,15 @@ class UCloneViewModel(
     fun pushMainToClone(packageName: String) {
         _state.update { it.copy(selectedPackage = packageName) }
         submitTask(UiTaskAction.PUSH_MAIN, packageName, "正在推送到分身")
+    }
+
+    fun coverMainWithCurrentClone(packageName: String) {
+        _state.update { it.copy(selectedPackage = packageName) }
+        when (_state.value.dataStateFor(packageName)) {
+            AppDataState.Main -> submitTask(UiTaskAction.SWITCH_TO_CLONE, packageName, "正在用当前 user${_state.value.settings.cloneUserId} 覆盖 user${_state.value.settings.mainUserId}")
+            is AppDataState.Clone -> submitTask(UiTaskAction.RESTORE_CLONE_LATEST, packageName, "正在刷新分数据并覆盖 user${_state.value.settings.mainUserId}")
+            AppDataState.Unknown -> _state.update { it.copy(message = "当前 user${_state.value.settings.mainUserId} 数据来源未知，请使用“选择恢复”") }
+        }
     }
 
     fun restoreCloneRollback(packageName: String) {
@@ -378,6 +437,11 @@ class UCloneViewModel(
         rollbackId: String? = null,
         expectedWorkspaceRoot: String? = null,
         targetUserId: Int? = null,
+        sourceUserId: Int? = null,
+        captureUserId: Int? = null,
+        backupKind: BackupKind? = null,
+        backupId: String? = null,
+        backupName: String? = null,
     ) {
         if (_state.value.busy || taskCoordinator.isBusy()) {
             _state.update { it.copy(message = "已有任务正在执行") }
@@ -391,6 +455,11 @@ class UCloneViewModel(
             rollbackId = rollbackId,
             expectedWorkspaceRoot = expectedWorkspaceRoot,
             targetUserId = targetUserId,
+            sourceUserId = sourceUserId,
+            captureUserId = captureUserId,
+            backupKind = backupKind,
+            backupId = backupId,
+            backupName = backupName,
         )
     }
 

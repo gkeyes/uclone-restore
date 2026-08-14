@@ -27,6 +27,48 @@ internal class ExternalActionDispatcher(private val container: AppContainer) {
         settings: UCloneSettings,
         report: (TaskProgress) -> Unit,
     ): TaskRecord = when (request.operation) {
+        ExternalActionContract.OPERATION_BACKUP_USER_STATE ->
+            container.syncEngine.backupUserState(
+                request.packageName,
+                requireNotNull(request.captureUserId) { "缺少实际采集 user" },
+                requireNotNull(request.sourceUserId) { "缺少来源 user" },
+                requireNotNull(request.backupName) { "缺少备份备注" },
+                ruleFor(request.packageName, settings),
+                settings,
+                report,
+                request.requestId,
+            )
+        ExternalActionContract.OPERATION_RESTORE_SELECTED_BACKUP ->
+            container.syncEngine.restoreSelectedBackup(
+                request.packageName,
+                requireNotNull(request.backupKind) { "缺少备份类型" },
+                requireNotNull(request.backupId) { "缺少备份 ID" },
+                requireNotNull(request.targetUserId) { "缺少恢复目标 user" },
+                ruleFor(request.packageName, settings),
+                settings,
+                report,
+                request.requestId,
+            )
+        ExternalActionContract.OPERATION_UPDATE_BACKUP_METADATA ->
+            container.syncEngine.updateBackupMetadata(
+                request.packageName,
+                requireNotNull(request.backupKind) { "缺少备份类型" },
+                requireNotNull(request.backupId) { "缺少备份 ID" },
+                requireNotNull(request.backupName) { "缺少备份备注" },
+                requireNotNull(request.sourceUserId) { "缺少来源 user" },
+                settings,
+                report,
+                request.requestId,
+            )
+        ExternalActionContract.OPERATION_DELETE_BACKUP ->
+            container.syncEngine.deleteBackup(
+                request.packageName,
+                requireNotNull(request.backupKind) { "缺少备份类型" },
+                requireNotNull(request.backupId) { "缺少备份 ID" },
+                settings,
+                report,
+                request.requestId,
+            )
         ExternalActionContract.OPERATION_BACKUP_DEFAULT ->
             container.syncEngine.captureSnapshot(request.packageName, ruleFor(request.packageName, settings), settings, report, request.requestId)
         ExternalActionContract.OPERATION_RESTORE_LATEST_BACKUP ->

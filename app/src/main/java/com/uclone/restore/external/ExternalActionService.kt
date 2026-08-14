@@ -9,6 +9,7 @@ import android.os.IBinder
 import android.util.Log
 import com.uclone.restore.UCloneApplication
 import com.uclone.restore.model.StepStatus
+import com.uclone.restore.model.BackupKind
 import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import java.util.UUID
@@ -201,6 +202,11 @@ class ExternalActionService : Service() {
         .putExtra(ExternalActionContract.EXTRA_ROLLBACK_ID, rollbackId)
         .putExtra(ExternalActionContract.EXTRA_EXPECTED_WORKSPACE_ROOT, expectedWorkspaceRoot)
         .apply { targetUserId?.let { putExtra(ExternalActionContract.EXTRA_TARGET_USER_ID, it) } }
+        .apply { sourceUserId?.let { putExtra(ExternalActionContract.EXTRA_SOURCE_USER_ID, it) } }
+        .apply { captureUserId?.let { putExtra(ExternalActionContract.EXTRA_CAPTURE_USER_ID, it) } }
+        .apply { backupKind?.let { putExtra(ExternalActionContract.EXTRA_BACKUP_KIND, it.wireName) } }
+        .putExtra(ExternalActionContract.EXTRA_BACKUP_ID, backupId)
+        .putExtra(ExternalActionContract.EXTRA_BACKUP_NAME, backupName)
         .putExtra(ExternalActionContract.EXTRA_INTERNAL_TOKEN, internalToken)
 
     companion object {
@@ -226,6 +232,11 @@ class ExternalActionService : Service() {
             rollbackId: String? = null,
             expectedWorkspaceRoot: String? = null,
             targetUserId: Int? = null,
+            sourceUserId: Int? = null,
+            captureUserId: Int? = null,
+            backupKind: BackupKind? = null,
+            backupId: String? = null,
+            backupName: String? = null,
         ) {
             start(
                 context,
@@ -238,6 +249,11 @@ class ExternalActionService : Service() {
                     .putExtra(ExternalActionContract.EXTRA_ROLLBACK_ID, rollbackId)
                     .putExtra(ExternalActionContract.EXTRA_EXPECTED_WORKSPACE_ROOT, expectedWorkspaceRoot)
                     .apply { targetUserId?.let { putExtra(ExternalActionContract.EXTRA_TARGET_USER_ID, it) } }
+                    .apply { sourceUserId?.let { putExtra(ExternalActionContract.EXTRA_SOURCE_USER_ID, it) } }
+                    .apply { captureUserId?.let { putExtra(ExternalActionContract.EXTRA_CAPTURE_USER_ID, it) } }
+                    .apply { backupKind?.let { putExtra(ExternalActionContract.EXTRA_BACKUP_KIND, it.wireName) } }
+                    .putExtra(ExternalActionContract.EXTRA_BACKUP_ID, backupId)
+                    .putExtra(ExternalActionContract.EXTRA_BACKUP_NAME, backupName)
                     .putExtra(
                         ExternalActionContract.EXTRA_INTERNAL_TOKEN,
                         (context.applicationContext as UCloneApplication).container.internalRequestToken,
