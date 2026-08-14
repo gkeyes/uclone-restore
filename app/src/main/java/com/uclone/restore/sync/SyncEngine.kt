@@ -484,7 +484,7 @@ class SyncEngine(
         loadWorkspaceIndex(settings).dataState(packageName)
 
     suspend fun loadWorkspaceIndex(settings: UCloneSettings): WorkspaceIndex {
-        val result = shell.exec(workspaceIndexScript(settings.rootDir), 60)
+        val result = shell.exec(workspaceIndexScript(settings.rootDir, settings.mainUserId, settings.cloneUserId), 60)
         if (!result.isSuccess || result.outputTruncated) return WorkspaceIndex(readSucceeded = false)
         return WorkspaceIndexParser.parse(result.stdout)
     }

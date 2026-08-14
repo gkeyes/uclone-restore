@@ -198,7 +198,11 @@ internal object WorkspaceIndexParser {
     }
 }
 
-internal fun workspaceIndexScript(rootDir: String): String = """
+internal fun workspaceIndexScript(
+    rootDir: String,
+    mainUserId: Int = 0,
+    cloneUserId: Int = 10,
+): String = """
     ROOT=${shellQuote(rootDir)}
     SNAPSHOT_ROOT="${'$'}ROOT/snapshots"
     SWITCH_ROOT="${'$'}ROOT/switches"
@@ -332,7 +336,7 @@ internal fun workspaceIndexScript(rootDir: String): String = """
         size=${'$'}(sed -n 's/.*"snapshotSizeKb":"\([0-9][0-9]*\)".*/\1/p' "${'$'}f" | head -1)
         [ -n "${'$'}size" ] || size=${'$'}(du -sk "${'$'}(dirname "${'$'}f")" 2>/dev/null | awk '{print ${'$'}1}')
         printf 'SNAPSHOT\t%s\t%s\t%s\n' "${'$'}pkg" "${'$'}ts" "${'$'}size"
-        emit_backup active "${'$'}pkg" active "${'$'}(dirname "${'$'}f")" "active 主动快照" "active 主动快照" "主动备份" "${settings.cloneUserId}" "${settings.cloneUserId}" CLONE ""
+        emit_backup active "${'$'}pkg" active "${'$'}(dirname "${'$'}f")" "active 主动快照" "active 主动快照" "主动备份" "$cloneUserId" "$cloneUserId" CLONE ""
       done
       for d in "${'$'}SNAPSHOT_ROOT"/*/history/*; do
         [ -d "${'$'}d" ] && [ ! -L "${'$'}d" ] || continue
@@ -340,7 +344,7 @@ internal fun workspaceIndexScript(rootDir: String): String = """
         pkg=${'$'}(basename "${'$'}(dirname "${'$'}(dirname "${'$'}d")")")
         id=${'$'}(basename "${'$'}d")
         case "${'$'}id" in ''|.|..|*[!A-Za-z0-9_.-]*) continue ;; esac
-        emit_backup history "${'$'}pkg" "${'$'}id" "${'$'}d" "历史主动快照" "history ${'$'}id" "历史主动备份" "${settings.cloneUserId}" "${settings.cloneUserId}" CLONE ""
+        emit_backup history "${'$'}pkg" "${'$'}id" "${'$'}d" "历史主动快照" "history ${'$'}id" "历史主动备份" "$cloneUserId" "$cloneUserId" CLONE ""
       done
       for d in "${'$'}SNAPSHOT_ROOT"/*/manual/*; do
         [ -d "${'$'}d" ] && [ ! -L "${'$'}d" ] || continue
@@ -397,7 +401,7 @@ internal fun workspaceIndexScript(rootDir: String): String = """
            [ "${'$'}(sed -n '1p' "${'$'}SWITCH_ROOT/${'$'}pkg/active" | tr -d '\r')" = "${'$'}id" ]; then
           blocked="当前 CLONE 状态依赖的 MAIN 返回点"
         fi
-        emit_backup main_rollback "${'$'}pkg" "${'$'}id" "${'$'}d" "主系统侧备份" "${'$'}reason" "${'$'}reason" "${settings.mainUserId}" "${settings.mainUserId}" "${'$'}state_kind" "${'$'}blocked"
+        emit_backup main_rollback "${'$'}pkg" "${'$'}id" "${'$'}d" "主系统侧备份" "${'$'}reason" "${'$'}reason" "$mainUserId" "$mainUserId" "${'$'}state_kind" "${'$'}blocked"
       done
     fi
 
@@ -418,7 +422,7 @@ internal fun workspaceIndexScript(rootDir: String): String = """
         pkg=${'$'}(basename "${'$'}(dirname "${'$'}d")")
         id=${'$'}(basename "${'$'}d")
         case "${'$'}id" in ''|.|..|*[!A-Za-z0-9_.-]*) continue ;; esac
-        emit_backup clone_rollback "${'$'}pkg" "${'$'}id" "${'$'}d" "分身侧回滚" "分身回滚 ${'$'}id" "分身回滚" "${settings.cloneUserId}" "${settings.cloneUserId}" CLONE ""
+        emit_backup clone_rollback "${'$'}pkg" "${'$'}id" "${'$'}d" "分身侧回滚" "分身回滚 ${'$'}id" "分身回滚" "$cloneUserId" "$cloneUserId" CLONE ""
       done
     fi
 

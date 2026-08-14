@@ -14,6 +14,7 @@ import com.uclone.restore.model.CrossUserInstallMode
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskType
 import com.uclone.restore.model.UCloneSettings
+import com.uclone.restore.sync.AppDataState
 import com.uclone.restore.sync.WorkspaceIndex
 import com.uclone.restore.sync.WorkspaceOwnershipReportParser
 import kotlinx.coroutines.flow.MutableStateFlow
