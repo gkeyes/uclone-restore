@@ -87,6 +87,11 @@ import kotlinx.coroutines.withContext
 internal val LocalBottomBarContentPadding = staticCompositionLocalOf { 16.dp }
 internal val LocalTopBarContentPadding = staticCompositionLocalOf { 16.dp }
 
+enum class ToolRowActionVariant {
+    Auto,
+    Pill,
+}
+
 @Composable
 internal fun useStackedLayoutForLargeText(): Boolean = LocalDensity.current.fontScale >= 1.3f
 
@@ -614,6 +619,7 @@ fun ToolRow(
     enabled: Boolean = true,
     primary: Boolean = false,
     danger: Boolean = false,
+    actionVariant: ToolRowActionVariant = ToolRowActionVariant.Auto,
     showDivider: Boolean = true,
 ) {
     val largeText = useStackedLayoutForLargeText()
@@ -640,6 +646,7 @@ fun ToolRow(
                         enabled = enabled,
                         primary = primary,
                         danger = danger,
+                        variant = actionVariant,
                     )
                 }
             }
@@ -660,6 +667,7 @@ fun ToolRow(
                     enabled = enabled,
                     primary = primary,
                     danger = danger,
+                    variant = actionVariant,
                 )
             }
         }
@@ -711,8 +719,18 @@ private fun ToolRowAction(
     enabled: Boolean,
     primary: Boolean,
     danger: Boolean,
+    variant: ToolRowActionVariant,
 ) {
-    if (primary) {
+    if (variant == ToolRowActionVariant.Pill) {
+        CompactActionButton(
+            text = actionLabel,
+            onClick = onClick,
+            enabled = enabled,
+            primary = primary && !danger,
+            danger = danger,
+            modifier = Modifier.width(72.dp),
+        )
+    } else if (primary) {
         CompactActionButton(
             text = actionLabel,
             onClick = onClick,

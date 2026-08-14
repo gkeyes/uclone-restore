@@ -14,14 +14,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -156,6 +154,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 icon = Icons.Default.CloudDownload,
                 onClick = { backupDialog = BackupDialogKind.MAIN },
                 primary = true,
+                actionVariant = ToolRowActionVariant.Pill,
             )
             ToolRow(
                 title = "备份分系统",
@@ -163,6 +162,8 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 actionLabel = "备份",
                 icon = Icons.Default.CloudDownload,
                 onClick = { backupDialog = BackupDialogKind.CLONE },
+                primary = true,
+                actionVariant = ToolRowActionVariant.Pill,
                 showDivider = false,
             )
         }
@@ -175,6 +176,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 enabled = state.selectedBackups.isNotEmpty(),
                 onClick = { showRestorePicker = true },
                 primary = true,
+                actionVariant = ToolRowActionVariant.Pill,
             )
             ToolRow(
                 title = "当前 user${state.settings.mainUserId} 覆盖 user${state.settings.cloneUserId}",
@@ -182,6 +184,8 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 actionLabel = "覆盖",
                 icon = Icons.Default.Sync,
                 onClick = { confirm = ConfirmAction.PUSH_MAIN },
+                danger = true,
+                actionVariant = ToolRowActionVariant.Pill,
             )
             ToolRow(
                 title = "当前 user${state.settings.cloneUserId} 覆盖 user${state.settings.mainUserId}",
@@ -194,6 +198,8 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 icon = Icons.Default.Sync,
                 enabled = state.selectedDataState != AppDataState.Unknown,
                 onClick = { confirm = ConfirmAction.COVER_MAIN_WITH_CLONE },
+                danger = true,
+                actionVariant = ToolRowActionVariant.Pill,
                 showDivider = false,
             )
         }
@@ -507,48 +513,13 @@ private fun BackupEntryRow(
     onDelete: () -> Unit,
     showDivider: Boolean,
 ) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(backup.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "${backup.typeLabel} · 来源 ${backup.sourceUserLabel()} · 实采 ${backup.capturedUserLabel()}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = stateKindColor(backup.stateKind),
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "${Formatters.kilobytes(backup.sizeKb)} · ${Formatters.time(backup.createdAt)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                backup.deleteBlockedReason?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.ucloneColors.warning)
-                }
-            }
-            if (!useStackedLayoutForLargeText()) {
-                InlineActionButton("编辑", onEdit, icon = Icons.Default.Edit)
-                InlineActionButton("恢复", onRestore, icon = Icons.Default.RestartAlt)
-                InlineActionButton("删除", onDelete, enabled = backup.canDelete, danger = true, icon = Icons.Default.Delete)
-            }
-        }
-        if (useStackedLayoutForLargeText()) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                InlineActionButton("编辑", onEdit, icon = Icons.Default.Edit)
-                InlineActionButton("恢复", onRestore, icon = Icons.Default.RestartAlt)
-                InlineActionButton("删除", onDelete, enabled = backup.canDelete, danger = true, icon = Icons.Default.Delete)
-            }
-        }
-        if (showDivider) {
-            HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f))
-        }
-    }
+    BackupEntryActionRow(
+        backup = backup,
+        onEdit = onEdit,
+        onRestore = onRestore,
+        onDelete = onDelete,
+        showDivider = showDivider,
+    )
 }
 
 @Composable
