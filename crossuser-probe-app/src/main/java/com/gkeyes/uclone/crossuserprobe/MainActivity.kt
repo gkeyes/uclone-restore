@@ -1,15 +1,16 @@
 package com.gkeyes.uclone.crossuserprobe
 
-import android.app.Activity
+import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import android.graphics.Color
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private lateinit var content: LinearLayout
     private var touchCount = 0
     private var backCount = 0
@@ -23,12 +24,12 @@ class MainActivity : Activity() {
         setContentView(ScrollView(this).apply { addView(content) })
         ProbeIdentity.ensureMarker(this, StorageKind.CE)
         ProbeIdentity.ensureMarker(this, StorageKind.DE)
-        render()
-    }
-
-    @Deprecated("Probe deliberately intercepts Back so display-scoped injection is visible")
-    override fun onBackPressed() {
-        backCount += 1
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                backCount += 1
+                render()
+            }
+        })
         render()
     }
 

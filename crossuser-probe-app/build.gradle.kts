@@ -57,6 +57,7 @@ android {
 }
 
 dependencies {
+    implementation("androidx.activity:activity:1.13.0")
     testImplementation(kotlin("test"))
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
