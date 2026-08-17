@@ -60,7 +60,12 @@ internal class AndroidInputInjector(context: Context) : CrossUserInputInjector {
     }
 
     private fun InputEvent.useInjected(displayId: Int): Boolean = try {
-        source = if (this is MotionEvent) InputDevice.SOURCE_TOUCHSCREEN else InputDevice.SOURCE_KEYBOARD
+        InputEvent::class.java.getDeclaredMethod("setSource", Int::class.javaPrimitiveType).apply {
+            isAccessible = true
+        }.invoke(
+            this,
+            if (this is MotionEvent) InputDevice.SOURCE_TOUCHSCREEN else InputDevice.SOURCE_KEYBOARD,
+        )
         InputEvent::class.java.getDeclaredMethod("setDisplayId", Int::class.javaPrimitiveType).apply {
             isAccessible = true
         }.invoke(this, displayId)
