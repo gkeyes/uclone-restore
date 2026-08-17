@@ -51,7 +51,10 @@ internal class ProcessCrossUserCommandExecutor : CrossUserCommandExecutor {
     }
 
     private companion object {
-        const val MAX_CAPTURE_CHARS = 32 * 1024
+        // `dumpsys user` places UserVisibilityMediator near the start of a
+        // device-dependent report, so retain enough output to verify the
+        // live mediator instead of trusting only the property-facing command.
+        const val MAX_CAPTURE_CHARS = 256 * 1024
     }
 }
 
@@ -90,11 +93,12 @@ internal class ShellFrameworkAdapter(
             listOf(CMD, "user", "is-visible-background-users-supported", "-v"),
             PROBE_TIMEOUT_SECONDS,
         )
+        val userService = commands.run(listOf(DUMPSYS, "user"), PROBE_TIMEOUT_SECONDS)
         val help = commands.run(listOf(AM, "help"), PROBE_TIMEOUT_SECONDS)
         val enforcingResult = commands.run(listOf(GETENFORCE), PROBE_TIMEOUT_SECONDS)
         val contextResult = commands.run(listOf(CAT, "/proc/self/attr/current"), PROBE_TIMEOUT_SECONDS)
 
-        val visibleStatus = booleanStatus(visible)
+        val visibleStatus = visibleBackgroundUsersStatus(visible, userService)
         val startCommandStatus = if (
             help.exitCode == 0 &&
             help.combined.contains("start-user") &&
@@ -119,7 +123,10 @@ internal class ShellFrameworkAdapter(
                 "visible_background_users_runtime",
                 visibleStatus,
                 if (visibleStatus == CrossUserProtocol.STATUS_SUPPORTED) "VISIBLE_USERS_TRUE" else "VISIBLE_USERS_NOT_CONFIRMED",
-                visible.combined.ifBlank { "No visible-user capability response" },
+                listOf(visible.combined, userService.visibleMediatorSummary())
+                    .filter(String::isNotBlank)
+                    .joinToString("; ")
+                    .ifBlank { "No visible-user capability response" },
             ),
             capability(
                 "start_user_visible_api_callable",
@@ -161,15 +168,20 @@ internal class ShellFrameworkAdapter(
             listOf(CMD, "user", "is-visible-background-users-supported", "-v"),
             PROBE_TIMEOUT_SECONDS,
         )
-        if (booleanStatus(visibleSupport) != CrossUserProtocol.STATUS_SUPPORTED) {
+        val userService = commands.run(listOf(DUMPSYS, "user"), PROBE_TIMEOUT_SECONDS)
+        val visibleStatus = visibleBackgroundUsersStatus(visibleSupport, userService)
+        if (visibleStatus != CrossUserProtocol.STATUS_SUPPORTED) {
             throw FrameworkCallException(
                 CrossUserRuntimeErrors.FEATURE_VISIBLE_USERS_DISABLED,
-                if (booleanStatus(visibleSupport) == CrossUserProtocol.STATUS_UNSUPPORTED) {
+                if (visibleStatus == CrossUserProtocol.STATUS_UNSUPPORTED) {
                     CrossUserProtocol.STATUS_UNSUPPORTED
                 } else {
                     CrossUserProtocol.STATUS_UNKNOWN
                 },
-                "Visible background users are not confirmed: ${visibleSupport.combined}",
+                "Visible background users are not active in Framework: " +
+                    listOf(visibleSupport.combined, userService.visibleMediatorSummary())
+                        .filter(String::isNotBlank)
+                        .joinToString("; "),
             )
         }
         val eligibleDisplays = commands.run(
@@ -334,11 +346,32 @@ internal class ShellFrameworkAdapter(
     }
 
     private fun booleanStatus(result: CrossUserCommandResult): String {
-        val normalized = result.combined.lowercase()
+        val normalized = result.combined.trim().lowercase()
+        val effective = Regex("(?:^|\\s)effective\\s*=\\s*(true|false)(?:\\s|$)")
+            .find(normalized)
+            ?.groupValues
+            ?.get(1)
         return when {
             result.exitCode != 0 -> CrossUserProtocol.STATUS_UNKNOWN
-            Regex("(^|\\W)true(\\W|$)").containsMatchIn(normalized) -> CrossUserProtocol.STATUS_SUPPORTED
-            Regex("(^|\\W)false(\\W|$)").containsMatchIn(normalized) -> CrossUserProtocol.STATUS_UNSUPPORTED
+            effective == "true" -> CrossUserProtocol.STATUS_SUPPORTED
+            effective == "false" -> CrossUserProtocol.STATUS_UNSUPPORTED
+            normalized == "true" -> CrossUserProtocol.STATUS_SUPPORTED
+            normalized == "false" -> CrossUserProtocol.STATUS_UNSUPPORTED
+            else -> CrossUserProtocol.STATUS_UNKNOWN
+        }
+    }
+
+    private fun visibleBackgroundUsersStatus(
+        commandResult: CrossUserCommandResult,
+        userServiceResult: CrossUserCommandResult,
+    ): String {
+        val commandStatus = booleanStatus(commandResult)
+        val mediatorStatus = userServiceResult.visibleMediatorStatus()
+        return when {
+            commandStatus == CrossUserProtocol.STATUS_SUPPORTED &&
+                mediatorStatus == CrossUserProtocol.STATUS_SUPPORTED -> CrossUserProtocol.STATUS_SUPPORTED
+            commandStatus == CrossUserProtocol.STATUS_UNSUPPORTED ||
+                mediatorStatus == CrossUserProtocol.STATUS_UNSUPPORTED -> CrossUserProtocol.STATUS_UNSUPPORTED
             else -> CrossUserProtocol.STATUS_UNKNOWN
         }
     }
@@ -381,6 +414,7 @@ internal class ShellFrameworkAdapter(
         const val AM = "/system/bin/am"
         const val CMD = "/system/bin/cmd"
         const val PM = "/system/bin/pm"
+        const val DUMPSYS = "/system/bin/dumpsys"
         const val GETENFORCE = "/system/bin/getenforce"
         const val CAT = "/system/bin/cat"
         const val PROBE_TIMEOUT_SECONDS = 15L
@@ -388,3 +422,22 @@ internal class ShellFrameworkAdapter(
         const val USER_TIMEOUT_SECONDS = 90L
     }
 }
+
+private fun CrossUserCommandResult.visibleMediatorStatus(): String {
+    if (exitCode != 0) return CrossUserProtocol.STATUS_UNKNOWN
+    val value = Regex(
+        "(?m)^\\s*Supports visible background users on displays:\\s*(true|false)\\s*$",
+        RegexOption.IGNORE_CASE,
+    ).find(combined)?.groupValues?.get(1)?.lowercase()
+    return when (value) {
+        "true" -> CrossUserProtocol.STATUS_SUPPORTED
+        "false" -> CrossUserProtocol.STATUS_UNSUPPORTED
+        else -> CrossUserProtocol.STATUS_UNKNOWN
+    }
+}
+
+private fun CrossUserCommandResult.visibleMediatorSummary(): String =
+    combined.lineSequence()
+        .firstOrNull { it.contains("Supports visible background users on displays:", ignoreCase = true) }
+        ?.trim()
+        .orEmpty()

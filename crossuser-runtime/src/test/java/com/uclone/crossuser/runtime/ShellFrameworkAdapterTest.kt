@@ -22,6 +22,7 @@ class ShellFrameworkAdapterTest {
         val executor = FakeCommands { args ->
             when {
                 args.contains("is-visible-background-users-supported") -> result("not reported")
+                args.firstOrNull()?.endsWith("/dumpsys") == true -> result(visibleMediator(true))
                 args.last() == "help" -> result("start-user [-w] [--display DISPLAY_ID] --user --display")
                 args.last() == "/proc/self/attr/current" -> result("u:r:su:s0")
                 else -> result("Enforcing")
@@ -40,11 +41,36 @@ class ShellFrameworkAdapterTest {
     }
 
     @Test
+    fun propertyOverrideIsNotActiveUntilFrameworkMediatorReportsTrue() {
+        val executor = FakeCommands { args ->
+            when {
+                args.contains("is-visible-background-users-supported") ->
+                    result("effective=true real=false")
+                args.firstOrNull()?.endsWith("/dumpsys") == true -> result(visibleMediator(false))
+                args.last() == "help" -> result("start-user [-w] [--display DISPLAY_ID] --user --display")
+                args.last() == "/proc/self/attr/current" -> result("u:r:ksu:s0")
+                else -> result("Enforcing")
+            }
+        }
+
+        val report = ShellFrameworkAdapter(
+            commands = executor,
+            rootUidProvider = { 0 },
+        ).probe(CrossUserProbeRequest(mainUserId = 0, targetUserId = 10))
+
+        assertEquals(
+            CrossUserProtocol.STATUS_UNSUPPORTED,
+            report.statusOf("visible_background_users_runtime"),
+        )
+    }
+
+    @Test
     fun startRequiresCurrentUserToRemainUser0() {
         var currentCalls = 0
         val executor = FakeCommands { args ->
             when {
                 args.contains("is-visible-background-users-supported") -> result("true")
+                args.firstOrNull()?.endsWith("/dumpsys") == true -> result(visibleMediator(true))
                 args.contains("list-displays-for-starting-users") -> result("[1, 42]")
                 args.contains("get-current-user") -> {
                     currentCalls += 1
@@ -95,10 +121,30 @@ class ShellFrameworkAdapterTest {
     }
 
     @Test
+    fun unappliedPropertyOverrideFailsBeforeAnyUserMutation() {
+        val executor = FakeCommands { args ->
+            when {
+                args.contains("is-visible-background-users-supported") ->
+                    result("effective=true real=false")
+                args.firstOrNull()?.endsWith("/dumpsys") == true -> result(visibleMediator(false))
+                else -> result("")
+            }
+        }
+
+        val failure = assertFailsWith<FrameworkCallException> {
+            ShellFrameworkAdapter(executor).startVisibleUserAndLaunch(validConfig(), 42)
+        }
+
+        assertEquals(CrossUserRuntimeErrors.FEATURE_VISIBLE_USERS_DISABLED, failure.errorCode)
+        assertTrue(executor.calls.none { it.contains("start-user") })
+    }
+
+    @Test
     fun ineligibleDisplayFailsBeforeAnyUserMutation() {
         val executor = FakeCommands { args ->
             when {
                 args.contains("is-visible-background-users-supported") -> result("true")
+                args.firstOrNull()?.endsWith("/dumpsys") == true -> result(visibleMediator(true))
                 args.contains("list-displays-for-starting-users") -> result("[1, 4]")
                 else -> result("")
             }
@@ -118,6 +164,7 @@ class ShellFrameworkAdapterTest {
         val executor = FakeCommands { args ->
             when {
                 args.contains("is-visible-background-users-supported") -> result("true")
+                args.firstOrNull()?.endsWith("/dumpsys") == true -> result(visibleMediator(true))
                 args.contains("list-displays-for-starting-users") -> result("[1, 4]")
                 args.contains("get-current-user") -> result("0")
                 args.firstOrNull()?.endsWith("/pm") == true -> result("package:/data/app/probe/base.apk")
@@ -155,6 +202,9 @@ class ShellFrameworkAdapterTest {
     )
 
     private fun result(stdout: String, exit: Int = 0) = CrossUserCommandResult(exit, stdout, "")
+
+    private fun visibleMediator(supported: Boolean) =
+        "Supports visible background users on displays: $supported"
 
     private class FakeCommands(
         private val responder: (List<String>) -> CrossUserCommandResult,

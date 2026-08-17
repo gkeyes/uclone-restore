@@ -4,6 +4,7 @@ import com.uclone.crossuser.api.CrossUserCapabilityEntry
 import com.uclone.crossuser.api.CrossUserCapabilityReport
 import com.uclone.crossuser.api.CrossUserProtocol
 import com.uclone.crossuser.runtime.CrossUserRuntimeErrors
+import com.uclone.restore.crossuser.ui.CrossUserOpenAttemptGate
 import com.uclone.restore.crossuser.ui.previewDecision
 import com.uclone.restore.crossuser.ui.weChatSessionConfig
 import kotlin.test.Test
@@ -36,6 +37,17 @@ class CrossUserPreviewDecisionTest {
         assertTrue(previewDecision(report(CrossUserProtocol.STATUS_SUPPORTED)).canOpen)
         assertFalse(previewDecision(report(CrossUserProtocol.STATUS_SUPPORTED, rootUid = 2000)).canOpen)
         assertFalse(previewDecision(report(CrossUserProtocol.STATUS_SUPPORTED, enforcing = false)).canOpen)
+    }
+
+    @Test
+    fun failedAutomaticOpenRequiresAnExplicitRetry() {
+        val gate = CrossUserOpenAttemptGate()
+
+        assertTrue(gate.allow(manualRetry = false))
+        gate.requireManualRetry()
+        assertFalse(gate.allow(manualRetry = false))
+        assertTrue(gate.allow(manualRetry = true))
+        assertTrue(gate.allow(manualRetry = false))
     }
 
     private fun report(

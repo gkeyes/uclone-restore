@@ -4,7 +4,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.Surface
 import androidx.core.content.ContextCompat
 import com.topjohnwu.superuser.ipc.RootService
@@ -35,8 +37,10 @@ class BridgeOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
     private val journal = CrossUserSessionJournal(appContext)
     private val operationMutex = Mutex()
     private val monitor = Any()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var binding: BridgeBinding? = null
     private var active: ClientSession? = null
+    private var pendingIdleUnbind: Runnable? = null
 
     override suspend fun probe(request: CrossUserProbeRequest): CrossUserCapabilityReport =
         operationMutex.withLock {
@@ -45,7 +49,10 @@ class BridgeOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
                 recoverStaleSessionIfNeeded(bridge)
                 withContext(Dispatchers.IO) { bridge.probe(request) }
             } finally {
-                releaseBridgeIfIdle()
+                // createSession follows a successful Host probe immediately.
+                // Delay the idle unbind so both calls use one live RootService,
+                // while a probe-only flow still releases root deterministically.
+                scheduleBridgeReleaseIfIdle()
             }
         }
 
@@ -216,6 +223,7 @@ class BridgeOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
         }
 
     private suspend fun requireBridge(): ICrossUserBridge {
+        cancelScheduledBridgeRelease()
         synchronized(monitor) { binding?.bridge }?.let { return it }
         val connection = BridgeServiceConnection()
         val intent = Intent(appContext, CrossUserRootService::class.java)
@@ -249,6 +257,7 @@ class BridgeOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
     }
 
     private suspend fun releaseBridgeIfIdle() {
+        cancelScheduledBridgeRelease()
         val current = synchronized(monitor) {
             if (active != null) null else binding.also { binding = null }
         } ?: return
@@ -260,6 +269,29 @@ class BridgeOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
         withContext(Dispatchers.Main.immediate) {
             runCatching { RootService.unbind(connection) }
         }
+    }
+
+    private fun scheduleBridgeReleaseIfIdle() {
+        val task = Runnable {
+            val current = synchronized(monitor) {
+                pendingIdleUnbind = null
+                if (active != null) null else binding.also { binding = null }
+            } ?: return@Runnable
+            current.connection.intentionalDisconnect = true
+            runCatching { RootService.unbind(current.connection) }
+        }
+        val previous = synchronized(monitor) {
+            pendingIdleUnbind.also { pendingIdleUnbind = task }
+        }
+        previous?.let(mainHandler::removeCallbacks)
+        mainHandler.postDelayed(task, IDLE_UNBIND_DELAY_MILLIS)
+    }
+
+    private fun cancelScheduledBridgeRelease() {
+        val pending = synchronized(monitor) {
+            pendingIdleUnbind.also { pendingIdleUnbind = null }
+        }
+        pending?.let(mainHandler::removeCallbacks)
     }
 
     private fun onBridgeDied(connection: BridgeServiceConnection) {
@@ -316,5 +348,6 @@ class BridgeOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
 
     private companion object {
         const val BIND_TIMEOUT_MILLIS = 30_000L
+        const val IDLE_UNBIND_DELAY_MILLIS = 10_000L
     }
 }

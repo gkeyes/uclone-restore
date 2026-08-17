@@ -54,6 +54,7 @@ class CrossUserHostActivity : ComponentActivity() {
     private var sessionId: String? = null
     private var opening = false
     private var latestSurface: Surface? = null
+    private val openAttemptGate = CrossUserOpenAttemptGate()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,10 +71,19 @@ class CrossUserHostActivity : ComponentActivity() {
                     state = uiState,
                     onClose = { closeAndFinish(CLOSE_REASON_USER) },
                     onRetry = {
-                        latestSurface?.let { openOrReplace(it, uiState.surfaceWidth, uiState.surfaceHeight) }
+                        latestSurface?.let {
+                            openOrReplace(
+                                it,
+                                uiState.surfaceWidth,
+                                uiState.surfaceHeight,
+                                manualRetry = true,
+                            )
+                        }
                     },
                     onBack = ::injectBack,
-                    onSurfaceChanged = ::openOrReplace,
+                    onSurfaceChanged = { surface, width, height ->
+                        openOrReplace(surface, width, height)
+                    },
                     onSurfaceDestroyed = ::onSurfaceDestroyed,
                     onTouch = ::onTouch,
                 )
@@ -89,7 +99,12 @@ class CrossUserHostActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun openOrReplace(surface: Surface, width: Int, height: Int) {
+    private fun openOrReplace(
+        surface: Surface,
+        width: Int,
+        height: Int,
+        manualRetry: Boolean = false,
+    ) {
         latestSurface = surface
         uiState = uiState.copy(surfaceWidth = width, surfaceHeight = height)
         if (!surface.isValid || opening) return
@@ -110,6 +125,7 @@ class CrossUserHostActivity : ComponentActivity() {
             }
             return
         }
+        if (!openAttemptGate.allow(manualRetry)) return
         opening = true
         uiState = uiState.copy(stage = "正在检查设备能力", errorCode = null, detail = "")
         lifecycleScope.launch {
@@ -131,7 +147,10 @@ class CrossUserHostActivity : ComponentActivity() {
             }.onSuccess { state ->
                 sessionId = state.sessionId
                 updateState(state)
-            }.onFailure(::showFailure)
+            }.onFailure { error ->
+                openAttemptGate.requireManualRetry()
+                showFailure(error)
+            }
             opening = false
         }
     }
@@ -268,6 +287,19 @@ internal data class CrossUserPreviewDecision(
     val errorCode: String?,
     val message: String,
 )
+
+internal class CrossUserOpenAttemptGate {
+    private var manualRetryRequired = false
+
+    fun allow(manualRetry: Boolean): Boolean {
+        if (manualRetry) manualRetryRequired = false
+        return !manualRetryRequired
+    }
+
+    fun requireManualRetry() {
+        manualRetryRequired = true
+    }
+}
 
 internal fun previewDecision(report: CrossUserCapabilityReport): CrossUserPreviewDecision {
     val capability = report.capabilities.firstOrNull {
