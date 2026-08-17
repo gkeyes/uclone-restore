@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "UCloneRestore"
 include(":app")
 include(":launcher-module")
+include(":crossuser-probe-app")

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UClone CrossUser Runtime L0 Manifest",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "startedAt",
+    "mode",
+    "repoCommit",
+    "deviceSerialHash",
+    "mainUser",
+    "targetUser",
+    "probePackage",
+    "result"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "startedAt": { "type": "string" },
+    "finishedAt": { "type": "string" },
+    "mode": { "const": "L0_READ_ONLY" },
+    "repoCommit": { "type": "string" },
+    "dirtyWorktree": { "type": "string" },
+    "deviceSerialHash": { "type": "string" },
+    "buildFingerprint": { "type": "string" },
+    "sdkInt": { "type": "string" },
+    "selinuxMode": { "type": "string" },
+    "currentUser": { "type": "string" },
+    "mainUser": { "type": "string" },
+    "targetUser": { "type": "string" },
+    "probePackage": { "type": "string" },
+    "result": { "enum": ["COLLECTED_L0_ONLY"] }
+  }
+}
