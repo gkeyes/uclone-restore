@@ -19,7 +19,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.Launch
+import androidx.compose.material.icons.automirrored.outlined.Launch
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
@@ -170,7 +170,7 @@ fun SettingsScreen(
                     else -> "创建 user0 Host-owned 公共虚拟显示，仅尝试显示 user10 的 Probe 实例。"
                 },
                 actionLabel = "进入",
-                icon = Icons.Outlined.Launch,
+                icon = Icons.AutoMirrored.Outlined.Launch,
                 enabled = state.settings.crossUserPreviewEnabled && draft == state.settings && !state.busy,
                 onClick = {
                     context.startActivity(Intent(context, CrossUserHostActivity::class.java))

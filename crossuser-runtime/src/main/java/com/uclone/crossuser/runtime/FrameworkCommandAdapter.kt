@@ -141,7 +141,7 @@ internal class ShellFrameworkAdapter(
         )
         return CrossUserCapabilityReport(
             sdkInt = Build.VERSION.SDK_INT,
-            buildFingerprint = Build.FINGERPRINT,
+            buildFingerprint = Build.FINGERPRINT.orEmpty(),
             rootUid = Process.myUid(),
             rootSelinuxContext = contextResult.stdout.trim(),
             selinuxEnforcing = enforcingResult.stdout.trim().equals("Enforcing", ignoreCase = true),
