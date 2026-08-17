@@ -38,14 +38,17 @@ Observed on 2026-08-17:
 | SELinux | Enforcing |
 | Users | user0 and user10 both `RUNNING_UNLOCKED` |
 | Foreground during first L0 | user10 |
+| Foreground during second L0 | user0 |
 | Visible background users | false |
 | Visible background users on default display | false |
+| Displays eligible for background-user start | none |
+| user0 / user10 visible during second L0 | true / false |
 
-The first L0 run therefore does not satisfy the user0 precondition and records an R1 L3 blocker. No install, user start/stop/switch, display creation, Hook, property/overlay change, or reboot was performed by L0.
+The second L0 run satisfies the user0 foreground precondition, but still records an R1 L3 blocker because the effective and real visible-background-user values are both false and the eligible display list is empty. No install, user start/stop/switch, display creation, Hook, property/overlay change, or reboot was performed by either L0 run.
 
 ## Status vocabulary
 
 - `FACT`: rows above and repository/CI artifacts.
 - `INFERENCE`: the ROM will likely reject user10 visible assignment because its effective capability is false.
 - `UNKNOWN`: whether a minimal ROM-specific compatibility path can safely enable visible assignment; R2/input/first-frame behavior on this build.
-- `BLOCKED`: L3/L4 until the user returns to user0 and an approved route can pass the visible-user gate without broad framework bypass.
+- `BLOCKED`: L3/L4 until an approved route can pass the visible-user gate without broad framework bypass; returning to user0 alone is now confirmed insufficient.
