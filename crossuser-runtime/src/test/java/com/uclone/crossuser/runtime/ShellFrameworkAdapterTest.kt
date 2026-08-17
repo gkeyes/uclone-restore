@@ -10,6 +10,14 @@ import kotlin.test.assertTrue
 
 class ShellFrameworkAdapterTest {
     @Test
+    fun deviceEligibleDisplayListIsParsedExactly() {
+        val adapter = ShellFrameworkAdapter(FakeCommands { result("") })
+
+        assertEquals(setOf(1, 4), adapter.parseEligibleDisplayIds("[1, 4]"))
+        assertEquals(emptySet(), adapter.parseEligibleDisplayIds("[]"))
+    }
+
+    @Test
     fun probeNeverInfersVisibleUsersFromExitCodeAlone() {
         val executor = FakeCommands { args ->
             when {
@@ -33,6 +41,7 @@ class ShellFrameworkAdapterTest {
         val executor = FakeCommands { args ->
             when {
                 args.contains("is-visible-background-users-supported") -> result("true")
+                args.contains("list-displays-for-starting-users") -> result("[1, 42]")
                 args.contains("get-current-user") -> {
                     currentCalls += 1
                     result(if (currentCalls == 1) "0" else "10")
@@ -79,6 +88,55 @@ class ShellFrameworkAdapterTest {
 
         assertEquals(CrossUserRuntimeErrors.FEATURE_VISIBLE_USERS_DISABLED, failure.errorCode)
         assertTrue(executor.calls.none { it.contains("start-user") })
+    }
+
+    @Test
+    fun ineligibleDisplayFailsBeforeAnyUserMutation() {
+        val executor = FakeCommands { args ->
+            when {
+                args.contains("is-visible-background-users-supported") -> result("true")
+                args.contains("list-displays-for-starting-users") -> result("[1, 4]")
+                else -> result("")
+            }
+        }
+
+        val failure = assertFailsWith<FrameworkCallException> {
+            ShellFrameworkAdapter(executor).startVisibleUserAndLaunch(validConfig(), 42)
+        }
+
+        assertEquals(CrossUserRuntimeErrors.DISPLAY_NOT_ELIGIBLE, failure.errorCode)
+        assertTrue(executor.calls.none { it.contains("start-user") })
+    }
+
+    @Test
+    fun launchFailureStopsAUserStartedByTheSession() {
+        var stateCalls = 0
+        val executor = FakeCommands { args ->
+            when {
+                args.contains("is-visible-background-users-supported") -> result("true")
+                args.contains("list-displays-for-starting-users") -> result("[1, 4]")
+                args.contains("get-current-user") -> result("0")
+                args.firstOrNull()?.endsWith("/pm") == true -> result("package:/data/app/probe/base.apk")
+                args.contains("get-started-user-state") -> {
+                    stateCalls += 1
+                    result(if (stateCalls == 1) "STOPPED" else "RUNNING_UNLOCKED")
+                }
+                args.contains("start-user") -> result("Success: user started on display 4")
+                args.contains("is-user-visible") -> result("true")
+                args.contains("force-stop") -> result("")
+                args.contains("stop-user") -> result("")
+                args.contains("start") -> result("Error: launch failed", exit = 1)
+                else -> result("")
+            }
+        }
+
+        val failure = assertFailsWith<FrameworkCallException> {
+            ShellFrameworkAdapter(executor).startVisibleUserAndLaunch(validConfig(), 4)
+        }
+
+        assertEquals(CrossUserRuntimeErrors.TARGET_LAUNCH_FAILED, failure.errorCode)
+        assertTrue(executor.calls.any { it.contains("force-stop") })
+        assertTrue(executor.calls.any { it.contains("stop-user") })
     }
 
     private fun validConfig() = CrossUserSessionConfig(

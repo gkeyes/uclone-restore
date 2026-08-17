@@ -4,8 +4,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
 import android.os.IBinder
 import android.view.Surface
 import androidx.core.content.ContextCompat
@@ -29,13 +27,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 /**
- * R1 backend: the user0 host owns the public display and Surface lifetime. The
- * root process receives only a typed session request for user visibility,
- * launch, display-scoped input, and cleanup.
+ * Direct-Surface backend: user0 owns the Surface while the uid-0 bridge owns
+ * the trusted VirtualDisplay, user assignment, launch, input, and cleanup.
  */
-class HostOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
+class BridgeOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
     private val appContext = context.applicationContext
-    private val displayManager = appContext.getSystemService(DisplayManager::class.java)
     private val journal = CrossUserSessionJournal(appContext)
     private val operationMutex = Mutex()
     private val monitor = Any()
@@ -63,7 +59,6 @@ class HostOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
         check(synchronized(monitor) { active == null }) { CrossUserRuntimeErrors.SESSION_BUSY }
         val bridge = requireBridge()
         recoverStaleSessionIfNeeded(bridge)
-        val virtualDisplay = createDisplay(config, surface)
         val latestState = AtomicReference<CrossUserSessionState?>()
         val callbackBinder = object : ICrossUserCallback.Stub() {
             override fun onStateChanged(state: CrossUserSessionState) {
@@ -94,7 +89,6 @@ class HostOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
                 bridge.createSession(
                     config,
                     surface,
-                    virtualDisplay.display.displayId,
                     callbackBinder,
                 )
             }
@@ -104,7 +98,6 @@ class HostOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
             val session = ClientSession(
                 handle = handle,
                 config = config,
-                display = virtualDisplay,
                 callback = callback,
                 callbackBinder = callbackBinder,
                 state = latestState.get() ?: state,
@@ -113,7 +106,6 @@ class HostOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
             journal.write(session.state)
             session.state
         } catch (error: Throwable) {
-            virtualDisplay.release()
             releaseBridgeIfIdle()
             throw error
         }
@@ -136,10 +128,6 @@ class HostOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
             rotation = rotation,
         )
         CrossUserSessionValidator.requireValid(updatedConfig)
-        withContext(Dispatchers.Main.immediate) {
-            session.display.resize(widthPx, heightPx, densityDpi)
-            session.display.surface = surface
-        }
         val bridge = requireNotNull(synchronized(monitor) { binding?.bridge }) {
             CrossUserRuntimeErrors.BRIDGE_DIED
         }
@@ -207,33 +195,24 @@ class HostOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
                     bridge.closeSession(session.handle.sessionId, session.handle.sessionToken, reason)
                 }
             }
-            val finalState = session.state.copy(
-                state = if (cleanup.isSuccess) {
-                    CrossUserProtocol.SESSION_CLOSED
-                } else {
-                    CrossUserProtocol.SESSION_RECOVERY_REQUIRED
-                },
-                errorCode = cleanup.exceptionOrNull()?.let { CrossUserRuntimeErrors.CLEANUP_INCOMPLETE },
-                message = cleanup.exceptionOrNull()?.message ?: "Session closed",
-            )
-            session.display.release()
+            val finalState = when {
+                cleanup.isFailure -> session.state.copy(
+                    state = CrossUserProtocol.SESSION_RECOVERY_REQUIRED,
+                    errorCode = CrossUserRuntimeErrors.CLEANUP_INCOMPLETE,
+                    message = cleanup.exceptionOrNull()?.message ?: "Session cleanup failed",
+                )
+                session.state.state == CrossUserProtocol.SESSION_CLOSED ||
+                    session.state.state == CrossUserProtocol.SESSION_RECOVERY_REQUIRED -> session.state
+                else -> session.state.copy(
+                    state = CrossUserProtocol.SESSION_CLOSED,
+                    errorCode = null,
+                    message = "Session closed",
+                )
+            }
             synchronized(monitor) { active = null }
-            if (cleanup.isSuccess) journal.clear() else journal.write(finalState)
+            if (finalState.state == CrossUserProtocol.SESSION_CLOSED) journal.clear() else journal.write(finalState)
             releaseBridgeIfIdle()
             finalState
-        }
-
-    private suspend fun createDisplay(config: CrossUserSessionConfig, surface: Surface): VirtualDisplay =
-        withContext(Dispatchers.Main.immediate) {
-            displayManager.createVirtualDisplay(
-                DISPLAY_NAME,
-                config.widthPx,
-                config.heightPx,
-                config.densityDpi,
-                surface,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
-            ) ?: error(CrossUserRuntimeErrors.DISPLAY_CREATE_DENIED)
         }
 
     private suspend fun requireBridge(): ICrossUserBridge {
@@ -289,7 +268,6 @@ class HostOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
             if (binding?.connection === connection) binding = null
             active?.also { active = null }
         } ?: return
-        session.display.release()
         val failed = session.state.copy(
             state = CrossUserProtocol.SESSION_RECOVERY_REQUIRED,
             errorCode = CrossUserRuntimeErrors.BRIDGE_DIED,
@@ -331,14 +309,12 @@ class HostOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
     private data class ClientSession(
         val handle: CrossUserSessionHandle,
         var config: CrossUserSessionConfig,
-        val display: VirtualDisplay,
         val callback: CrossUserRuntimeCallback,
         val callbackBinder: ICrossUserCallback,
         var state: CrossUserSessionState,
     )
 
     private companion object {
-        const val DISPLAY_NAME = "UClone CrossUser Probe"
         const val BIND_TIMEOUT_MILLIS = 30_000L
     }
 }

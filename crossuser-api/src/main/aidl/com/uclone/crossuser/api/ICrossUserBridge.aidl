@@ -15,7 +15,6 @@ interface ICrossUserBridge {
     CrossUserSessionHandle createSession(
         in CrossUserSessionConfig config,
         in Surface surface,
-        int displayId,
         ICrossUserCallback callback
     );
     CrossUserSessionState replaceSurface(

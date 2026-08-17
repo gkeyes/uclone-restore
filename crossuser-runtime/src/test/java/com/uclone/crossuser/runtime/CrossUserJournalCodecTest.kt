@@ -26,6 +26,23 @@ class CrossUserJournalCodecTest {
     }
 
     @Test
+    fun allowlistedWeChatStateRoundTrips() {
+        val state = CrossUserSessionState(
+            sessionId = "wechat-session",
+            state = CrossUserProtocol.SESSION_WAITING_FIRST_FRAME,
+            displayId = 4,
+            taskId = -1,
+            mainUserId = 0,
+            targetUserId = 10,
+            packageName = CrossUserProtocol.WECHAT_PACKAGE,
+            userWasRunning = false,
+            userStartedBySession = true,
+        )
+
+        assertEquals(state, CrossUserJournalCodec.decode(CrossUserJournalCodec.encode(state)))
+    }
+
+    @Test
     fun otherPackageJournalIsRejected() {
         val encoded = CrossUserJournalCodec.encode(
             CrossUserSessionState(

@@ -1,6 +1,8 @@
 package com.uclone.restore
 
 import android.app.Application
+import com.uclone.crossuser.runtime.BridgeOwnedCrossUserRuntime
+import com.uclone.crossuser.runtime.CrossUserRuntime
 import com.uclone.restore.data.SettingsStore
 import com.uclone.restore.launcher.LauncherShortcutController
 import com.uclone.restore.root.ProcessRootShellExecutor
@@ -10,8 +12,6 @@ import com.uclone.restore.sync.SyncEngine
 import com.uclone.restore.sync.TaskCoordinator
 import com.uclone.restore.sync.TaskLogStore
 import com.uclone.restore.sync.TaskRepository
-import com.uclone.crossuser.runtime.CrossUserRuntime
-import com.uclone.crossuser.runtime.HostOwnedCrossUserRuntime
 import com.uclone.restore.crossuser.session.CrossUserResourceGate
 import com.uclone.restore.crossuser.session.CrossUserSessionCoordinator
 import java.util.UUID
@@ -35,7 +35,7 @@ class UCloneApplication : Application() {
             appPackage = packageName,
         )
         val crossUserResourceGate = CrossUserResourceGate()
-        val crossUserRuntime = HostOwnedCrossUserRuntime(this)
+        val crossUserRuntime = BridgeOwnedCrossUserRuntime(this)
         container = AppContainer(
             settingsStore = SettingsStore(this),
             packageInspector = PackageInspector(this, shell),

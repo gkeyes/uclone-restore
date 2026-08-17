@@ -46,7 +46,7 @@ data class CrossUserSessionConfig(
     val heightPx: Int,
     val densityDpi: Int,
     val rotation: Int,
-    val backendId: String = "host_public_display",
+    val backendId: String = CrossUserProtocol.BACKEND_BRIDGE_TRUSTED_DISPLAY,
 ) : Parcelable
 
 @Parcelize

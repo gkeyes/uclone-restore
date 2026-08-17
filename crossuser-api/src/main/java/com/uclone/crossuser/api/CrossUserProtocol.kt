@@ -5,6 +5,9 @@ object CrossUserProtocol {
     const val MAIN_APP_PACKAGE = "com.uclone.restore"
     const val PROBE_PACKAGE = "com.gkeyes.uclone.crossuserprobe"
     const val PROBE_COMPONENT = "$PROBE_PACKAGE/.MainActivity"
+    const val WECHAT_PACKAGE = "com.tencent.mm"
+    const val WECHAT_COMPONENT = "$WECHAT_PACKAGE/.ui.LauncherUI"
+    const val BACKEND_BRIDGE_TRUSTED_DISPLAY = "bridge_trusted_display"
     const val CAPABILITY_VISIBLE_BACKGROUND_USERS_RUNTIME = "visible_background_users_runtime"
 
     const val STATUS_SUPPORTED = "SUPPORTED"
@@ -25,4 +28,13 @@ object CrossUserProtocol {
     const val SESSION_FAILED = "FAILED"
     const val SESSION_UNSUPPORTED = "UNSUPPORTED"
     const val SESSION_RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
+
+    fun isAllowedTarget(packageName: String, componentName: String): Boolean =
+        componentForPackage(packageName) == componentName
+
+    fun componentForPackage(packageName: String): String? = when (packageName) {
+        PROBE_PACKAGE -> PROBE_COMPONENT
+        WECHAT_PACKAGE -> WECHAT_COMPONENT
+        else -> null
+    }
 }

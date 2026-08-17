@@ -2,8 +2,33 @@ package com.uclone.crossuser.api
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class CrossUserProtocolTest {
+    @Test
+    fun targetCatalogAllowsOnlyExactProbeAndWeChatPairs() {
+        assertTrue(
+            CrossUserProtocol.isAllowedTarget(
+                CrossUserProtocol.PROBE_PACKAGE,
+                CrossUserProtocol.PROBE_COMPONENT,
+            ),
+        )
+        assertTrue(
+            CrossUserProtocol.isAllowedTarget(
+                CrossUserProtocol.WECHAT_PACKAGE,
+                CrossUserProtocol.WECHAT_COMPONENT,
+            ),
+        )
+        assertFalse(
+            CrossUserProtocol.isAllowedTarget(
+                CrossUserProtocol.WECHAT_PACKAGE,
+                CrossUserProtocol.PROBE_COMPONENT,
+            ),
+        )
+        assertEquals(null, CrossUserProtocol.componentForPackage("com.example.other"))
+    }
+
     @Test
     fun missingCapabilityDefaultsToUnknown() {
         val report = CrossUserCapabilityReport(

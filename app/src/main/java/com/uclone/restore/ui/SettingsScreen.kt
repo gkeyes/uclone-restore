@@ -158,16 +158,16 @@ fun SettingsScreen(
             ToggleRow(
                 label = "跨用户真实运行预览",
                 checked = draft.crossUserPreviewEnabled,
-                description = "默认关闭。0.4.0-rc.1 仅允许测试 Probe App；不会对真实 App 或现有备份数据执行操作。",
+                description = "默认关闭。此验证版仅允许在 user0 内显示 user10 的真实微信，不会复制或替换现有数据。",
             ) {
                 draft = draft.copy(crossUserPreviewEnabled = it)
             }
             ToolRow(
-                title = "打开 CrossUser Probe",
+                title = "打开 user10 微信",
                 description = when {
                     draft != state.settings -> "请先保存设置；进入后仍会重新核对 user0、ROM 能力、Root 和 SELinux。"
                     !state.settings.crossUserPreviewEnabled -> "先开启并保存上方实验开关。"
-                    else -> "创建 user0 Host-owned 公共虚拟显示，仅尝试显示 user10 的 Probe 实例。"
+                    else -> "把 RootService 创建的可信虚拟显示嵌入当前 UClone 页面。"
                 },
                 actionLabel = "进入",
                 icon = Icons.AutoMirrored.Outlined.Launch,

@@ -171,6 +171,20 @@ internal class ShellFrameworkAdapter(
                 "Visible background users are not confirmed: ${visibleSupport.combined}",
             )
         }
+        val eligibleDisplays = commands.run(
+            listOf(CMD, "activity", "list-displays-for-starting-users"),
+            PROBE_TIMEOUT_SECONDS,
+        )
+        if (
+            eligibleDisplays.exitCode != 0 ||
+            displayId !in parseEligibleDisplayIds(eligibleDisplays.combined)
+        ) {
+            throw commandFailure(
+                CrossUserRuntimeErrors.DISPLAY_NOT_ELIGIBLE,
+                "Display $displayId is not eligible for a visible background user",
+                eligibleDisplays,
+            )
+        }
         val currentBefore = currentUser()
         if (currentBefore != config.mainUserId) {
             throw FrameworkCallException(
@@ -186,7 +200,7 @@ internal class ShellFrameworkAdapter(
         if (packagePath.exitCode != 0 || !packagePath.stdout.lineSequence().any { it.startsWith("package:") }) {
             throw commandFailure(
                 CrossUserRuntimeErrors.TARGET_PACKAGE_NOT_INSTALLED,
-                "Probe is not installed for user${config.targetUserId}",
+                "${config.packageName} is not installed for user${config.targetUserId}",
                 packagePath,
             )
         }
@@ -236,7 +250,7 @@ internal class ShellFrameworkAdapter(
             if (launch.exitCode != 0 || launch.combined.lineSequence().any { it.startsWith("Error:") }) {
                 throw commandFailure(
                     CrossUserRuntimeErrors.TARGET_LAUNCH_FAILED,
-                    "Unable to launch Probe on display $displayId",
+                    "Unable to launch ${config.packageName} on display $displayId",
                     launch,
                 )
             }
@@ -251,7 +265,7 @@ internal class ShellFrameworkAdapter(
             return FrameworkStartReceipt(
                 userWasRunning = userWasRunning,
                 userStartedBySession = !userWasRunning,
-                message = launch.combined.ifBlank { "Probe launch requested" },
+                message = launch.combined.ifBlank { "${config.packageName} launch requested" },
             )
         } catch (error: Throwable) {
             if (startAttempted) {
@@ -275,7 +289,7 @@ internal class ShellFrameworkAdapter(
         if (forceStop.exitCode != 0) {
             throw commandFailure(
                 CrossUserRuntimeErrors.CLEANUP_INCOMPLETE,
-                "Unable to stop Probe for user${config.targetUserId}",
+                "Unable to stop ${config.packageName} for user${config.targetUserId}",
                 forceStop,
             )
         }
@@ -355,6 +369,12 @@ internal class ShellFrameworkAdapter(
             message = "$message: $combined",
         )
     }
+
+    internal fun parseEligibleDisplayIds(value: String): Set<Int> =
+        Regex("(?<![0-9])[0-9]+(?![0-9])")
+            .findAll(value)
+            .mapNotNull { it.value.toIntOrNull() }
+            .toSet()
 
     private companion object {
         const val AM = "/system/bin/am"

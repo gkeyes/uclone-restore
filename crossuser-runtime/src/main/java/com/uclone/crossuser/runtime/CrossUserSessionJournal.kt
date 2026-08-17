@@ -59,7 +59,7 @@ internal object CrossUserJournalCodec {
         val json = JSONObject(value)
         require(json.getInt("schemaVersion") == CrossUserProtocol.SCHEMA_VERSION)
         val packageName = json.getString("packageName")
-        require(packageName == CrossUserProtocol.PROBE_PACKAGE)
+        require(CrossUserProtocol.componentForPackage(packageName) != null)
         return CrossUserSessionState(
             schemaVersion = CrossUserProtocol.SCHEMA_VERSION,
             sessionId = json.getString("sessionId"),

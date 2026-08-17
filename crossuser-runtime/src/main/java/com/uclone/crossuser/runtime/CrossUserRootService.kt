@@ -24,6 +24,9 @@ class CrossUserRootService : RootService() {
     private val framework: CrossUserFrameworkAdapter by lazy {
         ShellFrameworkAdapter(ProcessCrossUserCommandExecutor())
     }
+    private val displayFactory: CrossUserDisplayFactory by lazy {
+        AndroidCrossUserDisplayFactory(this)
+    }
     private val input: CrossUserInputInjector by lazy { AndroidInputInjector(this) }
     private var creating = false
     private var active: SessionRecord? = null
@@ -37,20 +40,22 @@ class CrossUserRootService : RootService() {
         override fun createSession(
             config: CrossUserSessionConfig,
             surface: Surface,
-            displayId: Int,
             callback: ICrossUserCallback,
         ): CrossUserSessionHandle {
             enforceCaller()
             CrossUserSessionValidator.requireValid(config)
             require(surface.isValid) { "invalid Surface" }
-            require(displayId > 0) { "secondary display required" }
             synchronized(monitor) {
                 check(!creating && active == null) { CrossUserRuntimeErrors.SESSION_BUSY }
                 creating = true
             }
             var receipt: FrameworkStartReceipt? = null
+            var display: CrossUserDisplayHandle? = null
+            var registeredSession: SessionRecord? = null
             try {
-                val startReceipt = framework.startVisibleUserAndLaunch(config, displayId)
+                val createdDisplay = displayFactory.create(config, surface)
+                display = createdDisplay
+                val startReceipt = framework.startVisibleUserAndLaunch(config, createdDisplay.displayId)
                 receipt = startReceipt
                 val handle = CrossUserSessionHandle(
                     sessionId = randomToken(),
@@ -59,7 +64,7 @@ class CrossUserRootService : RootService() {
                 val state = CrossUserSessionState(
                     sessionId = handle.sessionId,
                     state = CrossUserProtocol.SESSION_WAITING_FIRST_FRAME,
-                    displayId = displayId,
+                    displayId = createdDisplay.displayId,
                     taskId = -1,
                     mainUserId = config.mainUserId,
                     targetUserId = config.targetUserId,
@@ -71,18 +76,27 @@ class CrossUserRootService : RootService() {
                 val deathRecipient = IBinder.DeathRecipient {
                     closeInternal(handle.sessionId, CALLBACK_DIED_REASON)
                 }
-                callback.asBinder().linkToDeath(deathRecipient, 0)
+                val record = SessionRecord(handle, config, state, callback, deathRecipient, createdDisplay)
                 synchronized(monitor) {
-                    active = SessionRecord(handle, config, state, callback, deathRecipient)
+                    active = record
+                    registeredSession = record
                     creating = false
+                }
+                callback.asBinder().linkToDeath(deathRecipient, 0)
+                check(callback.asBinder().isBinderAlive && synchronized(monitor) { active === record }) {
+                    CrossUserRuntimeErrors.BRIDGE_DIED
                 }
                 callback.safeState(state)
                 return handle
             } catch (error: Throwable) {
-                synchronized(monitor) { creating = false }
+                synchronized(monitor) {
+                    if (active === registeredSession) active = null
+                    creating = false
+                }
                 receipt?.let {
                     runCatching { framework.closeTarget(config, it.userStartedBySession) }
                 }
+                runCatching { display?.release() }
                 callback.safeTerminal(
                     sessionId = "pending",
                     code = (error as? FrameworkCallException)?.errorCode ?: CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED,
@@ -116,6 +130,7 @@ class CrossUserRootService : RootService() {
                 rotation = rotation,
             )
             CrossUserSessionValidator.requireValid(updated)
+            session.display.replaceSurface(surface, widthPx, heightPx, densityDpi)
             synchronized(monitor) { session.config = updated }
             return session.state
         }
@@ -179,13 +194,15 @@ class CrossUserRootService : RootService() {
             enforceCaller()
             require(state.schemaVersion == CrossUserProtocol.SCHEMA_VERSION)
             require(state.mainUserId == 0 && state.targetUserId == 10)
-            require(state.packageName == CrossUserProtocol.PROBE_PACKAGE)
+            val componentName = requireNotNull(CrossUserProtocol.componentForPackage(state.packageName)) {
+                CrossUserRuntimeErrors.TARGET_PACKAGE_DENIED
+            }
             synchronized(monitor) {
                 check(!creating && active == null) { CrossUserRuntimeErrors.SESSION_BUSY }
             }
             val config = CrossUserSessionConfig(
-                packageName = CrossUserProtocol.PROBE_PACKAGE,
-                componentName = CrossUserProtocol.PROBE_COMPONENT,
+                packageName = state.packageName,
+                componentName = componentName,
                 mainUserId = 0,
                 targetUserId = 10,
                 widthPx = 1080,
@@ -227,13 +244,22 @@ class CrossUserRootService : RootService() {
         val cleanup = runCatching {
             framework.closeTarget(session.config, session.state.userStartedBySession)
         }
+        val displayCleanup = runCatching { session.display.release() }
+        val cleanupError = cleanup.exceptionOrNull() ?: displayCleanup.exceptionOrNull()
+        val cleanupMessage = when {
+            cleanup.exceptionOrNull() != null -> cleanup.exceptionOrNull()?.message ?: "Target cleanup failed"
+            displayCleanup.exceptionOrNull() != null ->
+                displayCleanup.exceptionOrNull()?.message ?: "Display cleanup failed"
+            else -> cleanup.getOrNull()?.joinToString().orEmpty().ifBlank { "Session closed" }
+        }
         val closed = closing.copy(
-            state = if (cleanup.isSuccess) CrossUserProtocol.SESSION_CLOSED else CrossUserProtocol.SESSION_RECOVERY_REQUIRED,
-            errorCode = cleanup.exceptionOrNull()?.let { CrossUserRuntimeErrors.CLEANUP_INCOMPLETE },
-            message = cleanup.fold(
-                onSuccess = { it.joinToString() },
-                onFailure = { it.message ?: "Cleanup incomplete" },
-            ),
+            state = if (cleanupError == null) {
+                CrossUserProtocol.SESSION_CLOSED
+            } else {
+                CrossUserProtocol.SESSION_RECOVERY_REQUIRED
+            },
+            errorCode = cleanupError?.let { CrossUserRuntimeErrors.CLEANUP_INCOMPLETE },
+            message = cleanupMessage,
         )
         session.callback.safeState(closed)
         session.callback.safeTerminal(
@@ -263,6 +289,7 @@ class CrossUserRootService : RootService() {
         val state: CrossUserSessionState,
         val callback: ICrossUserCallback,
         val deathRecipient: IBinder.DeathRecipient,
+        val display: CrossUserDisplayHandle,
         val createdAtNanos: Long = SystemClock.elapsedRealtimeNanos(),
     )
 

@@ -124,16 +124,7 @@ class CrossUserHostActivity : ComponentActivity() {
                 )
                 check(decision.canOpen) { decision.errorCode ?: CrossUserRuntimeErrors.FEATURE_VISIBLE_USERS_DISABLED }
                 coordinator.open(
-                    config = CrossUserSessionConfig(
-                        packageName = CrossUserProtocol.PROBE_PACKAGE,
-                        componentName = CrossUserProtocol.PROBE_COMPONENT,
-                        mainUserId = 0,
-                        targetUserId = 10,
-                        widthPx = width,
-                        heightPx = height,
-                        densityDpi = resources.displayMetrics.densityDpi,
-                        rotation = 0,
-                    ),
+                    config = weChatSessionConfig(width, height, resources.displayMetrics.densityDpi),
                     surface = surface,
                     callback = runtimeCallback,
                 )
@@ -263,7 +254,7 @@ class CrossUserHostActivity : ComponentActivity() {
 
 internal data class CrossUserHostUiState(
     val stage: String = "等待显示 Surface",
-    val detail: String = "只允许 user10 的 CrossUser Probe；不会访问真实 App 数据。",
+    val detail: String = "仅允许显示 user10 的真实微信；不会复制或替换 App 数据。",
     val adapterId: String = "未探测",
     val displayId: Int = -1,
     val sessionId: String = "",
@@ -295,6 +286,18 @@ internal fun previewDecision(report: CrossUserCapabilityReport): CrossUserPrevie
     )
 }
 
+internal fun weChatSessionConfig(widthPx: Int, heightPx: Int, densityDpi: Int) =
+    CrossUserSessionConfig(
+        packageName = CrossUserProtocol.WECHAT_PACKAGE,
+        componentName = CrossUserProtocol.WECHAT_COMPONENT,
+        mainUserId = 0,
+        targetUserId = 10,
+        widthPx = widthPx,
+        heightPx = heightPx,
+        densityDpi = densityDpi,
+        rotation = 0,
+    )
+
 @Composable
 private fun CrossUserHostScreen(
     state: CrossUserHostUiState,
@@ -324,7 +327,7 @@ private fun CrossUserHostScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("CrossUser Probe · user10", style = MaterialTheme.typography.titleMedium)
+                        Text("微信 · user10", style = MaterialTheme.typography.titleMedium)
                         Text(state.stage, style = MaterialTheme.typography.bodyMedium)
                     }
                     OutlinedButton(onClick = onClose) { Text("关闭") }

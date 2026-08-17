@@ -7,9 +7,31 @@ import kotlin.test.assertFailsWith
 
 class CrossUserSessionValidatorTest {
     @Test
-    fun productionPackageIsRejected() {
+    fun allowlistedWeChatTargetIsAccepted() {
+        CrossUserSessionValidator.requireValid(
+            validConfig().copy(
+                packageName = CrossUserProtocol.WECHAT_PACKAGE,
+                componentName = CrossUserProtocol.WECHAT_COMPONENT,
+            ),
+        )
+    }
+
+    @Test
+    fun nonAllowlistedPackageIsRejected() {
         assertFailsWith<IllegalArgumentException> {
             CrossUserSessionValidator.requireValid(validConfig().copy(packageName = "com.example.real"))
+        }
+    }
+
+    @Test
+    fun mismatchedAllowlistedComponentIsRejected() {
+        assertFailsWith<IllegalArgumentException> {
+            CrossUserSessionValidator.requireValid(
+                validConfig().copy(
+                    packageName = CrossUserProtocol.WECHAT_PACKAGE,
+                    componentName = CrossUserProtocol.PROBE_COMPONENT,
+                ),
+            )
         }
     }
 
@@ -17,6 +39,13 @@ class CrossUserSessionValidatorTest {
     fun ambiguousUserIsRejected() {
         assertFailsWith<IllegalArgumentException> {
             CrossUserSessionValidator.requireValid(validConfig().copy(targetUserId = -2))
+        }
+    }
+
+    @Test
+    fun unrecognizedDisplayBackendIsRejected() {
+        assertFailsWith<IllegalArgumentException> {
+            CrossUserSessionValidator.requireValid(validConfig().copy(backendId = "host_public_display"))
         }
     }
 
