@@ -62,12 +62,7 @@ internal class AndroidInputInjector(context: Context) : CrossUserInputInjector {
 
     @SuppressLint("BlockedPrivateApi")
     private fun InputEvent.useInjected(displayId: Int): Boolean = try {
-        InputEvent::class.java.getDeclaredMethod("setSource", Int::class.javaPrimitiveType).apply {
-            isAccessible = true
-        }.invoke(
-            this,
-            if (this is MotionEvent) InputDevice.SOURCE_TOUCHSCREEN else InputDevice.SOURCE_KEYBOARD,
-        )
+        if (this is MotionEvent) source = InputDevice.SOURCE_TOUCHSCREEN
         InputEvent::class.java.getDeclaredMethod("setDisplayId", Int::class.javaPrimitiveType).apply {
             isAccessible = true
         }.invoke(this, displayId)
