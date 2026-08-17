@@ -1,5 +1,6 @@
 package com.uclone.crossuser.runtime
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.hardware.input.InputManager
 import android.view.InputDevice
@@ -59,6 +60,7 @@ internal class AndroidInputInjector(context: Context) : CrossUserInputInjector {
         return event.useInjected(displayId)
     }
 
+    @SuppressLint("BlockedPrivateApi")
     private fun InputEvent.useInjected(displayId: Int): Boolean = try {
         InputEvent::class.java.getDeclaredMethod("setSource", Int::class.javaPrimitiveType).apply {
             isAccessible = true
