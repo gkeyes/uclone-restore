@@ -22,8 +22,8 @@ android {
         applicationId = "com.uclone.restore.module"
         minSdk = 29
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.3.0-rc.3"
+        versionCode = 10
+        versionName = "0.4.0-rc.1"
     }
 
     signingConfigs {

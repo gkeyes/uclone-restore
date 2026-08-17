@@ -10,6 +10,10 @@ import com.uclone.restore.sync.SyncEngine
 import com.uclone.restore.sync.TaskCoordinator
 import com.uclone.restore.sync.TaskLogStore
 import com.uclone.restore.sync.TaskRepository
+import com.uclone.crossuser.runtime.CrossUserRuntime
+import com.uclone.crossuser.runtime.HostOwnedCrossUserRuntime
+import com.uclone.restore.crossuser.session.CrossUserResourceGate
+import com.uclone.restore.crossuser.session.CrossUserSessionCoordinator
 import java.util.UUID
 
 class UCloneApplication : Application() {
@@ -30,13 +34,18 @@ class UCloneApplication : Application() {
             logStore = logStore,
             appPackage = packageName,
         )
+        val crossUserResourceGate = CrossUserResourceGate()
+        val crossUserRuntime = HostOwnedCrossUserRuntime(this)
         container = AppContainer(
             settingsStore = SettingsStore(this),
             packageInspector = PackageInspector(this, shell),
             launcherShortcutController = LauncherShortcutController(this),
             syncEngine = syncEngine,
             taskRepository = logStore,
-            taskCoordinator = TaskCoordinator(logStore),
+            taskCoordinator = TaskCoordinator(logStore, crossUserResourceGate),
+            crossUserRuntime = crossUserRuntime,
+            crossUserSessionCoordinator = CrossUserSessionCoordinator(crossUserRuntime, crossUserResourceGate),
+            crossUserResourceGate = crossUserResourceGate,
             internalRequestToken = UUID.randomUUID().toString(),
         )
     }
@@ -49,5 +58,8 @@ data class AppContainer(
     val syncEngine: SyncEngine,
     val taskRepository: TaskRepository,
     val taskCoordinator: TaskCoordinator,
+    val crossUserRuntime: CrossUserRuntime,
+    val crossUserSessionCoordinator: CrossUserSessionCoordinator,
+    val crossUserResourceGate: CrossUserResourceGate,
     val internalRequestToken: String,
 )

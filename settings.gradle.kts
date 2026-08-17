@@ -11,10 +11,13 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven("https://jitpack.io")
     }
 }
 
 rootProject.name = "UCloneRestore"
 include(":app")
 include(":launcher-module")
+include(":crossuser-api")
+include(":crossuser-runtime")
 include(":crossuser-probe-app")

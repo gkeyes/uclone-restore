@@ -25,15 +25,18 @@ internal fun admitExternalTask(
         status = ExternalActionContract.STATUS_BUSY,
         message = "已有任务正在执行",
     )
+    is TaskSubmissionResult.ResourceBusy -> ExternalTaskAdmission.Rejected(
+        record = null,
+        status = ExternalActionContract.STATUS_BUSY,
+        message = "跨用户运行会话正在占用分身资源",
+    )
 }
 
 internal sealed interface ExternalTaskAdmission {
-    val record: TaskRecord
-
-    data class Accepted(override val record: TaskRecord) : ExternalTaskAdmission
+    data class Accepted(val record: TaskRecord) : ExternalTaskAdmission
 
     data class Rejected(
-        override val record: TaskRecord,
+        val record: TaskRecord?,
         val status: String,
         val message: String,
     ) : ExternalTaskAdmission

@@ -8,6 +8,10 @@ import com.uclone.restore.root.ShellResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import com.uclone.restore.crossuser.session.CrossUserGateResult
+import com.uclone.restore.crossuser.session.CrossUserResourceGate
+import com.uclone.restore.crossuser.session.CrossUserResourceKey
+import com.uclone.restore.crossuser.session.CrossUserResourceKind
 
 class TaskCoordinatorTest {
     @Test
@@ -98,6 +102,50 @@ class TaskCoordinatorTest {
         assertEquals("foreground denied", repository.all().single().message)
         assertIs<TaskSubmissionResult.Accepted>(
             coordinator.accept("request-2", TaskType.PUSH_MAIN_TO_CLONE, "com.other.app"),
+        )
+    }
+
+    @Test
+    fun activeCrossUserSessionBlocksDataAdmissionWithoutCreatingHistory() {
+        val repository = TaskLogStore(NoopShell)
+        val gate = CrossUserResourceGate()
+        assertIs<CrossUserGateResult.Acquired>(
+            gate.tryAcquire(
+                "preview",
+                setOf(CrossUserResourceKey(CrossUserResourceKind.GLOBAL_CROSS_USER_SESSION)),
+            ),
+        )
+        val coordinator = TaskCoordinator(repository, gate)
+
+        val result = coordinator.accept(
+            "request-1",
+            TaskType.RESTORE_SELECTED_BACKUP,
+            "com.example.app",
+        )
+
+        assertIs<TaskSubmissionResult.ResourceBusy>(result)
+        assertEquals(emptyList(), repository.all())
+    }
+
+    @Test
+    fun completingDataTaskReleasesSharedResourceGate() {
+        val repository = TaskLogStore(NoopShell)
+        val gate = CrossUserResourceGate()
+        val coordinator = TaskCoordinator(repository, gate)
+        coordinator.accept("request-1", TaskType.PUSH_MAIN_TO_CLONE, "com.example.app")
+
+        val blocked = gate.tryAcquire(
+            "preview",
+            setOf(CrossUserResourceKey(CrossUserResourceKind.GLOBAL_CROSS_USER_SESSION)),
+        )
+        assertIs<CrossUserGateResult.Busy>(blocked)
+
+        coordinator.complete("request-1")
+        assertIs<CrossUserGateResult.Acquired>(
+            gate.tryAcquire(
+                "preview-2",
+                setOf(CrossUserResourceKey(CrossUserResourceKind.GLOBAL_CROSS_USER_SESSION)),
+            ),
         )
     }
 

@@ -36,6 +36,11 @@
         </activity>
 
         <activity
+            android:name=".crossuser.ui.CrossUserHostActivity"
+            android:excludeFromRecents="true"
+            android:exported="false" />
+
+        <activity
             android:name=".launcher.LauncherShortcutActionActivity"
             android:excludeFromRecents="true"
             android:exported="true"
@@ -55,5 +60,9 @@
             android:exported="true"
             android:foregroundServiceType="dataSync"
             android:permission="com.uclone.restore.permission.CONTROL" />
+
+        <service
+            android:name="com.uclone.crossuser.runtime.CrossUserRootService"
+            android:exported="false" />
     </application>
 </manifest>

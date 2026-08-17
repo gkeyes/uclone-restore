@@ -35,6 +35,13 @@ object ProbeIdentity {
         return file.absolutePath
     }
 
+    fun ensureMarker(context: Context, storage: StorageKind): String {
+        val existing = readMarker(context, storage)
+        if (existing != "absent") return existing
+        writeMarker(context, storage)
+        return readMarker(context, storage)
+    }
+
     fun readMarker(context: Context, storage: StorageKind): String =
         markerFile(context, storage).takeIf { it.isFile }?.readText()?.trim().orEmpty().ifBlank { "absent" }
 

@@ -4,8 +4,16 @@ import com.uclone.restore.model.TaskProgress
 import com.uclone.restore.model.TaskRecord
 import com.uclone.restore.model.TaskStatus
 import com.uclone.restore.model.TaskType
+import com.uclone.restore.crossuser.session.CrossUserGateLease
+import com.uclone.restore.crossuser.session.CrossUserGateResult
+import com.uclone.restore.crossuser.session.CrossUserResourceGate
+import com.uclone.restore.crossuser.session.CrossUserResourceKey
+import com.uclone.restore.crossuser.session.CrossUserResourceKind
 
-class TaskCoordinator(private val repository: TaskRepository) {
+class TaskCoordinator(
+    private val repository: TaskRepository,
+    private val resourceGate: CrossUserResourceGate? = null,
+) {
     private val monitor = Any()
     private var active: ActiveTask? = null
 
@@ -18,8 +26,18 @@ class TaskCoordinator(private val repository: TaskRepository) {
                 TaskSubmissionResult.Busy(repository.find(current.requestId) ?: current.record)
             }
         }
+        val lease = when (val result = resourceGate?.tryAcquire(
+            owner = "data-task:$requestId",
+            keys = setOf(CrossUserResourceKey(CrossUserResourceKind.GLOBAL_DATA_TRANSACTION)),
+        )) {
+            null -> null
+            is CrossUserGateResult.Acquired -> result.lease
+            is CrossUserGateResult.Busy -> return@synchronized TaskSubmissionResult.ResourceBusy(
+                result.conflicts.map { it.owner },
+            )
+        }
         val record = repository.accepted(type, packageName, requestId)
-        active = ActiveTask(requestId, record)
+        active = ActiveTask(requestId, record, lease)
         repository.publish(TaskProgress(record))
         TaskSubmissionResult.Accepted(record)
     }
@@ -35,7 +53,9 @@ class TaskCoordinator(private val repository: TaskRepository) {
 
     fun complete(requestId: String) {
         synchronized(monitor) {
-            if (active?.requestId == requestId) active = null
+            val completed = active?.takeIf { it.requestId == requestId } ?: return@synchronized
+            active = null
+            completed.resourceLease?.let { resourceGate?.release(it.leaseId) }
         }
     }
 
@@ -44,13 +64,16 @@ class TaskCoordinator(private val repository: TaskRepository) {
 
     fun isBusy(): Boolean = synchronized(monitor) { active != null }
 
-    private data class ActiveTask(val requestId: String, val record: TaskRecord)
+    private data class ActiveTask(
+        val requestId: String,
+        val record: TaskRecord,
+        val resourceLease: CrossUserGateLease?,
+    )
 }
 
 sealed interface TaskSubmissionResult {
-    val record: TaskRecord
-
-    data class Accepted(override val record: TaskRecord) : TaskSubmissionResult
-    data class AlreadyRunning(override val record: TaskRecord) : TaskSubmissionResult
-    data class Busy(override val record: TaskRecord) : TaskSubmissionResult
+    data class Accepted(val record: TaskRecord) : TaskSubmissionResult
+    data class AlreadyRunning(val record: TaskRecord) : TaskSubmissionResult
+    data class Busy(val record: TaskRecord) : TaskSubmissionResult
+    data class ResourceBusy(val conflictingOwners: List<String>) : TaskSubmissionResult
 }

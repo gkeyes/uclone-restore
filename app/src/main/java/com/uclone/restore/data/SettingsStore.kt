@@ -13,7 +13,7 @@ class SettingsStore private constructor(
     constructor(context: Context) : this(context, AndroidKeystoreCredentialCipher())
 
     private val prefs = context.getSharedPreferences("uclone_settings", Context.MODE_PRIVATE)
-    private val schemaVersion = 13
+    private val schemaVersion = 14
 
     fun load(): UCloneSettings = UCloneSettings(
         mainUserId = prefs.getInt("mainUserId", 0),
@@ -29,6 +29,7 @@ class SettingsStore private constructor(
         stopCloneAfterTask = prefs.getBoolean("stopCloneAfterTask", true),
         autoUnlockClone = prefs.getBoolean("autoUnlockClone", false),
         allowModuleControl = prefs.getBoolean("allowModuleControl", false),
+        crossUserPreviewEnabled = prefs.getBoolean("crossUserPreviewEnabled", false),
         mainReturnPointPolicy = migratedMainReturnPointPolicy(prefs.getString("mainReturnPointPolicy", null)),
         cloneSessionPolicy = migratedCloneSessionPolicy(prefs.getString("cloneSessionPolicy", null)),
         switchSafetyMode = migratedSwitchSafetyMode(prefs.getString("switchSafetyMode", null)),
@@ -51,6 +52,7 @@ class SettingsStore private constructor(
             .putBoolean("stopCloneAfterTask", settings.stopCloneAfterTask)
             .putBoolean("autoUnlockClone", settings.autoUnlockClone)
             .putBoolean("allowModuleControl", settings.allowModuleControl)
+            .putBoolean("crossUserPreviewEnabled", settings.crossUserPreviewEnabled)
             .putString("mainReturnPointPolicy", settings.mainReturnPointPolicy.name)
             .putString("cloneSessionPolicy", settings.cloneSessionPolicy.name)
             .putString("switchSafetyMode", settings.switchSafetyMode.name)

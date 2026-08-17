@@ -7,9 +7,12 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.graphics.Color
 
 class MainActivity : Activity() {
     private lateinit var content: LinearLayout
+    private var touchCount = 0
+    private var backCount = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -18,12 +21,29 @@ class MainActivity : Activity() {
             setPadding(32, 32, 32, 32)
         }
         setContentView(ScrollView(this).apply { addView(content) })
+        ProbeIdentity.ensureMarker(this, StorageKind.CE)
+        ProbeIdentity.ensureMarker(this, StorageKind.DE)
+        render()
+    }
+
+    @Deprecated("Probe deliberately intercepts Back so display-scoped injection is visible")
+    override fun onBackPressed() {
+        backCount += 1
         render()
     }
 
     private fun render() {
         content.removeAllViews()
         content.addView(title("UClone CrossUser Probe"))
+        content.addView(row("交互证据", "touch=$touchCount · back=$backCount"))
+        content.addView(button("触摸测试：点按此处") {
+            touchCount += 1
+            render()
+        }.apply {
+            minHeight = 180
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.rgb(0, 122, 255))
+        })
         content.addView(button("写入 CE marker") {
             ProbeIdentity.writeMarker(this, StorageKind.CE)
             render()

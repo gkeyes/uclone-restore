@@ -2,9 +2,9 @@ name: Android CI
 
 on:
   push:
-    branches: ["main", "0.3"]
+    branches: ["main", "0.3", "0.4", "codex/**"]
   pull_request:
-    branches: ["main", "0.3"]
+    branches: ["main", "0.3", "0.4"]
   workflow_dispatch:
 
 permissions:
@@ -53,22 +53,40 @@ jobs:
           echo "RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/uclone-signing/release.p12" >> "$GITHUB_ENV"
           echo "RELEASE_STORE_TYPE=pkcs12" >> "$GITHUB_ENV"
 
+      - name: Require fixed release signing
+        run: test "$HAS_RELEASE_SIGNING" = "true"
+
       - name: Run unit tests, lint, and compile every variant
         run: >-
           gradle --no-daemon
           :app:testDebugUnitTest
           :launcher-module:testDebugUnitTest
+          :crossuser-api:testDebugUnitTest
+          :crossuser-runtime:testDebugUnitTest
+          :crossuser-probe-app:testDebugUnitTest
           :app:testReleaseUnitTest
           :launcher-module:testReleaseUnitTest
+          :crossuser-api:testReleaseUnitTest
+          :crossuser-runtime:testReleaseUnitTest
+          :crossuser-probe-app:testReleaseUnitTest
           :app:lintDebug
           :launcher-module:lintDebug
+          :crossuser-api:lintDebug
+          :crossuser-runtime:lintDebug
+          :crossuser-probe-app:lintDebug
           :app:lintRelease
           :launcher-module:lintRelease
+          :crossuser-api:lintRelease
+          :crossuser-runtime:lintRelease
+          :crossuser-probe-app:lintRelease
           :app:assembleDebugAndroidTest
+          :crossuser-probe-app:assembleDebugAndroidTest
           :app:assembleDebug
           :launcher-module:assembleDebug
+          :crossuser-probe-app:assembleDebug
           :app:assembleRelease
           :launcher-module:assembleRelease
+          :crossuser-probe-app:assembleRelease
 
       - name: Enable KVM
         run: |
@@ -86,46 +104,35 @@ jobs:
           disable-animations: true
           script: gradle --no-daemon :app:connectedDebugAndroidTest
 
-      - name: Verify paired release signatures
-        if: env.HAS_RELEASE_SIGNING == 'true'
+      - name: Verify fixed release signatures
         run: |
           APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
           "$APKSIGNER" verify --verbose --print-certs launcher-module/build/outputs/apk/release/launcher-module-release.apk
+          "$APKSIGNER" verify --verbose --print-certs crossuser-probe-app/build/outputs/apk/release/crossuser-probe-app-release.apk
           APP_DIGEST=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
           MODULE_DIGEST=$("$APKSIGNER" verify --print-certs launcher-module/build/outputs/apk/release/launcher-module-release.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
+          PROBE_DIGEST=$("$APKSIGNER" verify --print-certs crossuser-probe-app/build/outputs/apk/release/crossuser-probe-app-release.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
           test -n "$APP_DIGEST"
           test -n "$MODULE_DIGEST"
+          test -n "$PROBE_DIGEST"
           test "$APP_DIGEST" = "$MODULE_DIGEST"
+          test "$APP_DIGEST" = "$PROBE_DIGEST"
 
-      - name: Upload fixed-signed release APK
-        if: env.HAS_RELEASE_SIGNING == 'true'
+      - name: Package commit-pinned preview artifacts
+        run: |
+          SHORT_SHA="${GITHUB_SHA::12}"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/uclone-restore-0.4.0-rc.1-$SHORT_SHA-release.apk"
+          cp launcher-module/build/outputs/apk/release/launcher-module-release.apk "dist/uclone-launcher-module-0.4.0-rc.1-$SHORT_SHA-release.apk"
+          cp crossuser-probe-app/build/outputs/apk/release/crossuser-probe-app-release.apk "dist/uclone-crossuser-probe-0.4.0-rc.1-$SHORT_SHA-release.apk"
+          sha256sum dist/*.apk > dist/SHA256SUMS.txt
+          printf 'version=0.4.0-rc.1\ncommit=%s\nsigning=fixed-release\n' "$GITHUB_SHA" > dist/BUILD-MANIFEST.txt
+
+      - name: Upload fixed-signed preview bundle
         uses: actions/upload-artifact@v4
         with:
-          name: uclone-restore-release-apk
-          path: app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
-
-      - name: Upload debug APK fallback
-        if: env.HAS_RELEASE_SIGNING != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: uclone-restore-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-
-      - name: Upload fixed-signed launcher module APK
-        if: env.HAS_RELEASE_SIGNING == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: uclone-launcher-module-release-apk
-          path: launcher-module/build/outputs/apk/release/launcher-module-release.apk
-          if-no-files-found: error
-
-      - name: Upload launcher module debug APK fallback
-        if: env.HAS_RELEASE_SIGNING != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: uclone-launcher-module-debug-apk
-          path: launcher-module/build/outputs/apk/debug/launcher-module-debug.apk
+          name: uclone-0.4.0-rc.1-${{ env.SHORT_SHA }}
+          path: dist/
           if-no-files-found: error

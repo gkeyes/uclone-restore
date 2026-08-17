@@ -1,4 +1,4 @@
-# UClone Restore / 分身登录态恢复器
+# UClone Restore 0.4.0-rc.1 / 分身登录态恢复器
 
 UClone Restore 是一个面向 Android Root / HyperOS 多用户环境的本地数据恢复工具。它的核心目标是：在主系统 `user0` 中运行，通过 root 读取或写入分身系统 `user10` 的 App 数据，让同一台设备上的主系统和分身系统可以按需切换、恢复、推送 App 状态。
 
@@ -6,9 +6,12 @@ English documentation: [README.en.md](README.en.md)
 
 ## 当前版本
 
-- 主 App：`0.2.0`
-- 桌面长按模块：`0.2.0`
+- 主 App：`0.4.0-rc.1`（`versionCode 28`）
+- 桌面长按模块：`0.4.0-rc.1`（`versionCode 10`）
+- CrossUser Probe：`0.4.0-rc.1`（`versionCode 1`）
 - 主要测试环境：小米 / HyperOS，多用户为 `user0` + `user10`，Root 为 KernelSU / KernelSU Next 一类方案
+
+本 rc.1 增加默认关闭的 CrossUser Runtime 预览：user0 Host-owned 公共 VirtualDisplay + 窄化 RootService Bridge，只允许显示和操作测试包 `com.gkeyes.uclone.crossuserprobe`。真实 App、桌面模块协议、旧备份/恢复语义、system_server Hook 和编码镜像均未接入。设备能力不满足时会显示稳定错误码并停止，不会改用数据复制或切换当前用户冒充成功。
 
 ## 它能做什么
 
@@ -51,19 +54,33 @@ English documentation: [README.en.md](README.en.md)
 
 ## 安装
 
-每次发布会提供两个 APK：
+0.4.0-rc.1 的 GitHub Actions 提供三个固定签名 APK：
 
-- `uclone-restore-v0.2.0-release.apk`：主 App。
-- `uclone-launcher-module-v0.2.0-release.apk`：桌面长按 LSPosed 模块。
+- `uclone-restore-0.4.0-rc.1-<commit>-release.apk`：主 App。
+- `uclone-launcher-module-0.4.0-rc.1-<commit>-release.apk`：桌面长按 LSPosed 模块。
+- `uclone-crossuser-probe-0.4.0-rc.1-<commit>-release.apk`：隔离测试 App。
 
 安装命令示例：
 
 ```bash
-adb install -r uclone-restore-v0.2.0-release.apk
-adb install -r uclone-launcher-module-v0.2.0-release.apk
+adb install -r uclone-restore-0.4.0-rc.1-<commit>-release.apk
+adb install -r uclone-launcher-module-0.4.0-rc.1-<commit>-release.apk
 ```
 
-如果从旧的 debug 签名版本升级，Android 可能会因为签名不同拒绝覆盖安装。这种情况下需要先卸载旧版，再安装 release 版。
+覆盖安装前必须比较手机已装包与 Actions APK 的证书摘要。签名不一致时停止安装；不要通过卸载或清数据绕过，以免丢失现有配置。
+
+### CrossUser Runtime 预览
+
+进入“设置 → 实验功能”，保存开启“跨用户真实运行预览”后才能进入 Host。每次进入仍会重新核对：
+
+- 当前前台必须是 user0；
+- Root Bridge 必须实际以 uid 0 运行；
+- SELinux 必须保持 Enforcing；
+- ROM 必须明确报告支持 visible background users；
+- Probe 必须已安装到 user10；
+- 同一时刻不得运行备份、恢复、推送等数据任务。
+
+截至 2026-08-17，对目标 `popsicle / Android 17 / OS4.0.0.20.XPBCNXM` 的只读 L0 采集显示 visible background users 为 `false`，因此 R1 会按设计拒绝进入 L3/L4。这是目标 ROM 的实测阻塞，不代表功能已在该机型实现。
 
 ## 第一次使用
 

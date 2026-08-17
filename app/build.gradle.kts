@@ -23,8 +23,8 @@ android {
         applicationId = "com.uclone.restore"
         minSdk = 29
         targetSdk = 36
-        versionCode = 27
-        versionName = "0.3.0-rc.3"
+        versionCode = 28
+        versionName = "0.4.0-rc.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -85,6 +85,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("io.github.kyant0:backdrop:1.0.2")
+    implementation(project(":crossuser-api"))
+    implementation(project(":crossuser-runtime"))
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

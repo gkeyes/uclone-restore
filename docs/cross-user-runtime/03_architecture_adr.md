@@ -2,7 +2,7 @@
 
 Date: 2026-08-17
 
-Status: accepted for scaffold only.
+Status: accepted for the Probe-only 0.4.0-rc.1 preview.
 
 ## Context
 
@@ -12,7 +12,7 @@ The repository currently uses `su` subprocesses for privileged finite tasks. Tha
 
 ## Decision
 
-This phase adds only:
+The scaffold phase added:
 
 - pure Kotlin domain/API scaffolding under `com.uclone.restore.crossuser`;
 - a deterministic session state machine;
@@ -21,16 +21,17 @@ This phase adds only:
 - an isolated `crossuser-probe-app` module;
 - read-only L0 lab tooling and documentation.
 
-No production UI, root bridge, launcher module operation, or data-plane behavior is changed.
+The 0.4.0-rc.1 implementation adds a default-disabled Host UI, a typed non-daemon libsu RootService, and a shared in-process resource gate. Launcher module operations and data-plane copy/restore semantics remain unchanged.
 
 ## Candidate bridge decision
 
-The next executable POC should compare:
+The executable preview adopts R1 first:
 
-1. `libsu` RootService or equivalent Binder-root service for fast Binder/Surface exploration.
-2. `app_process` bridge packaged through a KernelSU module if RootService SELinux/domain limits block key service calls.
-3. Encoded fallback only after Direct Surface route evidence says it is needed.
-4. system_server hook only after a separate ADR proves the exact missing framework gate.
+1. user0 Host-created `PUBLIC | OWN_CONTENT_ONLY` VirtualDisplay;
+2. non-daemon `libsu` RootService for visible-user assignment, fixed Probe launch, display-scoped touch/Back, and cleanup;
+3. `app_process` bridge only if later evidence isolates the RootService domain as the blocker;
+4. encoded fallback only after Direct Surface route evidence says it is needed;
+5. system_server hook only after a separate ADR proves the exact missing framework gate.
 
 ## API boundary
 

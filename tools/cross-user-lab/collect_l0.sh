@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Device logs may contain arbitrary bytes. Keep macOS/BSD text tools in a
+# byte-oriented locale so redaction cannot abort an otherwise read-only run.
+export LC_ALL=C
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEFAULT_OUT_ROOT="$SCRIPT_DIR/reports"
@@ -185,6 +189,12 @@ run_adb_shell "$REPORT_DIR/cmd-display-help.txt" cmd display help
 run_adb_shell "$REPORT_DIR/cmd-user-help.txt" cmd user help
 run_adb_shell "$REPORT_DIR/cmd-overlay-help.txt" cmd overlay help
 run_adb_shell "$REPORT_DIR/cmd-lock-settings-help.txt" cmd lock_settings help
+run_adb_shell "$REPORT_DIR/visible-background-users.txt" cmd user is-visible-background-users-supported -v
+run_adb_shell "$REPORT_DIR/visible-background-users-default-display.txt" cmd user is-visible-background-users-on-default-display-supported -v
+run_adb_shell "$REPORT_DIR/main-user-visible.txt" cmd user is-user-visible "$MAIN_USER"
+run_adb_shell "$REPORT_DIR/target-user-visible.txt" cmd user is-user-visible "$TARGET_USER"
+run_adb_shell "$REPORT_DIR/displays-for-starting-users.txt" am list-displays-for-starting-users
+run_adb_shell "$REPORT_DIR/root-version.txt" 'su -v; su -V'
 
 run_adb_shell "$REPORT_DIR/logs/dmesg-tail.txt" 'su -c "dmesg | tail -n 500"'
 run_adb "$REPORT_DIR/logs/logcat.txt" logcat -d -b all
@@ -198,6 +208,12 @@ PRODUCT_MODEL="$(capture_prop ro.product.model)"
 MIUI_VERSION="$(capture_prop ro.miui.ui.version.name)"
 SELINUX="$(sed -n '1p' "$REPORT_DIR/selinux.txt" | tr -d '\r')"
 CURRENT_USER="$(sed -n '1p' "$REPORT_DIR/current-user.txt" | tr -d '\r')"
+ROOT_UID="$(sed -n '1p' "$REPORT_DIR/root-id.txt" | sed -n 's/.*uid=\([0-9][0-9]*\).*/\1/p')"
+ROOT_CONTEXT="$(sed -n '1p' "$REPORT_DIR/root-selinux-context.txt" | tr -d '\r\000')"
+VISIBLE_BACKGROUND_USERS="$(sed -n '1p' "$REPORT_DIR/visible-background-users.txt" | tr -d '\r')"
+VISIBLE_BACKGROUND_DEFAULT="$(sed -n '1p' "$REPORT_DIR/visible-background-users-default-display.txt" | tr -d '\r')"
+MAIN_VISIBLE="$(sed -n '1p' "$REPORT_DIR/main-user-visible.txt" | tr -d '\r')"
+TARGET_VISIBLE="$(sed -n '1p' "$REPORT_DIR/target-user-visible.txt" | tr -d '\r')"
 
 write_json_object "$REPORT_DIR/device.json" \
   schemaVersion 1 \
@@ -226,6 +242,18 @@ write_json_object "$REPORT_DIR/manifest.json" \
   probePackage "$PROBE_PACKAGE" \
   result COLLECTED_L0_ONLY
 
+write_json_object "$REPORT_DIR/capabilities.json" \
+  schemaVersion 1 \
+  rootUid "$ROOT_UID" \
+  rootSelinuxContext "$ROOT_CONTEXT" \
+  selinuxEnforcing "$SELINUX" \
+  visibleBackgroundUsers "$VISIBLE_BACKGROUND_USERS" \
+  visibleBackgroundUsersOnDefaultDisplay "$VISIBLE_BACKGROUND_DEFAULT" \
+  mainUserVisible "$MAIN_VISIBLE" \
+  targetUserVisible "$TARGET_VISIBLE" \
+  currentUser "$CURRENT_USER" \
+  result L0_OBSERVATION_ONLY
+
 cat > "$REPORT_DIR/summary.md" <<SUMMARY
 # CrossUser Runtime L0 Summary
 
@@ -240,6 +268,10 @@ cat > "$REPORT_DIR/summary.md" <<SUMMARY
 - Security patch: $SECURITY_PATCH
 - SELinux: $SELINUX
 - Current user: $CURRENT_USER
+- Root UID/context: $ROOT_UID / $ROOT_CONTEXT
+- Visible background users: $VISIBLE_BACKGROUND_USERS
+- Visible background users on default display: $VISIBLE_BACKGROUND_DEFAULT
+- Main/target visible: $MAIN_VISIBLE / $TARGET_VISIBLE
 - Main user: $MAIN_USER
 - Target user: $TARGET_USER
 - Probe package: $PROBE_PACKAGE

@@ -239,6 +239,7 @@ data class UCloneSettings(
     val stopCloneAfterTask: Boolean = true,
     val autoUnlockClone: Boolean = false,
     val allowModuleControl: Boolean = false,
+    val crossUserPreviewEnabled: Boolean = false,
     val mainReturnPointPolicy: MainReturnPointPolicy = MainReturnPointPolicy.FIXED,
     val cloneSessionPolicy: CloneSessionPolicy = CloneSessionPolicy.SYNC_TO_CLONE_USER,
     val switchSafetyMode: SwitchSafetyMode = SwitchSafetyMode.SAFE,

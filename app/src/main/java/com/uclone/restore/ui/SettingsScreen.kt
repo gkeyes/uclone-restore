@@ -1,5 +1,6 @@
 package com.uclone.restore.ui
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Launch
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
@@ -44,6 +46,7 @@ import com.uclone.restore.model.MainReturnPointPolicy
 import com.uclone.restore.model.SwitchSafetyMode
 import com.uclone.restore.model.UCloneSettings
 import com.uclone.restore.model.WorkspaceOwnershipReport
+import com.uclone.restore.crossuser.ui.CrossUserHostActivity
 import com.uclone.restore.util.Formatters
 
 @Composable
@@ -150,6 +153,30 @@ fun SettingsScreen(
             ) {
                 draft = draft.copy(allowModuleControl = it)
             }
+        }
+        SectionCard("实验功能") {
+            ToggleRow(
+                label = "跨用户真实运行预览",
+                checked = draft.crossUserPreviewEnabled,
+                description = "默认关闭。0.4.0-rc.1 仅允许测试 Probe App；不会对真实 App 或现有备份数据执行操作。",
+            ) {
+                draft = draft.copy(crossUserPreviewEnabled = it)
+            }
+            ToolRow(
+                title = "打开 CrossUser Probe",
+                description = when {
+                    draft != state.settings -> "请先保存设置；进入后仍会重新核对 user0、ROM 能力、Root 和 SELinux。"
+                    !state.settings.crossUserPreviewEnabled -> "先开启并保存上方实验开关。"
+                    else -> "创建 user0 Host-owned 公共虚拟显示，仅尝试显示 user10 的 Probe 实例。"
+                },
+                actionLabel = "进入",
+                icon = Icons.Outlined.Launch,
+                enabled = state.settings.crossUserPreviewEnabled && draft == state.settings && !state.busy,
+                onClick = {
+                    context.startActivity(Intent(context, CrossUserHostActivity::class.java))
+                },
+                showDivider = false,
+            )
         }
         SectionCard("默认数据范围") {
             ToggleRow("CE 数据", draft.includeCe) { draft = draft.copy(includeCe = it) }
