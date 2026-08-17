@@ -17,6 +17,8 @@ interface ICrossUserBridge {
         in Surface surface,
         ICrossUserCallback callback
     );
+    CrossUserSessionState startVisibleUser(String sessionId, String sessionToken);
+    CrossUserSessionState launchTarget(String sessionId, String sessionToken);
     CrossUserSessionState replaceSurface(
         String sessionId,
         String sessionToken,

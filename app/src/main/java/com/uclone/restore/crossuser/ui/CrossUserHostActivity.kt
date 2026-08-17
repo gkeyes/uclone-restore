@@ -45,21 +45,30 @@ import com.uclone.crossuser.runtime.CrossUserRuntimeCallback
 import com.uclone.crossuser.runtime.CrossUserRuntimeErrors
 import com.uclone.restore.UCloneApplication
 import com.uclone.restore.crossuser.session.CrossUserSessionCoordinator
+import com.uclone.restore.crossuser.user.CrossUserCloneCredentialUnlocker
+import com.uclone.restore.crossuser.user.CrossUserCloneUnlockException
+import com.uclone.restore.data.SettingsStore
 import com.uclone.restore.ui.UCloneTheme
 import kotlinx.coroutines.launch
 
 class CrossUserHostActivity : ComponentActivity() {
     private lateinit var coordinator: CrossUserSessionCoordinator
+    private lateinit var settingsStore: SettingsStore
+    private lateinit var cloneCredentialUnlocker: CrossUserCloneCredentialUnlocker
     private var uiState by mutableStateOf(CrossUserHostUiState())
     private var sessionId: String? = null
     private var opening = false
+    private var pendingSurfaceChange = false
     private var latestSurface: Surface? = null
     private val openAttemptGate = CrossUserOpenAttemptGate()
+    private val surfaceAttemptTracker = CrossUserSurfaceAttemptTracker()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val container = (application as UCloneApplication).container
-        if (!container.settingsStore.load().crossUserPreviewEnabled) {
+        settingsStore = container.settingsStore
+        cloneCredentialUnlocker = container.crossUserCloneCredentialUnlocker
+        if (!settingsStore.load().crossUserPreviewEnabled) {
             Toast.makeText(this, "跨用户真实运行预览尚未开启", Toast.LENGTH_SHORT).show()
             finish()
             return
@@ -92,6 +101,7 @@ class CrossUserHostActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        surfaceAttemptTracker.surfaceDestroyed()
         val id = sessionId
         if (id != null) {
             lifecycleScope.launch { coordinator.close(id, CLOSE_REASON_HOST_DESTROYED) }
@@ -106,9 +116,14 @@ class CrossUserHostActivity : ComponentActivity() {
         manualRetry: Boolean = false,
     ) {
         latestSurface = surface
+        val surfaceAttempt = surfaceAttemptTracker.nextSurface()
         uiState = uiState.copy(surfaceWidth = width, surfaceHeight = height)
-        if (!surface.isValid || opening) return
+        if (!surface.isValid) return
         if (width < MIN_DISPLAY_EDGE || height < MIN_DISPLAY_EDGE) return
+        if (opening) {
+            pendingSurfaceChange = true
+            return
+        }
         val existing = sessionId
         if (existing != null) {
             lifecycleScope.launch {
@@ -127,9 +142,11 @@ class CrossUserHostActivity : ComponentActivity() {
         }
         if (!openAttemptGate.allow(manualRetry)) return
         opening = true
+        pendingSurfaceChange = false
         uiState = uiState.copy(stage = "正在检查设备能力", errorCode = null, detail = "")
         lifecycleScope.launch {
-            runCatching {
+            var openedSessionId: String? = null
+            try {
                 val report = coordinator.probe(
                     CrossUserProbeRequest(mainUserId = 0, targetUserId = 10),
                 )
@@ -139,30 +156,90 @@ class CrossUserHostActivity : ComponentActivity() {
                     detail = decision.message,
                 )
                 check(decision.canOpen) { decision.errorCode ?: CrossUserRuntimeErrors.FEATURE_VISIBLE_USERS_DISABLED }
-                coordinator.open(
+                if (!surfaceAttemptTracker.isCurrent(surfaceAttempt) || !surface.isValid) return@launch
+                val displayReady = coordinator.open(
                     config = weChatSessionConfig(width, height, resources.displayMetrics.densityDpi),
                     surface = surface,
                     callback = runtimeCallback,
                 )
-            }.onSuccess { state ->
-                sessionId = state.sessionId
-                updateState(state)
-            }.onFailure { error ->
-                openAttemptGate.requireManualRetry()
-                showFailure(error)
+                openedSessionId = displayReady.sessionId
+                sessionId = displayReady.sessionId
+                updateState(displayReady)
+                if (!keepSessionIfSurfaceCurrent(displayReady.sessionId, surfaceAttempt)) return@launch
+
+                uiState = uiState.copy(stage = "正在把 user10 映射到手机内嵌显示", errorCode = null)
+                val visibleState = coordinator.startVisibleUser(displayReady.sessionId)
+                updateState(visibleState)
+                if (!keepSessionIfSurfaceCurrent(displayReady.sessionId, surfaceAttempt)) return@launch
+
+                when (visibleState.state) {
+                    CrossUserProtocol.SESSION_USER_VISIBLE_UNLOCKED -> Unit
+                    CrossUserProtocol.SESSION_USER_VISIBLE_LOCKED -> {
+                        val settings = settingsStore.load()
+                        check(settings.cloneUserId == 10) { CrossUserRuntimeErrors.TARGET_PACKAGE_DENIED }
+                        uiState = uiState.copy(
+                            stage = "正在使用已保存密码自动解锁 user10",
+                            errorCode = null,
+                            detail = "密码仅通过受保护的标准输入发送，不写入会话或日志。",
+                        )
+                        cloneCredentialUnlocker.unlockStartedUser(
+                            userId = settings.cloneUserId,
+                            credential = settings.cloneUnlockCredential,
+                        )
+                        if (!keepSessionIfSurfaceCurrent(displayReady.sessionId, surfaceAttempt)) return@launch
+                        uiState = uiState.copy(stage = CrossUserProtocol.SESSION_USER_VISIBLE_UNLOCKED)
+                    }
+                    else -> error(CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED)
+                }
+
+                uiState = uiState.copy(stage = "正在启动 user10 微信", errorCode = null)
+                val launched = coordinator.launchTarget(displayReady.sessionId)
+                if (!keepSessionIfSurfaceCurrent(displayReady.sessionId, surfaceAttempt)) return@launch
+                updateState(launched)
+            } catch (error: Throwable) {
+                openedSessionId?.let { id ->
+                    if (sessionId == id) sessionId = null
+                    runCatching { coordinator.close(id, CLOSE_REASON_START_FAILED) }
+                }
+                if (surfaceAttemptTracker.isCurrent(surfaceAttempt) && latestSurface?.isValid == true) {
+                    openAttemptGate.requireManualRetry()
+                    showFailure(error)
+                }
+            } finally {
+                opening = false
+                replayPendingSurfaceChange()
             }
-            opening = false
         }
     }
 
     private fun onSurfaceDestroyed() {
+        surfaceAttemptTracker.surfaceDestroyed()
         latestSurface = null
+        pendingSurfaceChange = false
         val id = sessionId ?: return
         sessionId = null
         lifecycleScope.launch {
             val result = coordinator.close(id, CLOSE_REASON_SURFACE_LOST)
             result?.let(::updateState)
         }
+    }
+
+    private suspend fun keepSessionIfSurfaceCurrent(id: String, surfaceAttempt: Long): Boolean {
+        val current = surfaceAttemptTracker.isCurrent(surfaceAttempt) &&
+            latestSurface?.isValid == true &&
+            sessionId == id &&
+            !isFinishing
+        if (current) return true
+        if (sessionId == id) sessionId = null
+        runCatching { coordinator.close(id, CLOSE_REASON_SURFACE_LOST) }
+        return false
+    }
+
+    private fun replayPendingSurfaceChange() {
+        if (!pendingSurfaceChange || isFinishing) return
+        pendingSurfaceChange = false
+        val surface = latestSurface?.takeIf { it.isValid } ?: return
+        openOrReplace(surface, uiState.surfaceWidth, uiState.surfaceHeight)
     }
 
     private fun onTouch(event: MotionEvent): Boolean {
@@ -214,6 +291,7 @@ class CrossUserHostActivity : ComponentActivity() {
     }
 
     private fun closeAndFinish(reason: Int) {
+        surfaceAttemptTracker.surfaceDestroyed()
         val id = sessionId
         sessionId = null
         if (id == null) {
@@ -227,9 +305,13 @@ class CrossUserHostActivity : ComponentActivity() {
     }
 
     private fun showFailure(error: Throwable) {
+        val code = (error as? CrossUserCloneUnlockException)?.errorCode
+            ?: error.message
+            ?: error::class.java.simpleName
         uiState = uiState.copy(
             stage = "预览不可用",
-            errorCode = error.message ?: error::class.java.simpleName,
+            errorCode = code,
+            detail = error.message.orEmpty(),
         )
     }
 
@@ -262,6 +344,7 @@ class CrossUserHostActivity : ComponentActivity() {
         const val CLOSE_REASON_USER = 1
         const val CLOSE_REASON_HOST_DESTROYED = 2
         const val CLOSE_REASON_SURFACE_LOST = 3
+        const val CLOSE_REASON_START_FAILED = 4
         val SUPPORTED_TOUCH_ACTIONS = setOf(
             MotionEvent.ACTION_DOWN,
             MotionEvent.ACTION_MOVE,
@@ -299,6 +382,24 @@ internal class CrossUserOpenAttemptGate {
     fun requireManualRetry() {
         manualRetryRequired = true
     }
+}
+
+internal class CrossUserSurfaceAttemptTracker {
+    private var generation = 0L
+
+    @Synchronized
+    fun nextSurface(): Long {
+        generation += 1
+        return generation
+    }
+
+    @Synchronized
+    fun surfaceDestroyed() {
+        generation += 1
+    }
+
+    @Synchronized
+    fun isCurrent(attempt: Long): Boolean = attempt == generation
 }
 
 internal fun previewDecision(report: CrossUserCapabilityReport): CrossUserPreviewDecision {

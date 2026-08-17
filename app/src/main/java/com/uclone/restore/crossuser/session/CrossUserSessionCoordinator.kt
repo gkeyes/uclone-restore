@@ -75,6 +75,12 @@ class CrossUserSessionCoordinator(
         rotation,
     )
 
+    suspend fun startVisibleUser(sessionId: String): CrossUserSessionState =
+        runtime.startVisibleUser(sessionId)
+
+    suspend fun launchTarget(sessionId: String): CrossUserSessionState =
+        runtime.launchTarget(sessionId)
+
     suspend fun injectTouch(sessionId: String, packet: CrossUserTouchPacket): Boolean =
         runtime.injectTouch(sessionId, packet)
 

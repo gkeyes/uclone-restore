@@ -61,6 +61,7 @@ internal class ProcessCrossUserCommandExecutor : CrossUserCommandExecutor {
 internal data class FrameworkStartReceipt(
     val userWasRunning: Boolean,
     val userStartedBySession: Boolean,
+    val userUnlocked: Boolean,
     val message: String,
 )
 
@@ -73,13 +74,19 @@ internal class FrameworkCallException(
 internal interface CrossUserFrameworkAdapter {
     val id: String
     fun probe(request: CrossUserProbeRequest): CrossUserCapabilityReport
-    fun startVisibleUserAndLaunch(config: CrossUserSessionConfig, displayId: Int): FrameworkStartReceipt
-    fun closeTarget(config: CrossUserSessionConfig, userStartedBySession: Boolean): List<String>
+    fun startVisibleUser(config: CrossUserSessionConfig, displayId: Int): FrameworkStartReceipt
+    fun launchTarget(config: CrossUserSessionConfig, displayId: Int): String
+    fun closeSession(
+        config: CrossUserSessionConfig,
+        userStartedBySession: Boolean,
+        targetLaunchRequested: Boolean,
+    ): List<String>
 }
 
 internal class ShellFrameworkAdapter(
     private val commands: CrossUserCommandExecutor,
     private val rootUidProvider: () -> Int = { Process.myUid() },
+    private val sleeper: (Long) -> Unit = Thread::sleep,
 ) : CrossUserFrameworkAdapter {
     override val id: String = "android-shell-visible-display-v1"
 
@@ -158,7 +165,7 @@ internal class ShellFrameworkAdapter(
         )
     }
 
-    override fun startVisibleUserAndLaunch(
+    override fun startVisibleUser(
         config: CrossUserSessionConfig,
         displayId: Int,
     ): FrameworkStartReceipt {
@@ -221,90 +228,153 @@ internal class ShellFrameworkAdapter(
         val userWasRunning = beforeState.contains("RUNNING")
         var startAttempted = false
         try {
-            val start = commands.run(
-                listOf(AM, "start-user", "-w", "--display", displayId.toString(), config.targetUserId.toString()),
-                USER_TIMEOUT_SECONDS,
-            )
             startAttempted = true
-            val visibility = commands.run(
-                listOf(CMD, "user", "is-user-visible", "--display", displayId.toString(), config.targetUserId.toString()),
+            val start = commands.run(
+                listOf(AM, "start-user", "--display", displayId.toString(), config.targetUserId.toString()),
                 PROBE_TIMEOUT_SECONDS,
             )
-            val visibleConfirmed = booleanStatus(visibility) == CrossUserProtocol.STATUS_SUPPORTED
-            if (start.exitCode != 0 || !visibleConfirmed) {
+            if (start.exitCode != 0 || start.combined.lineSequence().any { it.startsWith("Error:") }) {
                 throw commandFailure(
                     CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED,
-                    "Unable to start user${config.targetUserId} visible on display $displayId",
+                    "Unable to request user${config.targetUserId} on display $displayId",
                     start,
-                    visibility,
                 )
             }
-            val state = userState(config.targetUserId)
-            if (!state.contains("RUNNING_UNLOCKED")) {
-                throw FrameworkCallException(
-                    CrossUserRuntimeErrors.TARGET_USER_LOCKED,
-                    CrossUserProtocol.STATUS_UNSUPPORTED,
-                    "user${config.targetUserId} is not RUNNING_UNLOCKED: $state",
+            var lastVisibility = CrossUserCommandResult(1, "", "not checked")
+            var lastState = beforeState
+            repeat(USER_READY_POLL_LIMIT) { index ->
+                lastVisibility = commands.run(
+                    listOf(
+                        CMD,
+                        "user",
+                        "is-user-visible",
+                        "--display",
+                        displayId.toString(),
+                        config.targetUserId.toString(),
+                    ),
+                    PROBE_TIMEOUT_SECONDS,
                 )
+                lastState = userState(config.targetUserId)
+                val visibleConfirmed = booleanStatus(lastVisibility) == CrossUserProtocol.STATUS_SUPPORTED
+                val running = lastState.contains("RUNNING_LOCKED") || lastState.contains("RUNNING_UNLOCKED")
+                if (visibleConfirmed && running) {
+                    return FrameworkStartReceipt(
+                        userWasRunning = userWasRunning,
+                        userStartedBySession = !userWasRunning,
+                        userUnlocked = lastState.contains("RUNNING_UNLOCKED"),
+                        message = "user${config.targetUserId} visible on display $displayId: $lastState",
+                    )
+                }
+                if (index + 1 < USER_READY_POLL_LIMIT) sleeper(USER_READY_POLL_INTERVAL_MILLIS)
             }
-            val launch = commands.run(
-                listOf(
-                    AM,
-                    "start",
-                    "--user",
-                    config.targetUserId.toString(),
-                    "--display",
-                    displayId.toString(),
-                    "-n",
-                    config.componentName,
-                ),
-                LAUNCH_TIMEOUT_SECONDS,
-            )
-            if (launch.exitCode != 0 || launch.combined.lineSequence().any { it.startsWith("Error:") }) {
-                throw commandFailure(
-                    CrossUserRuntimeErrors.TARGET_LAUNCH_FAILED,
-                    "Unable to launch ${config.packageName} on display $displayId",
-                    launch,
-                )
-            }
-            val currentAfter = currentUser()
-            if (currentAfter != config.mainUserId) {
-                throw FrameworkCallException(
-                    CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED,
-                    CrossUserProtocol.STATUS_UNSUPPORTED,
-                    "Foreground user changed unexpectedly to user$currentAfter",
-                )
-            }
-            return FrameworkStartReceipt(
-                userWasRunning = userWasRunning,
-                userStartedBySession = !userWasRunning,
-                message = launch.combined.ifBlank { "${config.packageName} launch requested" },
+            throw commandFailure(
+                CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED,
+                "user${config.targetUserId} did not become visible and running on display $displayId; state=$lastState",
+                start,
+                lastVisibility,
             )
         } catch (error: Throwable) {
-            if (startAttempted) {
-                runCatching { closeTarget(config, userStartedBySession = !userWasRunning) }
+            if (startAttempted && !userWasRunning) {
+                runCatching {
+                    closeSession(
+                        config = config,
+                        userStartedBySession = true,
+                        targetLaunchRequested = false,
+                    )
+                }
             }
             throw error
         }
     }
 
-    override fun closeTarget(
+    override fun launchTarget(config: CrossUserSessionConfig, displayId: Int): String {
+        CrossUserSessionValidator.requireValid(config)
+        require(displayId > 0) { "secondary display required" }
+        val currentBefore = currentUser()
+        if (currentBefore != config.mainUserId) {
+            throw FrameworkCallException(
+                CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED,
+                CrossUserProtocol.STATUS_UNSUPPORTED,
+                "Current foreground user is user$currentBefore, expected user${config.mainUserId}",
+            )
+        }
+        val visibility = commands.run(
+            listOf(
+                CMD,
+                "user",
+                "is-user-visible",
+                "--display",
+                displayId.toString(),
+                config.targetUserId.toString(),
+            ),
+            PROBE_TIMEOUT_SECONDS,
+        )
+        if (booleanStatus(visibility) != CrossUserProtocol.STATUS_SUPPORTED) {
+            throw commandFailure(
+                CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED,
+                "user${config.targetUserId} is no longer visible on display $displayId",
+                visibility,
+            )
+        }
+        val state = userState(config.targetUserId)
+        if (!state.contains("RUNNING_UNLOCKED")) {
+            throw FrameworkCallException(
+                CrossUserRuntimeErrors.TARGET_USER_LOCKED,
+                CrossUserProtocol.STATUS_UNSUPPORTED,
+                "user${config.targetUserId} is not RUNNING_UNLOCKED: $state",
+            )
+        }
+        val launch = commands.run(
+            listOf(
+                AM,
+                "start",
+                "--user",
+                config.targetUserId.toString(),
+                "--display",
+                displayId.toString(),
+                "-n",
+                config.componentName,
+            ),
+            LAUNCH_TIMEOUT_SECONDS,
+        )
+        if (launch.exitCode != 0 || launch.combined.lineSequence().any { it.startsWith("Error:") }) {
+            throw commandFailure(
+                CrossUserRuntimeErrors.TARGET_LAUNCH_FAILED,
+                "Unable to launch ${config.packageName} on display $displayId",
+                launch,
+            )
+        }
+        val currentAfter = currentUser()
+        if (currentAfter != config.mainUserId) {
+            throw FrameworkCallException(
+                CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED,
+                CrossUserProtocol.STATUS_UNSUPPORTED,
+                "Foreground user changed unexpectedly to user$currentAfter",
+            )
+        }
+        return launch.combined.ifBlank { "${config.packageName} launch requested" }
+    }
+
+    override fun closeSession(
         config: CrossUserSessionConfig,
         userStartedBySession: Boolean,
+        targetLaunchRequested: Boolean,
     ): List<String> {
         CrossUserSessionValidator.requireValid(config)
         val results = mutableListOf<String>()
-        val forceStop = commands.run(
-            listOf(AM, "force-stop", "--user", config.targetUserId.toString(), config.packageName),
-            LAUNCH_TIMEOUT_SECONDS,
-        )
-        results += "force-stop exit=${forceStop.exitCode}"
-        if (forceStop.exitCode != 0) {
-            throw commandFailure(
-                CrossUserRuntimeErrors.CLEANUP_INCOMPLETE,
-                "Unable to stop ${config.packageName} for user${config.targetUserId}",
-                forceStop,
+        if (targetLaunchRequested) {
+            val forceStop = commands.run(
+                listOf(AM, "force-stop", "--user", config.targetUserId.toString(), config.packageName),
+                LAUNCH_TIMEOUT_SECONDS,
             )
+            results += "force-stop exit=${forceStop.exitCode}"
+            if (forceStop.exitCode != 0) {
+                throw commandFailure(
+                    CrossUserRuntimeErrors.CLEANUP_INCOMPLETE,
+                    "Unable to stop ${config.packageName} for user${config.targetUserId}",
+                    forceStop,
+                )
+            }
         }
         if (userStartedBySession) {
             val current = currentUser()
@@ -420,6 +490,8 @@ internal class ShellFrameworkAdapter(
         const val PROBE_TIMEOUT_SECONDS = 15L
         const val LAUNCH_TIMEOUT_SECONDS = 30L
         const val USER_TIMEOUT_SECONDS = 90L
+        const val USER_READY_POLL_LIMIT = 40
+        const val USER_READY_POLL_INTERVAL_MILLIS = 250L
     }
 }
 

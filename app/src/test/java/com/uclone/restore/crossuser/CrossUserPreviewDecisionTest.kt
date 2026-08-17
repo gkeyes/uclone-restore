@@ -5,6 +5,7 @@ import com.uclone.crossuser.api.CrossUserCapabilityReport
 import com.uclone.crossuser.api.CrossUserProtocol
 import com.uclone.crossuser.runtime.CrossUserRuntimeErrors
 import com.uclone.restore.crossuser.ui.CrossUserOpenAttemptGate
+import com.uclone.restore.crossuser.ui.CrossUserSurfaceAttemptTracker
 import com.uclone.restore.crossuser.ui.previewDecision
 import com.uclone.restore.crossuser.ui.weChatSessionConfig
 import kotlin.test.Test
@@ -48,6 +49,17 @@ class CrossUserPreviewDecisionTest {
         assertFalse(gate.allow(manualRetry = false))
         assertTrue(gate.allow(manualRetry = true))
         assertTrue(gate.allow(manualRetry = false))
+    }
+
+    @Test
+    fun destroyedSurfaceInvalidatesInFlightSessionStartup() {
+        val tracker = CrossUserSurfaceAttemptTracker()
+        val openingAttempt = tracker.nextSurface()
+
+        tracker.surfaceDestroyed()
+
+        assertFalse(tracker.isCurrent(openingAttempt))
+        assertTrue(tracker.isCurrent(tracker.nextSurface()))
     }
 
     private fun report(

@@ -65,28 +65,23 @@ class ShellFrameworkAdapterTest {
     }
 
     @Test
-    fun startRequiresCurrentUserToRemainUser0() {
+    fun launchRequiresCurrentUserToRemainUser0() {
         var currentCalls = 0
         val executor = FakeCommands { args ->
             when {
-                args.contains("is-visible-background-users-supported") -> result("true")
-                args.firstOrNull()?.endsWith("/dumpsys") == true -> result(visibleMediator(true))
-                args.contains("list-displays-for-starting-users") -> result("[1, 42]")
                 args.contains("get-current-user") -> {
                     currentCalls += 1
                     result(if (currentCalls == 1) "0" else "10")
                 }
                 args.contains("get-started-user-state") -> result("RUNNING_UNLOCKED")
-                args.firstOrNull()?.endsWith("/pm") == true -> result("package:/data/app/probe/base.apk")
                 args.contains("is-user-visible") -> result("true")
-                args.contains("start-user") -> result("Success: user started on display 42")
                 args.contains("start") -> result("Starting: Intent")
                 else -> result("")
             }
         }
 
         val failure = assertFailsWith<FrameworkCallException> {
-            ShellFrameworkAdapter(executor).startVisibleUserAndLaunch(validConfig(), 42)
+            ShellFrameworkAdapter(executor).launchTarget(validConfig(), 42)
         }
 
         assertEquals(CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED, failure.errorCode)
@@ -99,11 +94,73 @@ class ShellFrameworkAdapterTest {
         }
         val adapter = ShellFrameworkAdapter(executor)
 
-        adapter.closeTarget(validConfig(), userStartedBySession = false)
+        adapter.closeSession(validConfig(), userStartedBySession = false, targetLaunchRequested = true)
         assertTrue(executor.calls.none { it.contains("stop-user") })
 
-        adapter.closeTarget(validConfig(), userStartedBySession = true)
+        adapter.closeSession(validConfig(), userStartedBySession = true, targetLaunchRequested = true)
         assertTrue(executor.calls.any { it.contains("stop-user") })
+    }
+
+    @Test
+    fun closingBeforeTargetLaunchDoesNotForceStopAnExistingWechatProcess() {
+        val executor = FakeCommands { result("") }
+
+        ShellFrameworkAdapter(executor).closeSession(
+            validConfig(),
+            userStartedBySession = false,
+            targetLaunchRequested = false,
+        )
+
+        assertTrue(executor.calls.none { it.contains("force-stop") })
+        assertTrue(executor.calls.none { it.contains("stop-user") })
+    }
+
+    @Test
+    fun visibleUserStartReturnsLockedWithoutWaitingOrLaunchingTarget() {
+        var stateCalls = 0
+        val executor = FakeCommands { args ->
+            when {
+                args.contains("is-visible-background-users-supported") -> result("true")
+                args.firstOrNull()?.endsWith("/dumpsys") == true -> result(visibleMediator(true))
+                args.contains("list-displays-for-starting-users") -> result("[1, 4]")
+                args.contains("get-current-user") -> result("0")
+                args.firstOrNull()?.endsWith("/pm") == true -> result("package:/data/app/probe/base.apk")
+                args.contains("get-started-user-state") -> {
+                    stateCalls += 1
+                    result(if (stateCalls == 1) "STOPPED" else "RUNNING_LOCKED")
+                }
+                args.contains("start-user") -> result("Success: user started on display 4")
+                args.contains("is-user-visible") -> result("true")
+                else -> result("")
+            }
+        }
+
+        val receipt = ShellFrameworkAdapter(executor, sleeper = {}).startVisibleUser(validConfig(), 4)
+
+        val start = executor.calls.single { it.contains("start-user") }
+        assertTrue("-w" !in start)
+        assertTrue(receipt.userStartedBySession)
+        assertEquals(false, receipt.userUnlocked)
+        assertTrue(executor.calls.none { it.contains("start") })
+    }
+
+    @Test
+    fun targetLaunchIsRejectedUntilVisibleUserIsUnlocked() {
+        val executor = FakeCommands { args ->
+            when {
+                args.contains("get-current-user") -> result("0")
+                args.contains("is-user-visible") -> result("true")
+                args.contains("get-started-user-state") -> result("RUNNING_LOCKED")
+                else -> result("")
+            }
+        }
+
+        val failure = assertFailsWith<FrameworkCallException> {
+            ShellFrameworkAdapter(executor).launchTarget(validConfig(), 4)
+        }
+
+        assertEquals(CrossUserRuntimeErrors.TARGET_USER_LOCKED, failure.errorCode)
+        assertTrue(executor.calls.none { it.contains("start") })
     }
 
     @Test
@@ -113,7 +170,7 @@ class ShellFrameworkAdapterTest {
         }
 
         val failure = assertFailsWith<FrameworkCallException> {
-            ShellFrameworkAdapter(executor).startVisibleUserAndLaunch(validConfig(), 42)
+            ShellFrameworkAdapter(executor).startVisibleUser(validConfig(), 42)
         }
 
         assertEquals(CrossUserRuntimeErrors.FEATURE_VISIBLE_USERS_DISABLED, failure.errorCode)
@@ -132,7 +189,7 @@ class ShellFrameworkAdapterTest {
         }
 
         val failure = assertFailsWith<FrameworkCallException> {
-            ShellFrameworkAdapter(executor).startVisibleUserAndLaunch(validConfig(), 42)
+            ShellFrameworkAdapter(executor).startVisibleUser(validConfig(), 42)
         }
 
         assertEquals(CrossUserRuntimeErrors.FEATURE_VISIBLE_USERS_DISABLED, failure.errorCode)
@@ -151,7 +208,7 @@ class ShellFrameworkAdapterTest {
         }
 
         val failure = assertFailsWith<FrameworkCallException> {
-            ShellFrameworkAdapter(executor).startVisibleUserAndLaunch(validConfig(), 42)
+            ShellFrameworkAdapter(executor).startVisibleUser(validConfig(), 42)
         }
 
         assertEquals(CrossUserRuntimeErrors.DISPLAY_NOT_ELIGIBLE, failure.errorCode)
@@ -159,7 +216,7 @@ class ShellFrameworkAdapterTest {
     }
 
     @Test
-    fun launchFailureStopsAUserStartedByTheSession() {
+    fun launchFailureCanBeFollowedByOwnedUserCleanup() {
         var stateCalls = 0
         val executor = FakeCommands { args ->
             when {
@@ -181,9 +238,10 @@ class ShellFrameworkAdapterTest {
             }
         }
 
-        val failure = assertFailsWith<FrameworkCallException> {
-            ShellFrameworkAdapter(executor).startVisibleUserAndLaunch(validConfig(), 4)
-        }
+        val adapter = ShellFrameworkAdapter(executor, sleeper = {})
+        val receipt = adapter.startVisibleUser(validConfig(), 4)
+        val failure = assertFailsWith<FrameworkCallException> { adapter.launchTarget(validConfig(), 4) }
+        adapter.closeSession(validConfig(), receipt.userStartedBySession, targetLaunchRequested = true)
 
         assertEquals(CrossUserRuntimeErrors.TARGET_LAUNCH_FAILED, failure.errorCode)
         assertTrue(executor.calls.any { it.contains("force-stop") })

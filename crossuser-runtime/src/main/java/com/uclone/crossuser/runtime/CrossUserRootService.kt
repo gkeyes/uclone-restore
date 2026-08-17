@@ -49,29 +49,26 @@ class CrossUserRootService : RootService() {
                 check(!creating && active == null) { CrossUserRuntimeErrors.SESSION_BUSY }
                 creating = true
             }
-            var receipt: FrameworkStartReceipt? = null
             var display: CrossUserDisplayHandle? = null
             var registeredSession: SessionRecord? = null
             try {
                 val createdDisplay = displayFactory.create(config, surface)
                 display = createdDisplay
-                val startReceipt = framework.startVisibleUserAndLaunch(config, createdDisplay.displayId)
-                receipt = startReceipt
                 val handle = CrossUserSessionHandle(
                     sessionId = randomToken(),
                     sessionToken = randomToken(),
                 )
                 val state = CrossUserSessionState(
                     sessionId = handle.sessionId,
-                    state = CrossUserProtocol.SESSION_WAITING_FIRST_FRAME,
+                    state = CrossUserProtocol.SESSION_DISPLAY_READY,
                     displayId = createdDisplay.displayId,
                     taskId = -1,
                     mainUserId = config.mainUserId,
                     targetUserId = config.targetUserId,
                     packageName = config.packageName,
-                    userWasRunning = startReceipt.userWasRunning,
-                    userStartedBySession = startReceipt.userStartedBySession,
-                    message = startReceipt.message,
+                    userWasRunning = false,
+                    userStartedBySession = false,
+                    message = "Trusted display ${createdDisplay.displayId} ready",
                 )
                 val deathRecipient = IBinder.DeathRecipient {
                     closeInternal(handle.sessionId, CALLBACK_DIED_REASON)
@@ -93,15 +90,100 @@ class CrossUserRootService : RootService() {
                     if (active === registeredSession) active = null
                     creating = false
                 }
-                receipt?.let {
-                    runCatching { framework.closeTarget(config, it.userStartedBySession) }
-                }
                 runCatching { display?.release() }
                 callback.safeTerminal(
                     sessionId = "pending",
                     code = (error as? FrameworkCallException)?.errorCode ?: CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED,
                     message = error.message ?: "Cross-user session failed",
                 )
+                throw error
+            }
+        }
+
+        override fun startVisibleUser(sessionId: String, sessionToken: String): CrossUserSessionState {
+            enforceCaller()
+            val session = requireSession(sessionId, sessionToken)
+            check(session.state.state == CrossUserProtocol.SESSION_DISPLAY_READY) {
+                CrossUserRuntimeErrors.SESSION_BUSY
+            }
+            updateState(
+                session,
+                session.state.copy(
+                    state = CrossUserProtocol.SESSION_USER_STARTING,
+                    errorCode = null,
+                    message = "Starting user${session.config.targetUserId} on display ${session.state.displayId}",
+                ),
+            )
+            return try {
+                val receipt = framework.startVisibleUser(session.config, session.state.displayId)
+                if (synchronized(monitor) { active !== session }) {
+                    runCatching {
+                        framework.closeSession(
+                            session.config,
+                            receipt.userStartedBySession,
+                            targetLaunchRequested = false,
+                        )
+                    }
+                    error(CrossUserRuntimeErrors.SESSION_CLOSED)
+                }
+                updateState(
+                    session,
+                    session.state.copy(
+                        state = if (receipt.userUnlocked) {
+                            CrossUserProtocol.SESSION_USER_VISIBLE_UNLOCKED
+                        } else {
+                            CrossUserProtocol.SESSION_USER_VISIBLE_LOCKED
+                        },
+                        userWasRunning = receipt.userWasRunning,
+                        userStartedBySession = receipt.userStartedBySession,
+                        errorCode = null,
+                        message = receipt.message,
+                    ),
+                )
+            } catch (error: Throwable) {
+                failAndClose(session, error, CrossUserRuntimeErrors.DISPLAY_ASSIGNMENT_FAILED)
+                throw error
+            }
+        }
+
+        override fun launchTarget(sessionId: String, sessionToken: String): CrossUserSessionState {
+            enforceCaller()
+            val session = requireSession(sessionId, sessionToken)
+            check(
+                session.state.state == CrossUserProtocol.SESSION_USER_VISIBLE_LOCKED ||
+                    session.state.state == CrossUserProtocol.SESSION_USER_VISIBLE_UNLOCKED,
+            ) { CrossUserRuntimeErrors.SESSION_BUSY }
+            synchronized(monitor) { session.targetLaunchRequested = true }
+            updateState(
+                session,
+                session.state.copy(
+                    state = CrossUserProtocol.SESSION_TARGET_LAUNCHING,
+                    errorCode = null,
+                    message = "Launching ${session.config.packageName} for user${session.config.targetUserId}",
+                ),
+            )
+            return try {
+                val message = framework.launchTarget(session.config, session.state.displayId)
+                if (synchronized(monitor) { active !== session }) {
+                    runCatching {
+                        framework.closeSession(
+                            session.config,
+                            session.state.userStartedBySession,
+                            targetLaunchRequested = true,
+                        )
+                    }
+                    error(CrossUserRuntimeErrors.SESSION_CLOSED)
+                }
+                updateState(
+                    session,
+                    session.state.copy(
+                        state = CrossUserProtocol.SESSION_WAITING_FIRST_FRAME,
+                        errorCode = null,
+                        message = message,
+                    ),
+                )
+            } catch (error: Throwable) {
+                failAndClose(session, error, CrossUserRuntimeErrors.TARGET_LAUNCH_FAILED)
                 throw error
             }
         }
@@ -211,7 +293,11 @@ class CrossUserRootService : RootService() {
                 rotation = 0,
             )
             return runCatching {
-                framework.closeTarget(config, state.userStartedBySession)
+                framework.closeSession(
+                    config,
+                    state.userStartedBySession,
+                    targetLaunchRequested = state.mayHaveLaunchedTarget(),
+                )
             }.isSuccess
         }
     }
@@ -231,6 +317,31 @@ class CrossUserRootService : RootService() {
         } ?: throw SecurityException(CrossUserRuntimeErrors.UNAUTHORIZED_CALLER)
     }
 
+    private fun updateState(session: SessionRecord, state: CrossUserSessionState): CrossUserSessionState {
+        synchronized(monitor) {
+            check(active === session) { CrossUserRuntimeErrors.SESSION_CLOSED }
+            session.state = state
+        }
+        session.callback.safeState(state)
+        return state
+    }
+
+    private fun failAndClose(session: SessionRecord, error: Throwable, fallbackCode: String) {
+        if (synchronized(monitor) { active !== session }) return
+        val code = (error as? FrameworkCallException)?.errorCode ?: fallbackCode
+        runCatching {
+            updateState(
+                session,
+                session.state.copy(
+                    state = CrossUserProtocol.SESSION_FAILED,
+                    errorCode = code,
+                    message = error.message ?: code,
+                ),
+            )
+        }
+        closeInternal(session.handle.sessionId, OPERATION_FAILED_REASON)
+    }
+
     private fun closeInternal(sessionId: String, reason: Int) {
         val session = synchronized(monitor) {
             active?.takeIf { it.handle.sessionId == sessionId }?.also { active = null }
@@ -240,9 +351,14 @@ class CrossUserRootService : RootService() {
             state = CrossUserProtocol.SESSION_CLOSING,
             message = "Closing reason=$reason",
         )
+        session.state = closing
         session.callback.safeState(closing)
         val cleanup = runCatching {
-            framework.closeTarget(session.config, session.state.userStartedBySession)
+            framework.closeSession(
+                session.config,
+                session.state.userStartedBySession,
+                session.targetLaunchRequested,
+            )
         }
         val displayCleanup = runCatching { session.display.release() }
         val cleanupError = cleanup.exceptionOrNull() ?: displayCleanup.exceptionOrNull()
@@ -258,9 +374,10 @@ class CrossUserRootService : RootService() {
             } else {
                 CrossUserProtocol.SESSION_RECOVERY_REQUIRED
             },
-            errorCode = cleanupError?.let { CrossUserRuntimeErrors.CLEANUP_INCOMPLETE },
+            errorCode = cleanupError?.let { CrossUserRuntimeErrors.CLEANUP_INCOMPLETE } ?: closing.errorCode,
             message = cleanupMessage,
         )
+        session.state = closed
         session.callback.safeState(closed)
         session.callback.safeTerminal(
             sessionId,
@@ -286,18 +403,26 @@ class CrossUserRootService : RootService() {
     private data class SessionRecord(
         val handle: CrossUserSessionHandle,
         var config: CrossUserSessionConfig,
-        val state: CrossUserSessionState,
+        @Volatile var state: CrossUserSessionState,
         val callback: ICrossUserCallback,
         val deathRecipient: IBinder.DeathRecipient,
         val display: CrossUserDisplayHandle,
+        var targetLaunchRequested: Boolean = false,
         val createdAtNanos: Long = SystemClock.elapsedRealtimeNanos(),
     )
 
     private companion object {
         const val CALLBACK_DIED_REASON = 2
         const val SERVICE_DESTROYED_REASON = 3
+        const val OPERATION_FAILED_REASON = 4
     }
 }
+
+private fun CrossUserSessionState.mayHaveLaunchedTarget(): Boolean = state in setOf(
+    CrossUserProtocol.SESSION_TARGET_LAUNCHING,
+    CrossUserProtocol.SESSION_WAITING_FIRST_FRAME,
+    CrossUserProtocol.SESSION_ACTIVE,
+)
 
 private fun ICrossUserCallback.safeState(state: CrossUserSessionState) {
     runCatching { onStateChanged(state) }

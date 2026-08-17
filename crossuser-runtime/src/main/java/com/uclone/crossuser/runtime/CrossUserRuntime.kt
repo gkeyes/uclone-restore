@@ -17,6 +17,10 @@ interface CrossUserRuntime {
         callback: CrossUserRuntimeCallback,
     ): CrossUserSessionState
 
+    suspend fun startVisibleUser(sessionId: String): CrossUserSessionState
+
+    suspend fun launchTarget(sessionId: String): CrossUserSessionState
+
     suspend fun replaceSurface(
         sessionId: String,
         surface: Surface,
@@ -53,9 +57,13 @@ object CrossUserRuntimeErrors {
     const val TARGET_PACKAGE_NOT_INSTALLED = "TARGET_PACKAGE_NOT_INSTALLED"
     const val TARGET_PACKAGE_DENIED = "TARGET_PACKAGE_DENIED"
     const val TARGET_USER_LOCKED = "TARGET_USER_LOCKED"
+    const val CLONE_CREDENTIAL_MISSING = "CLONE_CREDENTIAL_MISSING"
+    const val CLONE_CREDENTIAL_REJECTED = "CLONE_CREDENTIAL_REJECTED"
+    const val CLONE_UNLOCK_FAILED = "CLONE_UNLOCK_FAILED"
     const val INPUT_PERMISSION_DENIED = "INPUT_PERMISSION_DENIED"
     const val INPUT_TARGET_MISMATCH = "INPUT_TARGET_MISMATCH"
     const val SESSION_BUSY = "SESSION_BUSY"
+    const val SESSION_CLOSED = "SESSION_CLOSED"
     const val RESOURCE_CONFLICT = "RESOURCE_CONFLICT"
     const val SURFACE_INVALID = "SURFACE_INVALID"
     const val BRIDGE_DIED = "BRIDGE_DIED"

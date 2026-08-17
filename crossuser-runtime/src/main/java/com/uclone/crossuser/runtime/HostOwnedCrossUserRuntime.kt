@@ -118,6 +118,16 @@ class BridgeOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
         }
     }
 
+    override suspend fun startVisibleUser(sessionId: String): CrossUserSessionState =
+        invokeSessionOperation(sessionId) { bridge, session ->
+            bridge.startVisibleUser(session.handle.sessionId, session.handle.sessionToken)
+        }
+
+    override suspend fun launchTarget(sessionId: String): CrossUserSessionState =
+        invokeSessionOperation(sessionId) { bridge, session ->
+            bridge.launchTarget(session.handle.sessionId, session.handle.sessionToken)
+        }
+
     override suspend fun replaceSurface(
         sessionId: String,
         surface: Surface,
@@ -256,6 +266,23 @@ class BridgeOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
             ?: error(CrossUserRuntimeErrors.INPUT_TARGET_MISMATCH)
     }
 
+    private suspend fun invokeSessionOperation(
+        sessionId: String,
+        call: (ICrossUserBridge, ClientSession) -> CrossUserSessionState,
+    ): CrossUserSessionState {
+        val session = requireClientSession(sessionId)
+        val bridge = requireNotNull(synchronized(monitor) { binding?.bridge }) {
+            CrossUserRuntimeErrors.BRIDGE_DIED
+        }
+        val state = withContext(Dispatchers.IO) { call(bridge, session) }
+        synchronized(monitor) {
+            check(active === session) { CrossUserRuntimeErrors.SESSION_CLOSED }
+            session.state = state
+        }
+        journal.write(state)
+        return state
+    }
+
     private suspend fun releaseBridgeIfIdle() {
         cancelScheduledBridgeRelease()
         val current = synchronized(monitor) {
@@ -343,7 +370,7 @@ class BridgeOwnedCrossUserRuntime(context: Context) : CrossUserRuntime {
         var config: CrossUserSessionConfig,
         val callback: CrossUserRuntimeCallback,
         val callbackBinder: ICrossUserCallback,
-        var state: CrossUserSessionState,
+        @Volatile var state: CrossUserSessionState,
     )
 
     private companion object {
