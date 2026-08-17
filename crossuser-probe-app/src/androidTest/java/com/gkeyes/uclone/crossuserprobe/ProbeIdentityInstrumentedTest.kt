@@ -1,8 +1,8 @@
 package com.gkeyes.uclone.crossuserprobe
 
 import androidx.test.core.app.ApplicationProvider
-import kotlin.test.Test
-import kotlin.test.assertTrue
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 class ProbeIdentityInstrumentedTest {
     @Test
