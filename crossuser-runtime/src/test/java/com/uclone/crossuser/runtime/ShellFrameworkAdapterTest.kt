@@ -27,8 +27,12 @@ class ShellFrameworkAdapterTest {
                 else -> result("Enforcing")
             }
         }
-        val report = ShellFrameworkAdapter(executor).probe(CrossUserProbeRequest(mainUserId = 0, targetUserId = 10))
+        val report = ShellFrameworkAdapter(
+            commands = executor,
+            rootUidProvider = { 0 },
+        ).probe(CrossUserProbeRequest(mainUserId = 0, targetUserId = 10))
 
+        assertEquals(0, report.rootUid)
         assertEquals(
             CrossUserProtocol.STATUS_UNKNOWN,
             report.statusOf("visible_background_users_runtime"),

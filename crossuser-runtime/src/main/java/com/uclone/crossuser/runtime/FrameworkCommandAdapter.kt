@@ -76,6 +76,7 @@ internal interface CrossUserFrameworkAdapter {
 
 internal class ShellFrameworkAdapter(
     private val commands: CrossUserCommandExecutor,
+    private val rootUidProvider: () -> Int = { Process.myUid() },
 ) : CrossUserFrameworkAdapter {
     override val id: String = "android-shell-visible-display-v1"
 
@@ -142,7 +143,7 @@ internal class ShellFrameworkAdapter(
         return CrossUserCapabilityReport(
             sdkInt = Build.VERSION.SDK_INT,
             buildFingerprint = Build.FINGERPRINT.orEmpty(),
-            rootUid = Process.myUid(),
+            rootUid = rootUidProvider(),
             rootSelinuxContext = contextResult.stdout.trim(),
             selinuxEnforcing = enforcingResult.stdout.trim().equals("Enforcing", ignoreCase = true),
             adapterId = id,
