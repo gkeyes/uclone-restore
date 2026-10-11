@@ -1,7 +1,9 @@
 package com.uclone.restore.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -55,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -110,6 +114,8 @@ fun UCloneApp(
     var dataDetailPackage by rememberSaveable { mutableStateOf<String?>(null) }
     var dataDetailRollbackId by rememberSaveable { mutableStateOf<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val titleCollapseStates = remember { mutableMapOf<Destination, MutableState<Boolean>>() }
+    val titleCollapsed = titleCollapseStates.getOrPut(destination) { mutableStateOf(false) }
 
     UCloneTheme {
         DisposableEffect(lifecycleOwner, viewModel) {
@@ -174,6 +180,7 @@ fun UCloneApp(
                     onOpenHistory = openHistory,
                     dataDetailPackage = dataDetailPackage,
                     dataDetailRollbackId = dataDetailRollbackId,
+                    titleCollapseState = { target -> titleCollapseStates.getOrPut(target) { mutableStateOf(false) } },
                 )
             }
 
@@ -189,6 +196,7 @@ fun UCloneApp(
                         else -> destination.label
                     },
                     taskActive = state.currentTask.task != null,
+                    titleCollapsed = titleCollapsed.value,
                     onSelect = selectDestination,
                     onBack = navigateBack,
                     onOpenHistory = openHistory,
@@ -222,6 +230,7 @@ private fun CompactShell(
     destination: Destination,
     title: String,
     taskActive: Boolean,
+    titleCollapsed: Boolean,
     onSelect: (Destination) -> Unit,
     onBack: () -> Unit,
     onOpenHistory: () -> Unit,
@@ -253,9 +262,17 @@ private fun CompactShell(
             }
         },
         overlay = {
+            if (destination in topLevelDestinations) {
+                CompactTitleBar(
+                    title = title,
+                    collapsed = titleCollapsed,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            }
             if (destination !in topLevelDestinations) {
                 FloatingTopBar(
                     title = title,
+                    titleVisible = titleCollapsed,
                     taskActive = taskActive,
                     onBack = onBack,
                     onOpenHistory = onOpenHistory,
@@ -276,6 +293,7 @@ private fun CompactShell(
 @Composable
 private fun FloatingTopBar(
     title: String,
+    titleVisible: Boolean,
     taskActive: Boolean,
     onBack: (() -> Unit)?,
     onOpenHistory: () -> Unit,
@@ -312,11 +330,18 @@ private fun FloatingTopBar(
                     UCloneBrandIcon(size = 36.dp)
                     Spacer(Modifier.width(10.dp))
                 }
+                // The large title lives in the content; this 17sp title fades in once it scrolls away.
+                val titleAlpha by animateFloatAsState(
+                    targetValue = if (titleVisible) 1f else 0f,
+                    animationSpec = motionSpec(UCloneMotion.effects()),
+                    label = "floatingTitle",
+                )
                 Text(
                     text = title,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .weight(1f)
+                        .graphicsLayer { alpha = titleAlpha },
+                    style = CollapsedTitleStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -392,8 +417,7 @@ private fun AppScaffold(
                     title = {
                         Text(
                             destination.label,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.SemiBold,
+                            style = CollapsedTitleStyle,
                         )
                     },
                     navigationIcon = { navigationIcon?.invoke() },
@@ -476,7 +500,7 @@ internal fun FloatingTabBar(
                 } else {
                     val selectionOffset by animateDpAsState(
                         targetValue = (itemWidth * selectedIndex) + 4.dp,
-                        animationSpec = tween(durationMillis = 280),
+                        animationSpec = UCloneMotion.spatial(),
                         label = "bottomNavigationSelection",
                     )
                     LiquidGlassSurface(
@@ -495,11 +519,16 @@ internal fun FloatingTabBar(
                         .selectableGroup(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    val haptic = rememberHaptics()
                     topLevelDestinations.forEach { item ->
+                        val itemSelected = destination.belongsTo(item)
                         FloatingTabItem(
                             item = item,
-                            selected = destination.belongsTo(item),
-                            onClick = { onSelect(item) },
+                            selected = itemSelected,
+                            onClick = {
+                                if (!itemSelected) haptic(UCloneHaptic.SegmentTick)
+                                onSelect(item)
+                            },
                         )
                     }
                 }
@@ -519,20 +548,24 @@ private fun androidx.compose.foundation.layout.RowScope.FloatingTabItem(
     val pressed by interactionSource.collectIsPressedAsState()
     val reduceMotion = rememberReduceMotionEnabled()
     val contentScale by animateFloatAsState(
-        targetValue = if (pressed && !reduceMotion) 0.94f else 1f,
-        animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(120),
+        targetValue = if (pressed && !reduceMotion) UCloneMotion.PressedScale else 1f,
+        animationSpec = when {
+            reduceMotion -> androidx.compose.animation.core.snap()
+            pressed -> UCloneMotion.pressIn()
+            else -> UCloneMotion.pressRelease()
+        },
         label = "bottomNavigationItemPressScale",
     )
     val contentAlpha by animateFloatAsState(
         targetValue = if (pressed) 0.72f else 1f,
-        animationSpec = tween(120),
+        animationSpec = motionSpec(UCloneMotion.effects()),
         label = "bottomNavigationItemPressAlpha",
     )
-    val contentColor = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = motionSpec(UCloneMotion.effects()),
+        label = "bottomNavigationItemColor",
+    )
     Box(
         modifier = Modifier
             .weight(1f)
@@ -587,7 +620,7 @@ private fun SideNavigation(
     Surface(
         modifier = Modifier.width(if (expanded) 248.dp else 92.dp).fillMaxSize(),
         color = MaterialTheme.ucloneColors.navigationSurface,
-        border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator.copy(alpha = 0.55f)),
+        border = BorderStroke(0.5.dp, MaterialTheme.ucloneColors.separator),
     ) {
         Column(
             Modifier.padding(horizontal = if (expanded) 14.dp else 8.dp, vertical = 18.dp),
@@ -628,14 +661,14 @@ private fun SideNavigationItem(
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-        shape = RoundedCornerShape(15.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = UCloneSpacing.rowMinHeight),
+        shape = RoundedCornerShape(UCloneRadius.row),
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
         contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
     ) {
         if (expanded) {
             Row(
-                Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                Modifier.padding(horizontal = UCloneSpacing.md, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -684,28 +717,51 @@ private fun DestinationContent(
     onOpenHistory: () -> Unit,
     dataDetailPackage: String?,
     dataDetailRollbackId: String?,
+    titleCollapseState: (Destination) -> MutableState<Boolean>,
 ) {
-    when (destination) {
-        Destination.HOME -> HomeScreen(state, viewModel, modifier, openAppDetail, onOpenHistory)
-        Destination.APPS -> AppListScreen(state, viewModel, modifier, openAppDetail, onOpenHistory)
-        Destination.DATA -> DataScreen(
-            state = state,
-            viewModel = viewModel,
-            modifier = modifier,
-            openActiveBackup = openActiveBackup,
-            openPassiveBackup = openPassiveBackup,
-            onOpenHistory = onOpenHistory,
-        )
-        Destination.HISTORY -> HistoryScreen(state, viewModel, modifier)
-        Destination.SETTINGS -> SettingsScreen(state, viewModel, modifier, openDiagnostics, onOpenHistory)
-        Destination.DIAGNOSTICS -> DiagnosticsScreen(state, viewModel, modifier)
-        Destination.DETAIL -> AppDetailScreen(state, viewModel, modifier)
-        Destination.DATA_DETAIL -> DataBackupDetailScreen(
-            state = state,
-            viewModel = viewModel,
-            modifier = modifier,
-            packageName = dataDetailPackage,
-            rollbackId = dataDetailRollbackId,
-        )
+    val reduceMotion = rememberReduceMotionEnabled()
+    val offsetPx = with(LocalDensity.current) { UCloneMotion.pageOffset.roundToPx() }
+    AnimatedContent(
+        targetState = destination,
+        modifier = modifier,
+        transitionSpec = {
+            val forward = when {
+                targetState !in topLevelDestinations && initialState in topLevelDestinations -> true
+                targetState in topLevelDestinations && initialState !in topLevelDestinations -> false
+                else -> topLevelDestinations.indexOf(targetState) >= topLevelDestinations.indexOf(initialState)
+            }
+            sharedAxisTransition(forward, offsetPx, reduceMotion)
+        },
+        label = "destination",
+    ) { target ->
+        CompositionLocalProvider(
+            LocalTitleCollapsed provides titleCollapseState(target),
+            LocalEnterStagger provides rememberEnterStagger(target.name),
+        ) {
+            val pageModifier = Modifier.fillMaxSize()
+            when (target) {
+                Destination.HOME -> HomeScreen(state, viewModel, pageModifier, openAppDetail, onOpenHistory)
+                Destination.APPS -> AppListScreen(state, viewModel, pageModifier, openAppDetail, onOpenHistory)
+                Destination.DATA -> DataScreen(
+                    state = state,
+                    viewModel = viewModel,
+                    modifier = pageModifier,
+                    openActiveBackup = openActiveBackup,
+                    openPassiveBackup = openPassiveBackup,
+                    onOpenHistory = onOpenHistory,
+                )
+                Destination.HISTORY -> HistoryScreen(state, viewModel, pageModifier)
+                Destination.SETTINGS -> SettingsScreen(state, viewModel, pageModifier, openDiagnostics, onOpenHistory)
+                Destination.DIAGNOSTICS -> DiagnosticsScreen(state, viewModel, pageModifier)
+                Destination.DETAIL -> AppDetailScreen(state, viewModel, pageModifier)
+                Destination.DATA_DETAIL -> DataBackupDetailScreen(
+                    state = state,
+                    viewModel = viewModel,
+                    modifier = pageModifier,
+                    packageName = dataDetailPackage,
+                    rollbackId = dataDetailRollbackId,
+                )
+            }
+        }
     }
 }
