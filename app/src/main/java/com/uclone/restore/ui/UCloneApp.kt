@@ -94,6 +94,13 @@ internal enum class Destination(val label: String, val icon: ImageVector?) {
 
 private enum class NavigationLayout { COMPACT, MEDIUM, EXPANDED }
 
+/** One "large title scrolled away" flag per destination, written by the screen's scroll state. */
+private class TitleCollapseStates {
+    private val states = mutableMapOf<Destination, MutableState<Boolean>>()
+    operator fun get(destination: Destination): MutableState<Boolean> =
+        states.getOrPut(destination) { mutableStateOf(false) }
+}
+
 internal val topLevelDestinations = listOf(
     Destination.HOME,
     Destination.APPS,
@@ -114,8 +121,8 @@ fun UCloneApp(
     var dataDetailPackage by rememberSaveable { mutableStateOf<String?>(null) }
     var dataDetailRollbackId by rememberSaveable { mutableStateOf<String?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val titleCollapseStates = remember { mutableMapOf<Destination, MutableState<Boolean>>() }
-    val titleCollapsed = titleCollapseStates.getOrPut(destination) { mutableStateOf(false) }
+    val titleCollapseStates = remember { TitleCollapseStates() }
+    val titleCollapsed = titleCollapseStates[destination]
 
     UCloneTheme {
         DisposableEffect(lifecycleOwner, viewModel) {
@@ -180,7 +187,7 @@ fun UCloneApp(
                     onOpenHistory = openHistory,
                     dataDetailPackage = dataDetailPackage,
                     dataDetailRollbackId = dataDetailRollbackId,
-                    titleCollapseState = { target -> titleCollapseStates.getOrPut(target) { mutableStateOf(false) } },
+                    titleCollapseState = { target -> titleCollapseStates[target] },
                 )
             }
 
