@@ -65,6 +65,7 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
             proguardFiles("proguard-test-rules.pro")
+            testProguardFiles("proguard-androidtest-rules.pro")
         }
     }
 
