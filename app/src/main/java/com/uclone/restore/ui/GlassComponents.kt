@@ -114,8 +114,12 @@ internal fun LiquidGlassSurface(
     val pressed by interactionSource.collectIsPressedAsState()
     val reduceMotion = rememberReduceMotionEnabled()
     val scale by animateFloatAsState(
-        targetValue = if (!reduceMotion && pressed && enabled && onClick != null) 0.97f else 1f,
-        animationSpec = if (reduceMotion) androidx.compose.animation.core.snap() else tween(150),
+        targetValue = if (!reduceMotion && pressed && enabled && onClick != null) UCloneMotion.PressedScale else 1f,
+        animationSpec = when {
+            reduceMotion -> androidx.compose.animation.core.snap()
+            pressed -> UCloneMotion.pressIn()
+            else -> UCloneMotion.pressRelease()
+        },
         label = "liquidGlassPress",
     )
     val pressAlpha by animateFloatAsState(
@@ -242,8 +246,8 @@ private fun GlassRole.shape(): Shape = when (this) {
     GlassRole.BottomSelectionLens,
     -> CircleShape
 
-    GlassRole.ToolbarControl -> RoundedCornerShape(24.dp)
-    GlassRole.PrimaryAction -> RoundedCornerShape(24.dp)
+    GlassRole.ToolbarControl -> RoundedCornerShape(UCloneRadius.card)
+    GlassRole.PrimaryAction -> RoundedCornerShape(UCloneRadius.card)
 }
 
 private fun GlassRole.spec(): GlassSpec = when (this) {

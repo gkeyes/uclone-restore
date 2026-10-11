@@ -3,7 +3,10 @@ package com.uclone.restore.ui
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.util.LruCache
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -53,6 +56,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -103,6 +109,7 @@ internal fun ScrollableTopLevelContent(
     header: @Composable () -> Unit,
     content: LazyListScope.() -> Unit,
 ) {
+    ReportTitleCollapse(state)
     LazyColumn(
         modifier = modifier,
         state = state,
@@ -124,8 +131,9 @@ fun TopLevelHeader(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .testTag("uclone_top_level_header"),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .testTag("uclone_top_level_header")
+            .staggerEnter(),
+        verticalArrangement = Arrangement.spacedBy(UCloneSpacing.xxs),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -137,7 +145,6 @@ fun TopLevelHeader(
                 text = title,
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -154,7 +161,7 @@ fun TopLevelHeader(
         Text(
             text = description,
             modifier = Modifier.padding(horizontal = 2.dp),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -167,16 +174,12 @@ fun SectionCard(
     content: @Composable () -> Unit,
 ) {
     Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .staggerEnter(),
+        verticalArrangement = Arrangement.spacedBy(UCloneSpacing.xs),
     ) {
-        Text(
-            title,
-            modifier = Modifier.padding(horizontal = 4.dp),
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        SectionHeaderText(title)
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.medium,
@@ -185,13 +188,26 @@ fun SectionCard(
             shadowElevation = 0.dp,
         ) {
             Column(
-                Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                Modifier
+                    .animateContentSize(motionSpec(UCloneMotion.spatial()))
+                    .padding(horizontal = UCloneSpacing.cardPadding, vertical = UCloneSpacing.xs),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 content()
             }
         }
     }
+}
+
+/** Section header: 13sp Medium, secondary color, above the card and aligned with card text. */
+@Composable
+internal fun SectionHeaderText(title: String, modifier: Modifier = Modifier) {
+    Text(
+        title,
+        modifier = modifier.padding(start = UCloneSpacing.cardPadding, end = UCloneSpacing.cardPadding),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
@@ -201,25 +217,33 @@ fun PageDescription(text: String, modifier: Modifier = Modifier) {
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 2.dp, vertical = 2.dp),
-        style = MaterialTheme.typography.bodySmall,
+        style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
 @Composable
-fun SectionLabel(title: String, caption: String? = null) {
+fun SectionLabel(title: String, caption: String? = null, count: Int? = null) {
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(start = 4.dp, top = 6.dp, end = 4.dp, bottom = 4.dp),
+            .padding(start = UCloneSpacing.cardPadding, top = UCloneSpacing.xs, end = UCloneSpacing.cardPadding, bottom = UCloneSpacing.xxs),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.SemiBold,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (count != null) {
+                AnimatedCount(
+                    value = count.toLong(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = UCloneAlpha.tertiary / UCloneAlpha.secondary),
+                )
+            }
+        }
         if (caption != null) {
             Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -256,8 +280,8 @@ fun InfoRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .heightIn(min = 44.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .heightIn(min = UCloneSpacing.rowMinHeight),
+            horizontalArrangement = Arrangement.spacedBy(UCloneSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -281,46 +305,17 @@ fun InfoRow(
 
 @Composable
 fun StatusChip(ok: Boolean, label: String) {
-    val colors = MaterialTheme.ucloneColors
-    val color = if (ok) colors.success else MaterialTheme.colorScheme.onErrorContainer
-    val dotColor = if (ok) colors.switchOn else MaterialTheme.colorScheme.error
-    val container = if (ok) colors.successContainer else MaterialTheme.colorScheme.errorContainer
-    Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = container,
-        contentColor = color,
-    ) {
-        Row(
-            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.size(7.dp).background(dotColor, CircleShape))
-            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-        }
-    }
+    ToneChip(label = label, tone = if (ok) StatusTone.SUCCESS else StatusTone.DANGER, showDot = true)
 }
 
 @Composable
 fun RiskChip(risk: RiskLevel) {
-    val colors = MaterialTheme.ucloneColors
-    val (label, color, container) = when (risk) {
-        RiskLevel.NORMAL -> Triple("普通", colors.success, colors.successContainer)
-        RiskLevel.HIGH -> Triple("高风险", colors.warning, colors.warningContainer)
-        RiskLevel.SYSTEM -> Triple(
-            "系统 App",
-            MaterialTheme.colorScheme.onErrorContainer,
-            MaterialTheme.colorScheme.errorContainer,
-        )
+    val (label, tone) = when (risk) {
+        RiskLevel.NORMAL -> "普通" to StatusTone.SUCCESS
+        RiskLevel.HIGH -> "高风险" to StatusTone.WARNING
+        RiskLevel.SYSTEM -> "系统 App" to StatusTone.DANGER
     }
-    Surface(shape = RoundedCornerShape(999.dp), color = container, contentColor = color) {
-        Text(
-            label,
-            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-    }
+    ToneChip(label = label, tone = tone)
 }
 
 @Composable
@@ -331,13 +326,17 @@ fun StepIcon(status: StepStatus) {
         StepStatus.FAILED -> Icons.Default.Close
         else -> Icons.Default.HourglassTop
     }
-    val tint = when (status) {
-        StepStatus.SUCCESS -> colors.success
-        StepStatus.FAILED -> MaterialTheme.colorScheme.error
-        StepStatus.RUNNING -> colors.warning
-        StepStatus.PENDING -> colors.neutral
-    }
-    Surface(shape = CircleShape, color = tint.copy(alpha = 0.12f), contentColor = tint) {
+    val tone = colors.tone(
+        when (status) {
+            StepStatus.SUCCESS -> StatusTone.SUCCESS
+            StepStatus.FAILED -> StatusTone.DANGER
+            StepStatus.RUNNING -> StatusTone.WARNING
+            StepStatus.PENDING -> StatusTone.NEUTRAL
+        },
+    )
+    val tint by animateColorAsState(tone.content, motionSpec(UCloneMotion.effects()), label = "stepTint")
+    val container by animateColorAsState(tone.container, motionSpec(UCloneMotion.effects()), label = "stepContainer")
+    Surface(shape = CircleShape, color = container, contentColor = tint) {
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.padding(5.dp).size(16.dp))
     }
 }
@@ -347,7 +346,7 @@ fun AppIcon(
     packageName: String,
     modifier: Modifier = Modifier,
     size: Dp = 40.dp,
-    cornerRadius: Dp = 11.dp,
+    cornerRadius: Dp = UCloneRadius.small,
 ) {
     val packageManager = LocalContext.current.applicationContext.packageManager
     val loadedState = produceState<LoadedAppIcon?>(
@@ -428,6 +427,10 @@ private object AppIconCache {
         runCatching { getPackageInfo(packageName, 0).lastUpdateTime }.getOrDefault(0L)
 }
 
+/**
+ * Spec buttons: primary = filled accent, secondary = tonal (accent 12%), destructive = danger
+ * tone. Corner 16, ≥48dp, press feedback; primary and destructive give a confirm haptic.
+ */
 @Composable
 fun CompactActionButton(
     text: String,
@@ -438,20 +441,24 @@ fun CompactActionButton(
     danger: Boolean = false,
     icon: ImageVector? = null,
 ) {
-    val containerColor = when {
-        !enabled -> MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.5f)
-        primary -> MaterialTheme.ucloneColors.actionPrimary
-        danger -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.76f)
-        else -> MaterialTheme.ucloneColors.elevatedSurface
+    val colors = MaterialTheme.ucloneColors
+    val haptic = rememberHaptics()
+    val containerTarget = when {
+        !enabled -> colors.elevatedSurface
+        primary -> colors.actionPrimary
+        danger -> colors.dangerTone.container
+        else -> MaterialTheme.colorScheme.primaryContainer
     }
-    val contentColor = when {
-        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-        primary -> MaterialTheme.ucloneColors.onActionPrimary
-        danger -> MaterialTheme.colorScheme.error
+    val contentTarget = when {
+        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = UCloneAlpha.disabled)
+        primary -> colors.onActionPrimary
+        danger -> colors.dangerTone.content
         else -> MaterialTheme.colorScheme.primary
     }
+    val containerColor by animateColorAsState(containerTarget, motionSpec(UCloneMotion.effects()), label = "buttonContainer")
+    val contentColor by animateColorAsState(contentTarget, motionSpec(UCloneMotion.effects()), label = "buttonContent")
     val controlModifier = modifier
-        .heightIn(min = 48.dp)
+        .heightIn(min = UCloneSpacing.touchTarget)
         .widthIn(min = 72.dp)
         .semantics {
             role = Role.Button
@@ -459,22 +466,19 @@ fun CompactActionButton(
         }
     val interactionSource = remember { MutableInteractionSource() }
     Surface(
-        onClick = onClick,
-        modifier = controlModifier.pressScale(interactionSource, enabled),
+        onClick = {
+            if (primary || danger) haptic(UCloneHaptic.Confirm)
+            onClick()
+        },
+        modifier = controlModifier.pressFeedback(interactionSource, enabled),
         enabled = enabled,
-        shape = RoundedCornerShape(999.dp),
+        shape = RoundedCornerShape(UCloneRadius.button),
         color = containerColor,
         contentColor = contentColor,
         interactionSource = interactionSource,
-        border = when {
-            !enabled -> null
-            primary -> null
-            danger -> BorderStroke(0.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.16f))
-            else -> null
-        },
     ) {
         Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+            Modifier.padding(horizontal = UCloneSpacing.md, vertical = 11.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -489,7 +493,7 @@ private fun ActionButtonContent(text: String, icon: ImageVector?) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(6.dp))
     }
-    Text(text, style = MaterialTheme.typography.labelLarge)
+    Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1)
 }
 
 @Composable
@@ -505,18 +509,18 @@ fun InlineActionButton(
     Surface(
         onClick = onClick,
         modifier = modifier
-            .heightIn(min = 48.dp)
-            .pressScale(interactionSource, enabled)
+            .heightIn(min = UCloneSpacing.touchTarget)
+            .pressFeedback(interactionSource, enabled)
             .semantics {
                 role = Role.Button
                 if (danger) stateDescription = "危险操作"
             },
         enabled = enabled,
-        shape = RoundedCornerShape(999.dp),
+        shape = RoundedCornerShape(UCloneRadius.button),
         color = Color.Transparent,
         contentColor = when {
-            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-            danger -> MaterialTheme.colorScheme.error
+            !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = UCloneAlpha.disabled)
+            danger -> MaterialTheme.ucloneColors.dangerTone.content
             else -> MaterialTheme.colorScheme.primary
         },
         interactionSource = interactionSource,
@@ -547,14 +551,14 @@ fun UtilityIconButton(
         Surface(
             onClick = onClick,
             modifier = modifier
-                .size(48.dp)
-                .pressScale(interactionSource, enabled),
+                .size(UCloneSpacing.touchTarget)
+                .pressFeedback(interactionSource, enabled),
             enabled = enabled,
             shape = CircleShape,
             color = if (selected) {
                 tint.copy(alpha = 0.12f)
             } else {
-                MaterialTheme.ucloneColors.elevatedSurface.copy(alpha = 0.88f)
+                MaterialTheme.colorScheme.primaryContainer
             },
             contentColor = tint,
             interactionSource = interactionSource,
@@ -569,8 +573,8 @@ fun UtilityIconButton(
     Surface(
         onClick = onClick,
         modifier = modifier
-            .size(48.dp)
-            .pressScale(interactionSource, enabled),
+            .size(UCloneSpacing.touchTarget)
+            .pressFeedback(interactionSource, enabled),
         enabled = enabled,
         shape = CircleShape,
         color = when {
@@ -592,10 +596,11 @@ fun UtilityIconButton(
 
 @Composable
 fun StatusBadge(label: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    val animated by animateColorAsState(color, motionSpec(UCloneMotion.effects()), label = "statusBadge")
     Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = color.copy(alpha = 0.12f),
-        contentColor = color,
+        shape = CircleShape,
+        color = animated.copy(alpha = 0.12f),
+        contentColor = animated,
     ) {
         Text(
             label,
@@ -672,9 +677,11 @@ fun ToolRow(
             }
         }
         if (showDivider) {
+            // Inset hairline starting at the text, never a full-width divider.
             HorizontalDivider(
                 modifier = Modifier.padding(start = if (icon == null) 0.dp else 48.dp),
-                color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+                thickness = 0.5.dp,
+                color = MaterialTheme.ucloneColors.separator,
             )
         }
     }
@@ -683,16 +690,18 @@ fun ToolRow(
 @Composable
 private fun ToolRowIcon(icon: ImageVector?, primary: Boolean, danger: Boolean) {
     if (icon == null) return
-    val iconColor = when {
-        danger -> MaterialTheme.colorScheme.error
-        primary -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val tone = MaterialTheme.ucloneColors.tone(
+        when {
+            danger -> StatusTone.DANGER
+            primary -> StatusTone.INFO
+            else -> StatusTone.NEUTRAL
+        },
+    )
     Surface(
         modifier = Modifier.size(36.dp),
-        shape = RoundedCornerShape(10.dp),
-        color = iconColor.copy(alpha = 0.10f),
-        contentColor = iconColor,
+        shape = RoundedCornerShape(UCloneRadius.small),
+        color = tone.container,
+        contentColor = tone.content,
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
@@ -706,7 +715,7 @@ private fun ToolRowText(title: String, description: String, modifier: Modifier =
         Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
         Text(
             description,
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -754,25 +763,36 @@ fun UCloneSwitch(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    val reduceMotion = rememberReduceMotionEnabled()
+    val haptic = rememberHaptics()
     val interactionSource = remember { MutableInteractionSource() }
     val thumbOffset by animateDpAsState(
         targetValue = if (checked) 20.dp else 0.dp,
-        animationSpec = if (reduceMotion) snap() else tween(180),
+        animationSpec = motionSpec(UCloneMotion.spatial()),
         label = "ucloneSwitchThumb",
     )
-    val trackColor = if (checked) MaterialTheme.ucloneColors.switchOn else MaterialTheme.colorScheme.surfaceVariant
+    val trackColor by animateColorAsState(
+        targetValue = if (checked) {
+            MaterialTheme.ucloneColors.switchOn
+        } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f)
+        },
+        animationSpec = motionSpec(UCloneMotion.effects()),
+        label = "ucloneSwitchTrack",
+    )
     Box(
         modifier = modifier
             .width(55.dp)
-            .height(48.dp)
+            .height(UCloneSpacing.touchTarget)
             .toggleable(
                 value = checked,
                 interactionSource = interactionSource,
                 indication = null,
                 enabled = enabled,
                 role = Role.Switch,
-                onValueChange = onCheckedChange,
+                onValueChange = { value ->
+                    haptic(if (value) UCloneHaptic.ToggleOn else UCloneHaptic.ToggleOff)
+                    onCheckedChange(value)
+                },
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -780,9 +800,9 @@ fun UCloneSwitch(
             Modifier
                 .width(51.dp)
                 .height(31.dp)
-                .pressScale(interactionSource, enabled)
+                .pressFeedback(interactionSource, enabled)
                 .clip(CircleShape)
-                .background(trackColor.copy(alpha = if (enabled) 1f else 0.45f))
+                .background(trackColor.copy(alpha = if (enabled) trackColor.alpha else UCloneAlpha.disabled))
                 .padding(2.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
@@ -846,34 +866,10 @@ fun ResponsiveSwitchRow(
             Text(
                 it,
                 modifier = Modifier.padding(end = 4.dp, bottom = 2.dp),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-}
-
-@Composable
-private fun Modifier.pressScale(
-    interactionSource: MutableInteractionSource,
-    enabled: Boolean,
-): Modifier {
-    val pressed by interactionSource.collectIsPressedAsState()
-    val reduceMotion = rememberReduceMotionEnabled()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed && enabled && !reduceMotion) 0.97f else 1f,
-        animationSpec = if (reduceMotion) snap() else tween(150),
-        label = "controlPressScale",
-    )
-    val pressAlpha by animateFloatAsState(
-        targetValue = if (pressed && enabled && reduceMotion) 0.82f else 1f,
-        animationSpec = tween(150),
-        label = "controlPressFade",
-    )
-    return graphicsLayer {
-        scaleX = scale
-        scaleY = scale
-        alpha = pressAlpha
     }
 }
 
@@ -887,14 +883,23 @@ fun GroupedTextField(
     leadingIcon: (@Composable () -> Unit)? = null,
     visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
+    var focused by remember { mutableStateOf(false) }
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+        animationSpec = motionSpec(UCloneMotion.effects()),
+        label = "searchFieldBorder",
+    )
+    val controlShape = RoundedCornerShape(UCloneRadius.control)
     TextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier,
+        modifier = modifier
+            .onFocusChanged { focused = it.isFocused }
+            .border(1.5.dp, borderColor, controlShape),
         label = label,
         placeholder = placeholder,
         leadingIcon = leadingIcon,
-        shape = MaterialTheme.shapes.medium,
+        shape = controlShape,
         singleLine = true,
         visualTransformation = visualTransformation,
         colors = TextFieldDefaults.colors(
@@ -924,6 +929,10 @@ fun SingleLinePathText(path: String, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Sheet / dialog action. Primary = filled accent, destructive = danger tone, others = text.
+ * Confirming gives a confirm haptic, dismissing gives a reject haptic.
+ */
 @Composable
 fun DialogActionButton(
     text: String,
@@ -933,25 +942,59 @@ fun DialogActionButton(
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    TextButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier
-            .heightIn(min = 48.dp)
-            .semantics {
-                role = Role.Button
-                if (danger) stateDescription = "危险操作"
+    val haptic = rememberHaptics()
+    val interactionSource = remember { MutableInteractionSource() }
+    val colors = MaterialTheme.ucloneColors
+    if (primary || danger) {
+        Surface(
+            onClick = {
+                haptic(UCloneHaptic.Confirm)
+                onClick()
             },
-        colors = ButtonDefaults.textButtonColors(
+            enabled = enabled,
+            modifier = modifier
+                .heightIn(min = 52.dp)
+                .widthIn(min = 96.dp)
+                .pressFeedback(interactionSource, enabled)
+                .semantics {
+                    role = Role.Button
+                    if (danger) stateDescription = "危险操作"
+                },
+            shape = RoundedCornerShape(UCloneRadius.button),
+            color = when {
+                !enabled -> colors.elevatedSurface
+                danger -> colors.dangerTone.container
+                else -> colors.actionPrimary
+            },
             contentColor = when {
-                danger -> MaterialTheme.colorScheme.error
-                primary -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = UCloneAlpha.disabled)
+                danger -> colors.dangerTone.content
+                else -> colors.onActionPrimary
             },
-        ),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        Text(text, style = MaterialTheme.typography.labelLarge)
+            interactionSource = interactionSource,
+        ) {
+            Box(Modifier.padding(horizontal = UCloneSpacing.lg, vertical = 14.dp), contentAlignment = Alignment.Center) {
+                Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            }
+        }
+    } else {
+        TextButton(
+            onClick = {
+                haptic(UCloneHaptic.Reject)
+                onClick()
+            },
+            enabled = enabled,
+            interactionSource = interactionSource,
+            modifier = modifier
+                .heightIn(min = 52.dp)
+                .pressFeedback(interactionSource, enabled)
+                .semantics { role = Role.Button },
+            shape = RoundedCornerShape(UCloneRadius.button),
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+            contentPadding = PaddingValues(horizontal = UCloneSpacing.md, vertical = 10.dp),
+        ) {
+            Text(text, style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 
