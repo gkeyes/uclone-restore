@@ -14,3 +14,17 @@
 -keep class androidx.core.** { *; }
 -keep class kotlinx.coroutines.** { *; }
 -keep class kotlin.** { *; }
+
+# Libraries shared by the app and the test APK are provided only by the app at runtime; keep
+# the ones the test runner uses directly.
+-keep class androidx.tracing.** { *; }
+-keep class androidx.concurrent.** { *; }
+-keep class com.google.common.util.concurrent.** { *; }
+-keep class androidx.arch.core.** { *; }
+-keep class androidx.collection.** { *; }
+-keep class androidx.savedstate.** { *; }
+-keep class androidx.annotation.** { *; }
+-keep class androidx.compose.material3.** { *; }
+-keep class androidx.compose.animation.** { *; }
+-keep class androidx.compose.material.icons.** { *; }
+-dontwarn com.google.errorprone.annotations.**
