@@ -79,7 +79,7 @@ jobs:
           :crossuser-api:lintRelease
           :crossuser-runtime:lintRelease
           :crossuser-probe-app:lintRelease
-          :app:assembleDebugAndroidTest
+          :app:assembleMinifiedTestAndroidTest
           :crossuser-probe-app:assembleDebugAndroidTest
           :app:assembleDebug
           :launcher-module:assembleDebug
@@ -94,7 +94,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run Compose UI contract tests
+      - name: Run Compose UI contract tests (R8-minified build)
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -102,7 +102,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: gradle --no-daemon :app:connectedDebugAndroidTest
+          script: gradle --no-daemon :app:connectedMinifiedTestAndroidTest
 
       - name: Verify fixed release signatures
         run: |

@@ -44,12 +44,27 @@ android {
         }
     }
 
+    // Instrumentation contract tests run against an R8-minified build that uses exactly the
+    // release shrink rules (debug-signed, so the test APK can instrument it).
+    testBuildType = "minifiedTest"
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
+        }
+        create("minifiedTest") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            proguardFiles("proguard-test-rules.pro")
         }
     }
 
@@ -90,6 +105,7 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    "minifiedTestImplementation"("androidx.compose.ui:ui-test-manifest")
     testImplementation(kotlin("test"))
     testImplementation("org.json:json:20250517")
 }
