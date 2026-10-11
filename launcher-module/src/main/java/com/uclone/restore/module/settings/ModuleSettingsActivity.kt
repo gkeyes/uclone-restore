@@ -206,7 +206,7 @@ class ModuleSettingsActivity : Activity() {
             titleGroup.addView(text("UClone Module", ModuleType.LARGE_TITLE, TEXT_PRIMARY, true).apply {
                 isSingleLine = true
                 ellipsize = TextUtils.TruncateAt.END
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) accessibilityHeading = true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) isAccessibilityHeading = true
             })
             headerSubtitle = text("桌面长按入口控制", ModuleType.SUBHEAD, TEXT_SECONDARY, false).apply {
                 fontFeatureSettings = "tnum"
