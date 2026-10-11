@@ -38,16 +38,16 @@ fun DiagnosticsScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modi
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(rememberCollapsingScrollState())
             .padding(
                 start = 16.dp,
                 top = LocalTopBarContentPadding.current,
                 end = 16.dp,
                 bottom = LocalBottomBarContentPadding.current,
             ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(UCloneSpacing.cardGap),
     ) {
-        PageDescription("环境状态、只读检测与分身控制")
+        ScreenLargeTitle("诊断", "环境状态、只读检测与分身控制")
         val ready = env?.root?.ok == true &&
             env.user0Present &&
             env.user10Present &&

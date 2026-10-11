@@ -14,7 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -58,6 +59,7 @@ fun DataScreen(
     val allBackups = state.backups
 
     LazyColumn(
+        state = rememberCollapsingLazyListState(),
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -93,14 +95,16 @@ fun DataScreen(
             }
         }
         item {
-            SectionLabel("全部可用备份", "新版命名备份、旧 active/history、MAIN 返回点和分身回滚。")
+            SectionLabel("全部可用备份", "新版命名备份、旧 active/history、MAIN 返回点和分身回滚。", count = allBackups.size)
         }
         if (allBackups.isEmpty()) {
             item {
                 Box(Modifier.padding(bottom = 12.dp)) {
-                    SectionCard("暂无备份") {
-                        Text("在 App 详情中执行“备份主系统”或“备份分系统”后会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    EmptyState(
+                        icon = Icons.Default.Inbox,
+                        title = "暂无备份",
+                        message = "在 App 详情中执行“备份主系统”或“备份分系统”后会显示在这里。",
+                    )
                 }
             }
         } else {
@@ -121,14 +125,16 @@ fun DataScreen(
             }
         }
         item {
-            SectionLabel("主动备份", "手动建立或任务中刷新出的分身快照。")
+            SectionLabel("主动备份", "手动建立或任务中刷新出的分身快照。", count = activeBackups.size)
         }
         if (activeBackups.isEmpty()) {
             item {
                 Box(Modifier.padding(bottom = 12.dp)) {
-                    SectionCard("暂无主动备份") {
-                        Text("点击 App 详情里的“建立主动备份”后会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    EmptyState(
+                        icon = Icons.Default.Inbox,
+                        title = "暂无主动备份",
+                        message = "点击 App 详情里的“建立主动备份”后会显示在这里。",
+                    )
                 }
             }
         } else {
@@ -144,14 +150,16 @@ fun DataScreen(
             }
         }
         item {
-            SectionLabel("主系统侧备份", "包含固定 MAIN 返回点、事务回滚和仅供手动恢复的旧版备份。")
+            SectionLabel("主系统侧备份", "包含固定 MAIN 返回点、事务回滚和仅供手动恢复的旧版备份。", count = passiveBackups.size)
         }
         if (passiveBackups.isEmpty()) {
             item {
                 Box(Modifier.padding(bottom = 12.dp)) {
-                    SectionCard("暂无被动备份") {
-                        Text("执行恢复或切换前，App 会自动保存当前 user${state.settings.mainUserId} 数据。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    EmptyState(
+                        icon = Icons.Default.Inbox,
+                        title = "暂无被动备份",
+                        message = "执行恢复或切换前，App 会自动保存当前 user${state.settings.mainUserId} 数据。",
+                    )
                 }
             }
         } else {
@@ -171,13 +179,15 @@ fun DataScreen(
             }
         }
         item {
-            SectionLabel("分身回滚", "推送到分身前自动保存的分身侧最新备份。")
+            SectionLabel("分身回滚", "推送到分身前自动保存的分身侧最新备份。", count = cloneRollbackBackups.size)
         }
         if (cloneRollbackBackups.isEmpty()) {
             item {
-                SectionCard("暂无分身回滚") {
-                    Text("执行“推送到分身”前会保存分身当前数据，方便撤回本次推送。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                EmptyState(
+                    icon = Icons.Default.Inbox,
+                    title = "暂无分身回滚",
+                    message = "执行“推送到分身”前会保存分身当前数据，方便撤回本次推送。",
+                )
             }
         } else {
             itemsIndexed(
@@ -196,8 +206,8 @@ fun DataScreen(
         }
     }
 
-    confirmRestore?.let { backup ->
-        AlertDialog(
+    SheetHost(confirmRestore) { backup ->
+        UCloneAlertSheet(
             onDismissRequest = { confirmRestore = null },
             title = { Text("恢复被动备份") },
             text = {
@@ -230,8 +240,8 @@ fun DataScreen(
         )
     }
 
-    confirmCloneRestore?.let { backup ->
-        AlertDialog(
+    SheetHost(confirmCloneRestore) { backup ->
+        UCloneAlertSheet(
             onDismissRequest = { confirmCloneRestore = null },
             title = { Text("恢复分身回滚") },
             text = {
@@ -257,7 +267,7 @@ fun DataScreen(
         )
     }
 
-    restoreBackup?.let { backup ->
+    SheetHost(restoreBackup) { backup ->
         RestoreSelectedBackupDialog(
             backup = backup,
             settings = state.settings,
@@ -269,7 +279,7 @@ fun DataScreen(
         )
     }
 
-    editBackup?.let { backup ->
+    SheetHost(editBackup) { backup ->
         EditUnifiedBackupDialog(
             backup = backup,
             settings = state.settings,
@@ -281,7 +291,7 @@ fun DataScreen(
         )
     }
 
-    deleteBackup?.let { backup ->
+    SheetHost(deleteBackup) { backup ->
         DeleteUnifiedBackupDialog(
             backup = backup,
             onDismiss = { deleteBackup = null },
@@ -345,7 +355,7 @@ private fun RestoreSelectedBackupDialog(
     onConfirm: (Int) -> Unit,
 ) {
     var targetUserId by remember(backup.ref.stableKey) { mutableStateOf<Int?>(null) }
-    AlertDialog(
+    UCloneAlertSheet(
         onDismissRequest = onDismiss,
         title = { Text("选择恢复目标") },
         text = {
@@ -383,7 +393,7 @@ private fun EditUnifiedBackupDialog(
 ) {
     var name by remember(backup.ref.stableKey) { mutableStateOf(backup.name) }
     var sourceUserId by remember(backup.ref.stableKey) { mutableStateOf(backup.sourceUserId ?: settings.mainUserId) }
-    AlertDialog(
+    UCloneAlertSheet(
         onDismissRequest = onDismiss,
         title = { Text("编辑备份") },
         text = {
@@ -420,7 +430,7 @@ private fun DeleteUnifiedBackupDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
+    UCloneAlertSheet(
         onDismissRequest = onDismiss,
         title = { Text("删除备份") },
         text = {

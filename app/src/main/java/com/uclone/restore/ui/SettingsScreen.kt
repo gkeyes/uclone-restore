@@ -1,5 +1,6 @@
 package com.uclone.restore.ui
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -22,7 +23,6 @@ import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.automirrored.outlined.Launch
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -69,14 +69,14 @@ fun SettingsScreen(
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(rememberCollapsingScrollState())
             .padding(
                 start = 16.dp,
                 top = LocalTopBarContentPadding.current,
                 end = 16.dp,
                 bottom = LocalBottomBarContentPadding.current,
             ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(UCloneSpacing.cardGap),
     ) {
         TopLevelHeader(
             title = "设置",
@@ -240,9 +240,9 @@ fun SettingsScreen(
             )
         }
     }
-    if (confirmOwnershipRepair) {
+    VisibleSheetHost(confirmOwnershipRepair) {
         val ownership = state.workspaceOwnership
-        AlertDialog(
+        UCloneAlertSheet(
             onDismissRequest = { confirmOwnershipRepair = false },
             title = { Text("修复备份容量归属") },
             text = {
@@ -265,8 +265,8 @@ fun SettingsScreen(
             dismissButton = { DialogActionButton("取消", onClick = { confirmOwnershipRepair = false }) },
         )
     }
-    if (confirmClearLogs) {
-        AlertDialog(
+    VisibleSheetHost(confirmClearLogs) {
+        UCloneAlertSheet(
             onDismissRequest = { confirmClearLogs = false },
             title = { Text("清理任务日志") },
             text = {
@@ -288,8 +288,8 @@ fun SettingsScreen(
             dismissButton = { DialogActionButton("取消", onClick = { confirmClearLogs = false }) },
         )
     }
-    if (resetConfirmStage == 1) {
-        AlertDialog(
+    VisibleSheetHost(resetConfirmStage == 1) {
+        UCloneAlertSheet(
             onDismissRequest = { resetConfirmStage = 0 },
             title = { Text("重置所有 UClone 数据") },
             text = {
@@ -309,8 +309,8 @@ fun SettingsScreen(
             dismissButton = { DialogActionButton("取消", onClick = { resetConfirmStage = 0 }) },
         )
     }
-    if (resetConfirmStage == 2) {
-        AlertDialog(
+    VisibleSheetHost(resetConfirmStage == 2) {
+        UCloneAlertSheet(
             onDismissRequest = { resetConfirmStage = 0 },
             title = { Text("最终确认") },
             text = {
@@ -332,8 +332,8 @@ fun SettingsScreen(
             dismissButton = { DialogActionButton("取消", onClick = { resetConfirmStage = 0 }) },
         )
     }
-    if (confirmDangerousSwitch) {
-        AlertDialog(
+    VisibleSheetHost(confirmDangerousSwitch) {
+        UCloneAlertSheet(
             onDismissRequest = { confirmDangerousSwitch = false },
             title = { Text("启用危险快速返回") },
             text = {
@@ -354,7 +354,7 @@ fun SettingsScreen(
             },
         )
     }
-    switchPolicyDialog?.let { dialog ->
+    SheetHost(switchPolicyDialog) { dialog ->
         val choices = when (dialog) {
             SwitchPolicyDialog.MAIN_RETURN -> listOf(
                 PolicyChoice(
@@ -418,7 +418,7 @@ fun SettingsScreen(
                 ),
             )
         }
-        AlertDialog(
+        UCloneAlertSheet(
             onDismissRequest = { switchPolicyDialog = null },
             title = {
                 Text(
@@ -594,9 +594,11 @@ private fun PolicySettingRow(
     onClick: () -> Unit,
 ) {
     val largeText = useStackedLayoutForLargeText()
+    val rowInteraction = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        interactionSource = rowInteraction,
+        modifier = Modifier.fillMaxWidth().pressFeedback(rowInteraction, fullWidthRow = true),
         shape = MaterialTheme.shapes.medium,
         color = Color.Transparent,
     ) {
@@ -651,9 +653,11 @@ private fun PolicySettingRow(
 @Composable
 private fun PolicyChoiceRow(choice: PolicyChoice) {
     val accent = if (choice.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val rowInteraction = remember { MutableInteractionSource() }
     Surface(
         onClick = choice.onSelect,
-        modifier = Modifier.fillMaxWidth(),
+        interactionSource = rowInteraction,
+        modifier = Modifier.fillMaxWidth().pressFeedback(rowInteraction, fullWidthRow = true),
         shape = MaterialTheme.shapes.medium,
         color = if (choice.selected) accent.copy(alpha = 0.10f) else Color.Transparent,
     ) {

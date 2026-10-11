@@ -15,7 +15,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -60,9 +70,11 @@ fun HistoryScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifier
         item(key = "history_header_gap") { Spacer(Modifier.height(10.dp)) }
         if (state.history.isEmpty()) {
             item(key = "history_empty_state") {
-                SectionCard("暂无任务记录") {
-                    Text("执行切换、推送、恢复或维护任务后，结果会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                EmptyState(
+                    icon = Icons.Default.History,
+                    title = "暂无任务记录",
+                    message = "执行切换、推送、恢复或维护任务后，结果会显示在这里。",
+                )
             }
         } else {
             itemsIndexed(state.history, key = { _, task -> task.id }) { index, task ->
@@ -96,9 +108,13 @@ internal fun HistoryTaskRow(
     modifier: Modifier = Modifier,
 ) {
     val largeText = useStackedLayoutForLargeText()
+    val interactionSource = remember { MutableInteractionSource() }
     Surface(
         onClick = onToggle,
-        modifier = modifier.fillMaxWidth(),
+        interactionSource = interactionSource,
+        modifier = modifier
+            .fillMaxWidth()
+            .pressFeedback(interactionSource, fullWidthRow = true),
         color = MaterialTheme.ucloneColors.groupedSurface,
         shape = when {
             first && last -> MaterialTheme.shapes.medium
@@ -118,7 +134,7 @@ internal fun HistoryTaskRow(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 68.dp)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = UCloneSpacing.md, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -179,38 +195,58 @@ internal fun HistoryTaskRow(
                         }
                     }
                 }
+                val chevronRotation by animateFloatAsState(
+                    targetValue = if (expanded) 180f else 0f,
+                    animationSpec = motionSpec(UCloneMotion.spatial()),
+                    label = "historyChevron",
+                )
+                Icon(
+                    Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = UCloneAlpha.tertiary),
+                    modifier = Modifier
+                        .size(20.dp)
+                        .graphicsLayer { rotationZ = chevronRotation },
+                )
             }
-            if (expanded) {
-                HorizontalDivider(color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f))
-                Column(
-                    Modifier.padding(start = 14.dp, top = 8.dp, end = 14.dp, bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    InfoRow("开始", Formatters.time(task.startedAt))
-                    InfoRow("结束", Formatters.time(task.finishedAt))
-                    if (task.metrics.copiedFiles > 0L || task.metrics.copiedBytes > 0L) {
-                        InfoRow("复制", "${task.metrics.copiedFiles} 个文件 · ${Formatters.bytes(task.metrics.copiedBytes)}")
-                    }
-                    task.metrics.targetDowntimeMs?.let { InfoRow("目标 App 停机", formatDuration(it)) }
-                    InfoRow("结果", task.message)
-                    Text("日志", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    SingleLinePathText(task.logPath)
-                    if (task.packageName.isNotBlank() && task.packageName != selectedPackage) {
-                        ToolRow(
-                            title = "在 App 页面选择此目标",
-                            description = "将 ${task.packageName} 设为当前 App，不执行任何数据操作。",
-                            actionLabel = "选择",
-                            icon = Icons.Default.Apps,
-                            onClick = onSelectPackage,
-                            showDivider = false,
-                        )
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(motionSpec(UCloneMotion.spatial())) + fadeIn(motionSpec(UCloneMotion.effects())),
+                exit = shrinkVertically(motionSpec(UCloneMotion.spatial())) + fadeOut(motionSpec(UCloneMotion.effects())),
+            ) {
+                Column {
+                    HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.ucloneColors.separator)
+                    Column(
+                        Modifier.padding(start = 14.dp, top = 8.dp, end = 14.dp, bottom = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        InfoRow("开始", Formatters.time(task.startedAt))
+                        InfoRow("结束", Formatters.time(task.finishedAt))
+                        if (task.metrics.copiedFiles > 0L || task.metrics.copiedBytes > 0L) {
+                            InfoRow("复制", "${task.metrics.copiedFiles} 个文件 · ${Formatters.bytes(task.metrics.copiedBytes)}")
+                        }
+                        task.metrics.targetDowntimeMs?.let { InfoRow("目标 App 停机", formatDuration(it)) }
+                        InfoRow("结果", task.message)
+                        Text("日志", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        SingleLinePathText(task.logPath)
+                        if (task.packageName.isNotBlank() && task.packageName != selectedPackage) {
+                            ToolRow(
+                                title = "在 App 页面选择此目标",
+                                description = "将 ${task.packageName} 设为当前 App，不执行任何数据操作。",
+                                actionLabel = "选择",
+                                icon = Icons.Default.Apps,
+                                onClick = onSelectPackage,
+                                showDivider = false,
+                            )
+                        }
                     }
                 }
             }
             if (showDivider) {
                 HorizontalDivider(
                     modifier = Modifier.padding(start = 60.dp),
-                    color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.ucloneColors.separator,
                 )
             }
         }

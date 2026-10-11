@@ -1,5 +1,6 @@
 package com.uclone.restore.ui
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.background
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
@@ -23,7 +25,6 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.WarningAmber
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -63,6 +64,7 @@ fun HomeScreen(
 ) {
     var confirm by remember { mutableStateOf<HomeConfirm?>(null) }
     LazyColumn(
+        state = rememberCollapsingLazyListState(),
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
@@ -70,7 +72,7 @@ fun HomeScreen(
             top = LocalTopBarContentPadding.current,
             bottom = LocalBottomBarContentPadding.current,
         ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(UCloneSpacing.cardGap),
     ) {
         item {
             TopLevelHeader(
@@ -82,12 +84,14 @@ fun HomeScreen(
         }
         item { SystemHealthSection(state, viewModel) }
         if (state.currentTask.task != null) item { CurrentTaskCard(state) }
-        item { SectionLabel("收藏 App", "每个 App 只突出当前状态对应的主动作。") }
+        item { SectionLabel("收藏 App", "每个 App 只突出当前状态对应的主动作。", count = state.favoriteApps.size) }
         if (state.favoriteApps.isEmpty()) {
             item {
-                SectionCard("暂无收藏") {
-                    Text("在 App 页面点星标后，常用 App 会显示在这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                EmptyState(
+                    icon = Icons.Default.StarBorder,
+                    title = "暂无收藏",
+                    message = "在 App 页面点星标后，常用 App 会显示在这里。",
+                )
             }
         } else {
             item(key = "favorite-apps") {
@@ -116,7 +120,7 @@ fun HomeScreen(
             }
         }
     }
-    confirm?.let { action ->
+    SheetHost(confirm) { action ->
         HomeConfirmDialog(
             action = action,
             settings = state.settings,
@@ -158,7 +162,7 @@ private fun SystemHealthSection(state: UiState, viewModel: UCloneViewModel) {
     ) {
         Column(
             Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(UCloneSpacing.cardGap),
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -378,16 +382,18 @@ private fun FavoriteAppRow(
         is AppDataState.Clone -> onRestore
         AppDataState.Unknown -> onOpen
     }
+    val rowInteraction = remember { MutableInteractionSource() }
     Surface(
         onClick = onOpen,
-        modifier = Modifier.fillMaxWidth(),
+        interactionSource = rowInteraction,
+        modifier = Modifier.fillMaxWidth().pressFeedback(rowInteraction, fullWidthRow = true),
         color = Color.Transparent,
         shadowElevation = 0.dp,
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = UCloneSpacing.md, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Row(
@@ -455,7 +461,8 @@ private fun FavoriteAppRow(
     if (showDivider) {
         HorizontalDivider(
             modifier = Modifier.padding(start = 64.dp),
-            color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+            thickness = 0.5.dp,
+                    color = MaterialTheme.ucloneColors.separator,
         )
     }
 }
@@ -499,7 +506,7 @@ private fun HomeConfirmDialog(
         is HomeConfirm.Switch -> SwitchPolicyText.switchToCloneConfirmation(settings, hasMainReturnPoint)
         is HomeConfirm.Restore -> SwitchPolicyText.restoreConfirmation(settings)
     }
-    AlertDialog(
+    UCloneAlertSheet(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(body) },

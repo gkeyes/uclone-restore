@@ -10,7 +10,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,26 +54,30 @@ fun DataBackupDetailScreen(
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(rememberCollapsingScrollState())
             .padding(
                 start = 16.dp,
                 top = LocalTopBarContentPadding.current,
                 end = 16.dp,
                 bottom = LocalBottomBarContentPadding.current,
             ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(UCloneSpacing.cardGap),
     ) {
-        PageDescription(
-            if (isPassive) {
+        ScreenLargeTitle(
+            title = app?.label ?: "备份详情",
+            subtitle = if (isPassive) {
                 "被动备份来源、大小与恢复操作"
             } else {
                 "active 主动快照来源、大小与恢复操作"
             },
         )
         if (packageName == null || !backupExists) {
-            SectionCard("备份不存在") {
-                Text("该备份可能已被删除，或不再是当前最新备份。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            EmptyState(
+                icon = Icons.Default.Delete,
+                title = "备份不存在",
+                message = "该备份可能已被删除，或不再是当前最新备份。",
+                tone = StatusTone.NEUTRAL,
+            )
             return@Column
         }
         SectionCard("备份信息") {
@@ -110,9 +113,9 @@ fun DataBackupDetailScreen(
         }
     }
 
-    confirm?.let { action ->
+    SheetHost(confirm) { action ->
         val path = passivePath ?: activePath.orEmpty()
-        AlertDialog(
+        UCloneAlertSheet(
             onDismissRequest = { confirm = null },
             title = {
                 Text(

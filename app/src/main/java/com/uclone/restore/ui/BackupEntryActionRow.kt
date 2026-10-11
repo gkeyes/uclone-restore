@@ -118,7 +118,8 @@ fun BackupEntryActionRow(
         if (showDivider) {
             HorizontalDivider(
                 modifier = Modifier.padding(start = if (showAppIcon) 64.dp else 0.dp),
-                color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+                thickness = 0.5.dp,
+                    color = MaterialTheme.ucloneColors.separator,
             )
         }
     }

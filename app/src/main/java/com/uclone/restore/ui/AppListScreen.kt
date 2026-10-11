@@ -1,5 +1,6 @@
 package com.uclone.restore.ui
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
@@ -106,7 +108,13 @@ fun AppListScreen(
             item(key = "app_search_gap") { Spacer(Modifier.height(8.dp)) }
             item(key = "app_search") {
                 Row(
-                    Modifier.fillMaxWidth(),
+                    Modifier
+                        .animateItem(
+                            fadeInSpec = motionSpec(UCloneMotion.effects()),
+                            placementSpec = motionSpec(UCloneMotion.spatial()),
+                            fadeOutSpec = motionSpec(UCloneMotion.effects()),
+                        )
+                        .fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -131,12 +139,12 @@ fun AppListScreen(
         item(key = "app_list_gap") { Spacer(Modifier.height(10.dp)) }
         if (apps.isEmpty()) {
             item(key = "app_empty_state") {
-                SectionCard(if (query.isEmpty()) "没有可显示的 App" else "没有匹配结果") {
-                    Text(
-                        if (query.isEmpty()) "调整筛选条件后重试。" else "检查名称、包名或清除搜索条件。",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                EmptyState(
+                    icon = Icons.Default.SearchOff,
+                    title = if (query.isEmpty()) "没有可显示的 App" else "没有匹配结果",
+                    message = if (query.isEmpty()) "调整筛选条件后重试。" else "检查名称、包名或清除搜索条件。",
+                    tone = StatusTone.NEUTRAL,
+                )
             }
         } else {
             itemsIndexed(apps, key = { _, app -> app.packageName }) { index, app ->
@@ -230,9 +238,11 @@ private fun AppRow(
     onFavorite: () -> Unit,
     onClick: () -> Unit,
 ) {
+    val rowInteraction = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        interactionSource = rowInteraction,
+        modifier = Modifier.fillMaxWidth().pressFeedback(rowInteraction, fullWidthRow = true),
         shape = when {
             first && last -> MaterialTheme.shapes.medium
             first -> RoundedCornerShape(
@@ -250,7 +260,7 @@ private fun AppRow(
     ) {
         Column {
             Row(
-                Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                Modifier.padding(horizontal = UCloneSpacing.md, vertical = 9.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -286,7 +296,8 @@ private fun AppRow(
             if (showDivider) {
                 HorizontalDivider(
                     modifier = Modifier.padding(start = 64.dp),
-                    color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.ucloneColors.separator,
                 )
             }
         }

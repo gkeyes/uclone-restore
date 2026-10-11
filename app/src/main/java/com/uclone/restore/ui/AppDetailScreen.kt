@@ -11,6 +11,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
@@ -19,7 +24,6 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +36,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -72,31 +78,44 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(rememberCollapsingScrollState())
             .padding(
                 start = 16.dp,
                 top = LocalTopBarContentPadding.current,
                 end = 16.dp,
                 bottom = LocalBottomBarContentPadding.current,
             ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(UCloneSpacing.cardGap),
     ) {
         if (app == null) {
-            PageDescription("请先在 App 页面选择一个目标。")
+            ScreenLargeTitle("App 详情")
+            EmptyState(
+                icon = Icons.Default.Storage,
+                title = "未选择 App",
+                message = "请先在 App 页面选择一个目标。",
+            )
             return@Column
         }
-        PageDescription("安装状态、数据来源与操作")
+        // Large title (app label) collapses into the floating top bar when scrolled.
         Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier
+                .fillMaxWidth()
+                .staggerEnter(),
+            horizontalArrangement = Arrangement.spacedBy(UCloneSpacing.sm),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
-            AppIcon(app.packageName, size = 44.dp, cornerRadius = 12.dp)
+            AppIcon(app.packageName, size = 52.dp, cornerRadius = UCloneRadius.row)
             Column(Modifier.weight(1f)) {
-                Text(app.label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    app.label,
+                    style = MaterialTheme.typography.headlineMedium,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { heading() },
+                )
                 Text(
                     app.packageName,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -205,7 +224,11 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
         }
         SectionCard("当前 App 备份") {
             if (state.selectedBackups.isEmpty()) {
-                Text("暂无备份。先使用上方备份工具生成一份命名备份。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                EmptyState(
+                    icon = Icons.Default.Storage,
+                    title = "暂无备份",
+                    message = "先使用上方备份工具生成一份命名备份。",
+                )
             } else {
                 state.selectedBackups.forEachIndexed { index, backup ->
                     BackupEntryRow(
@@ -246,109 +269,115 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
                 onClick = { advancedExpanded = !advancedExpanded },
                 showDivider = false,
             )
-            if (advancedExpanded) {
-                ToolRow(
-                    title = when (state.selectedDataState) {
-                        AppDataState.Main -> "切换到分身态"
-                        is AppDataState.Clone -> "还原主系统态"
-                        AppDataState.Unknown, null -> "数据状态待确认"
-                    },
-                    description = when (state.selectedDataState) {
-                        AppDataState.Main -> SwitchPolicyText
-                            .switchToCloneConfirmation(state.settings, mainReturnPoint != null)
-                            .replace('\n', ' ')
-                        is AppDataState.Clone -> SwitchPolicyText.planSummary(state.settings)
-                        AppDataState.Unknown, null -> "先恢复一份已标明 MAIN 或 CLONE 来源的备份。"
-                    },
-                    actionLabel = when (state.selectedDataState) {
-                        AppDataState.Main -> "切换"
-                        is AppDataState.Clone -> "还原"
-                        AppDataState.Unknown, null -> "不可用"
-                    },
-                    icon = Icons.Default.Sync,
-                    onClick = {
-                        confirm = when (state.selectedDataState) {
-                            AppDataState.Main -> ConfirmAction.SWITCH
-                            is AppDataState.Clone -> ConfirmAction.RESTORE_SWITCH
-                            AppDataState.Unknown, null -> null
-                        }
-                    },
-                    enabled = state.selectedDataState != AppDataState.Unknown,
-                )
-                InfoRow("固定 MAIN 返回点", if (mainReturnPoint == null) "未建立" else "${Formatters.time(mainReturnPoint.createdAt)} · ${Formatters.kilobytes(mainReturnPoint.sizeKb)}")
-                ToolRow(
-                    title = "更新固定 MAIN 返回点",
-                    description = "用当前已确认 MAIN 的 user${state.settings.mainUserId} 数据替换返回点。",
-                    actionLabel = "更新",
-                    icon = Icons.Default.RestartAlt,
-                    enabled = state.selectedDataState == AppDataState.Main &&
-                        state.selectedPackage?.let(state::hasConfirmedMainState) == true &&
-                        !state.busy,
-                    onClick = { confirm = ConfirmAction.UPDATE_MAIN_RETURN_POINT },
-                )
-                ToolRow(
-                    title = "建立 active 主动备份",
-                    description = "读取分身当前数据并保存到旧版 active 快照。",
-                    actionLabel = "执行",
-                    icon = Icons.Default.CloudDownload,
-                    onClick = { confirm = ConfirmAction.CAPTURE },
-                )
-                ToolRow(
-                    title = "用 active 快照覆盖 user${state.settings.mainUserId}",
-                    description = "兼容旧版恢复入口，只读取 active 快照。",
-                    actionLabel = "执行",
-                    icon = Icons.Default.RestartAlt,
-                    onClick = { confirm = ConfirmAction.RESTORE },
-                )
-                ToolRow(
-                    title = "读取分身最新数据并恢复 user${state.settings.mainUserId}",
-                    description = "先更新 active，再覆盖 user${state.settings.mainUserId}。",
-                    actionLabel = "执行",
-                    icon = Icons.Default.Sync,
-                    onClick = { confirm = ConfirmAction.LATEST },
-                )
-                ToolRow(
-                    title = "生成恢复审计包",
-                    description = "只读采集文件、权限与上下文证据。",
-                    actionLabel = "执行",
-                    icon = Icons.Default.CloudDownload,
-                    onClick = { confirm = ConfirmAction.AUDIT },
-                )
-                SettingCheck("CE App 私有数据", state.settings.includeCe) {
-                    viewModel.saveSettings(state.settings.copy(includeCe = it))
+            AnimatedVisibility(
+                visible = advancedExpanded,
+                enter = expandVertically(motionSpec(UCloneMotion.spatial())) + fadeIn(motionSpec(UCloneMotion.effects())),
+                exit = shrinkVertically(motionSpec(UCloneMotion.spatial())) + fadeOut(motionSpec(UCloneMotion.effects())),
+            ) {
+                Column {
+                    ToolRow(
+                        title = when (state.selectedDataState) {
+                            AppDataState.Main -> "切换到分身态"
+                            is AppDataState.Clone -> "还原主系统态"
+                            AppDataState.Unknown, null -> "数据状态待确认"
+                        },
+                        description = when (state.selectedDataState) {
+                            AppDataState.Main -> SwitchPolicyText
+                                .switchToCloneConfirmation(state.settings, mainReturnPoint != null)
+                                .replace('\n', ' ')
+                            is AppDataState.Clone -> SwitchPolicyText.planSummary(state.settings)
+                            AppDataState.Unknown, null -> "先恢复一份已标明 MAIN 或 CLONE 来源的备份。"
+                        },
+                        actionLabel = when (state.selectedDataState) {
+                            AppDataState.Main -> "切换"
+                            is AppDataState.Clone -> "还原"
+                            AppDataState.Unknown, null -> "不可用"
+                        },
+                        icon = Icons.Default.Sync,
+                        onClick = {
+                            confirm = when (state.selectedDataState) {
+                                AppDataState.Main -> ConfirmAction.SWITCH
+                                is AppDataState.Clone -> ConfirmAction.RESTORE_SWITCH
+                                AppDataState.Unknown, null -> null
+                            }
+                        },
+                        enabled = state.selectedDataState != AppDataState.Unknown,
+                    )
+                    InfoRow("固定 MAIN 返回点", if (mainReturnPoint == null) "未建立" else "${Formatters.time(mainReturnPoint.createdAt)} · ${Formatters.kilobytes(mainReturnPoint.sizeKb)}")
+                    ToolRow(
+                        title = "更新固定 MAIN 返回点",
+                        description = "用当前已确认 MAIN 的 user${state.settings.mainUserId} 数据替换返回点。",
+                        actionLabel = "更新",
+                        icon = Icons.Default.RestartAlt,
+                        enabled = state.selectedDataState == AppDataState.Main &&
+                            state.selectedPackage?.let(state::hasConfirmedMainState) == true &&
+                            !state.busy,
+                        onClick = { confirm = ConfirmAction.UPDATE_MAIN_RETURN_POINT },
+                    )
+                    ToolRow(
+                        title = "建立 active 主动备份",
+                        description = "读取分身当前数据并保存到旧版 active 快照。",
+                        actionLabel = "执行",
+                        icon = Icons.Default.CloudDownload,
+                        onClick = { confirm = ConfirmAction.CAPTURE },
+                    )
+                    ToolRow(
+                        title = "用 active 快照覆盖 user${state.settings.mainUserId}",
+                        description = "兼容旧版恢复入口，只读取 active 快照。",
+                        actionLabel = "执行",
+                        icon = Icons.Default.RestartAlt,
+                        onClick = { confirm = ConfirmAction.RESTORE },
+                    )
+                    ToolRow(
+                        title = "读取分身最新数据并恢复 user${state.settings.mainUserId}",
+                        description = "先更新 active，再覆盖 user${state.settings.mainUserId}。",
+                        actionLabel = "执行",
+                        icon = Icons.Default.Sync,
+                        onClick = { confirm = ConfirmAction.LATEST },
+                    )
+                    ToolRow(
+                        title = "生成恢复审计包",
+                        description = "只读采集文件、权限与上下文证据。",
+                        actionLabel = "执行",
+                        icon = Icons.Default.CloudDownload,
+                        onClick = { confirm = ConfirmAction.AUDIT },
+                    )
+                    SettingCheck("CE App 私有数据", state.settings.includeCe) {
+                        viewModel.saveSettings(state.settings.copy(includeCe = it))
+                    }
+                    SettingCheck("DE Device Protected 数据", state.settings.includeDe) {
+                        viewModel.saveSettings(state.settings.copy(includeDe = it))
+                    }
+                    SettingCheck("external Android/data", state.settings.includeExternal) {
+                        viewModel.saveSettings(state.settings.copy(includeExternal = it))
+                    }
+                    SettingCheck("Android/media", state.settings.includeMedia) {
+                        viewModel.saveSettings(state.settings.copy(includeMedia = it))
+                    }
+                    SettingCheck("OBB", state.settings.includeObb) {
+                        viewModel.saveSettings(state.settings.copy(includeObb = it))
+                    }
+                    SettingCheck("权限/AppOps", state.settings.includePermissions) {
+                        viewModel.saveSettings(state.settings.copy(includePermissions = it))
+                    }
+                    SettingCheck("排除 cache/code_cache", state.settings.excludeCache) {
+                        viewModel.saveSettings(state.settings.copy(excludeCache = it))
+                    }
+                    ToolRow(
+                        title = "删除 active 主动快照",
+                        description = "删除当前 active；history、命名备份和被动备份不受影响。",
+                        actionLabel = "删除",
+                        icon = Icons.Default.Delete,
+                        enabled = app.lastSnapshotAt != null,
+                        danger = true,
+                        onClick = { confirm = ConfirmAction.DELETE },
+                        showDivider = false,
+                    )
                 }
-                SettingCheck("DE Device Protected 数据", state.settings.includeDe) {
-                    viewModel.saveSettings(state.settings.copy(includeDe = it))
-                }
-                SettingCheck("external Android/data", state.settings.includeExternal) {
-                    viewModel.saveSettings(state.settings.copy(includeExternal = it))
-                }
-                SettingCheck("Android/media", state.settings.includeMedia) {
-                    viewModel.saveSettings(state.settings.copy(includeMedia = it))
-                }
-                SettingCheck("OBB", state.settings.includeObb) {
-                    viewModel.saveSettings(state.settings.copy(includeObb = it))
-                }
-                SettingCheck("权限/AppOps", state.settings.includePermissions) {
-                    viewModel.saveSettings(state.settings.copy(includePermissions = it))
-                }
-                SettingCheck("排除 cache/code_cache", state.settings.excludeCache) {
-                    viewModel.saveSettings(state.settings.copy(excludeCache = it))
-                }
-                ToolRow(
-                    title = "删除 active 主动快照",
-                    description = "删除当前 active；history、命名备份和被动备份不受影响。",
-                    actionLabel = "删除",
-                    icon = Icons.Default.Delete,
-                    enabled = app.lastSnapshotAt != null,
-                    danger = true,
-                    onClick = { confirm = ConfirmAction.DELETE },
-                    showDivider = false,
-                )
             }
         }
     }
-    confirm?.let { action ->
+    SheetHost(confirm) { action ->
         ConfirmDialog(
             action = action,
             highRisk = state.selectedApp?.riskLevel != RiskLevel.NORMAL,
@@ -377,7 +406,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             },
         )
     }
-    backupDialog?.let { kind ->
+    SheetHost(backupDialog) { kind ->
         BackupNameDialog(
             kind = kind,
             appName = app?.label.orEmpty(),
@@ -394,7 +423,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             },
         )
     }
-    if (showRestorePicker || restoreDialogBackup != null) {
+    VisibleSheetHost(showRestorePicker || restoreDialogBackup != null) {
         RestorePickerDialog(
             backups = state.selectedBackups,
             initialBackup = restoreDialogBackup,
@@ -410,7 +439,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             },
         )
     }
-    editBackup?.let { backup ->
+    SheetHost(editBackup) { backup ->
         EditBackupDialog(
             backup = backup,
             settings = state.settings,
@@ -421,7 +450,7 @@ fun AppDetailScreen(state: UiState, viewModel: UCloneViewModel, modifier: Modifi
             },
         )
     }
-    deleteBackup?.let { backup ->
+    SheetHost(deleteBackup) { backup ->
         DeleteBackupDialog(
             backup = backup,
             onDismiss = { deleteBackup = null },
@@ -547,7 +576,7 @@ private fun BackupNameDialog(
         mutableStateOf(defaultBackupName(appName, captureUserId))
     }
     var sourceUserId by remember(kind, defaultSourceUserId) { mutableStateOf(defaultSourceUserId) }
-    AlertDialog(
+    UCloneAlertSheet(
         onDismissRequest = onDismiss,
         title = { Text(if (kind == BackupDialogKind.MAIN) "备份主系统" else "备份分系统") },
         text = {
@@ -590,13 +619,13 @@ private fun RestorePickerDialog(
 ) {
     var selectedBackup by remember(initialBackup?.ref?.stableKey, backups) { mutableStateOf(initialBackup) }
     var targetUserId by remember(initialBackup?.ref?.stableKey) { mutableStateOf<Int?>(null) }
-    AlertDialog(
+    UCloneAlertSheet(
         onDismissRequest = onDismiss,
         title = { Text(if (selectedBackup == null) "选择恢复" else "选择恢复目标") },
         text = {
             Column(
                 Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(UCloneSpacing.cardGap),
             ) {
                 val current = selectedBackup
                 if (current == null) {
@@ -682,7 +711,7 @@ private fun EditBackupDialog(
     var sourceUserId by remember(backup.ref.stableKey) {
         mutableStateOf(backup.sourceUserId ?: settings.mainUserId)
     }
-    AlertDialog(
+    UCloneAlertSheet(
         onDismissRequest = onDismiss,
         title = { Text("编辑备份") },
         text = {
@@ -719,7 +748,7 @@ private fun DeleteBackupDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
+    UCloneAlertSheet(
         onDismissRequest = onDismiss,
         title = { Text("删除备份") },
         text = {
@@ -884,7 +913,7 @@ private fun ConfirmDialog(
     } else {
         body
     }
-    AlertDialog(
+    UCloneAlertSheet(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(text) },

@@ -11,6 +11,16 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.uclone.restore.ui.CompactActionButton
+import com.uclone.restore.ui.StatusTone
+import com.uclone.restore.ui.ToneChip
+import com.uclone.restore.ui.UCloneRadius
+import com.uclone.restore.ui.UCloneSpacing
+import com.uclone.restore.ui.ucloneColors
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,6 +84,7 @@ class CrossUserHostActivity : ComponentActivity() {
             return
         }
         coordinator = container.crossUserSessionCoordinator
+        enableEdgeToEdge()
         setContent {
             UCloneTheme {
                 CrossUserHostScreen(
@@ -447,45 +458,62 @@ private fun CrossUserHostScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        MaterialSurface(tonalElevation = 2.dp) {
+        MaterialSurface(color = MaterialTheme.ucloneColors.groupedSurface) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                    .statusBarsPadding()
+                    .padding(horizontal = UCloneSpacing.md, vertical = UCloneSpacing.sm),
+                verticalArrangement = Arrangement.spacedBy(UCloneSpacing.xs),
             ) {
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(UCloneSpacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(UCloneSpacing.xxs)) {
                         Text("微信 · user10", style = MaterialTheme.typography.titleMedium)
-                        Text(state.stage, style = MaterialTheme.typography.bodyMedium)
+                        ToneChip(
+                            label = state.stage,
+                            tone = if (state.errorCode == null) StatusTone.INFO else StatusTone.DANGER,
+                            showDot = true,
+                        )
                     }
-                    OutlinedButton(onClick = onClose) { Text("关闭") }
+                    CompactActionButton(text = "关闭", onClick = onClose)
                 }
                 Text(
                     "display=${state.displayId} · adapter=${state.adapterId}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                val danger = MaterialTheme.ucloneColors.dangerTone
                 Text(
                     state.errorCode?.let { "$it · ${state.detail}" } ?: state.detail,
-                    style = MaterialTheme.typography.bodySmall,
+                    modifier = if (state.errorCode == null) {
+                        Modifier
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .background(danger.container, RoundedCornerShape(UCloneRadius.control))
+                            .padding(horizontal = UCloneSpacing.sm, vertical = UCloneSpacing.xs)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
                     color = if (state.errorCode == null) {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     } else {
-                        MaterialTheme.colorScheme.error
+                        danger.content
                     },
                 )
-                if (state.errorCode != null) Button(onClick = onRetry) { Text("重新检查") }
+                if (state.errorCode != null) {
+                    CompactActionButton(text = "重新检查", onClick = onRetry, primary = true)
+                }
             }
         }
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black),
+                .background(Color.Black)
+                .navigationBarsPadding(),
         ) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),

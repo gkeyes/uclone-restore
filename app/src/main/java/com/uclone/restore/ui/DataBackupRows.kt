@@ -1,5 +1,7 @@
 package com.uclone.restore.ui
 
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,9 +31,11 @@ import com.uclone.restore.util.Formatters
 @Composable
 fun ActiveBackupRow(app: AppEntry, shape: Shape, showDivider: Boolean, onClick: () -> Unit) {
     val largeText = useStackedLayoutForLargeText()
+    val rowInteraction = remember { MutableInteractionSource() }
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        interactionSource = rowInteraction,
+        modifier = Modifier.fillMaxWidth().pressFeedback(rowInteraction, fullWidthRow = true),
         shape = shape,
         color = MaterialTheme.ucloneColors.groupedSurface,
         shadowElevation = 0.dp,
@@ -41,7 +45,7 @@ fun ActiveBackupRow(app: AppEntry, shape: Shape, showDivider: Boolean, onClick: 
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 68.dp)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = UCloneSpacing.md, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -75,7 +79,8 @@ fun ActiveBackupRow(app: AppEntry, shape: Shape, showDivider: Boolean, onClick: 
             if (showDivider) {
                 HorizontalDivider(
                     modifier = Modifier.padding(start = 64.dp),
-                    color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.ucloneColors.separator,
                 )
             }
         }
@@ -121,7 +126,7 @@ fun PassiveBackupRow(
                     .fillMaxWidth()
                     .clickable(enabled = onOpenDetail != null) { onOpenDetail?.invoke() }
                     .heightIn(min = 68.dp)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = UCloneSpacing.md, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -165,7 +170,8 @@ fun PassiveBackupRow(
             if (showDivider) {
                 HorizontalDivider(
                     modifier = Modifier.padding(start = 64.dp),
-                    color = MaterialTheme.ucloneColors.separator.copy(alpha = 0.42f),
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.ucloneColors.separator,
                 )
             }
         }
