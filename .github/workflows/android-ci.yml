@@ -124,15 +124,15 @@ jobs:
           SHORT_SHA="${GITHUB_SHA::12}"
           echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/uclone-restore-0.4.0-rc.1-$SHORT_SHA-release.apk"
-          cp launcher-module/build/outputs/apk/release/launcher-module-release.apk "dist/uclone-launcher-module-0.4.0-rc.1-$SHORT_SHA-release.apk"
-          cp crossuser-probe-app/build/outputs/apk/release/crossuser-probe-app-release.apk "dist/uclone-crossuser-probe-0.4.0-rc.1-$SHORT_SHA-release.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/uclone-restore-0.4.0-$SHORT_SHA-release.apk"
+          cp launcher-module/build/outputs/apk/release/launcher-module-release.apk "dist/uclone-launcher-module-0.4.0-$SHORT_SHA-release.apk"
+          cp crossuser-probe-app/build/outputs/apk/release/crossuser-probe-app-release.apk "dist/uclone-crossuser-probe-0.4.0-$SHORT_SHA-release.apk"
           sha256sum dist/*.apk > dist/SHA256SUMS.txt
-          printf 'version=0.4.0-rc.1\ncommit=%s\nsigning=fixed-release\n' "$GITHUB_SHA" > dist/BUILD-MANIFEST.txt
+          printf 'version=0.4.0\ncommit=%s\nsigning=fixed-release\n' "$GITHUB_SHA" > dist/BUILD-MANIFEST.txt
 
       - name: Upload fixed-signed preview bundle
         uses: actions/upload-artifact@v4
         with:
-          name: uclone-0.4.0-rc.1-${{ env.SHORT_SHA }}
+          name: uclone-0.4.0-${{ env.SHORT_SHA }}
           path: dist/
           if-no-files-found: error
