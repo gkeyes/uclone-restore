@@ -1,5 +1,7 @@
 package com.uclone.restore.module.settings
 
+import android.animation.ValueAnimator
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -17,11 +19,16 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
+import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -53,18 +60,28 @@ class ModuleSettingsActivity : Activity() {
 
     private val isDarkMode: Boolean
         get() = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-    private val SURFACE: Int get() = if (isDarkMode) Color.BLACK else Color.rgb(242, 242, 247)
-    private val CARD_SURFACE: Int get() = if (isDarkMode) Color.rgb(28, 28, 30) else Color.WHITE
-    private val TEXT_PRIMARY: Int get() = if (isDarkMode) Color.WHITE else Color.BLACK
-    private val TEXT_SECONDARY: Int get() = if (isDarkMode) Color.rgb(152, 152, 157) else Color.rgb(108, 108, 112)
-    private val TEXT_TERTIARY: Int get() = if (isDarkMode) Color.rgb(99, 99, 102) else Color.rgb(142, 142, 147)
-    private val BLUE: Int get() = if (isDarkMode) Color.rgb(10, 132, 255) else Color.rgb(0, 122, 255)
-    private val ON_PRIMARY: Int get() = Color.WHITE
-    private val GREEN: Int get() = if (isDarkMode) Color.rgb(48, 209, 88) else Color.rgb(52, 199, 89)
-    private val ORANGE: Int get() = if (isDarkMode) Color.rgb(255, 159, 10) else Color.rgb(255, 149, 0)
-    private val RED: Int get() = if (isDarkMode) Color.rgb(255, 69, 58) else Color.rgb(255, 59, 48)
-    private val SEPARATOR: Int get() = if (isDarkMode) Color.rgb(56, 56, 58) else Color.rgb(198, 198, 200)
-    private val GLASS_BORDER: Int get() = colorWithAlpha(TEXT_TERTIARY, if (isDarkMode) 96 else 72)
+
+    // Design system v2 tokens (ModuleTheme.kt); names kept so the builders below read the same.
+    private val palette: ModulePalette by lazy { ModulePalette.from(this) }
+    private val SURFACE: Int get() = palette.page
+    private val CARD_SURFACE: Int get() = palette.card
+    private val TEXT_PRIMARY: Int get() = palette.textPrimary
+    private val TEXT_SECONDARY: Int get() = palette.textSecondary
+    private val TEXT_TERTIARY: Int get() = palette.textTertiary
+    private val BLUE: Int get() = palette.accent
+    private val ON_PRIMARY: Int get() = palette.onAccent
+    private val SEPARATOR: Int get() = palette.hairline
+
+    private lateinit var largeHeader: View
+    private lateinit var compactBar: TextView
+    private var headerCollapsed = false
+    private var lastShownPage: SettingsPage? = null
+    private val segmentIndicators = mutableMapOf<LinearLayout, View>()
+    private var hookMetric: LinearLayout? = null
+    private var targetMetric: LinearLayout? = null
+    private var controlMetric: LinearLayout? = null
+    private var errorMetric: LinearLayout? = null
+    private var targetNavValue: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,7 +90,8 @@ class ModuleSettingsActivity : Activity() {
         launchableApps = queryLaunchableApps()
         selectedPackages = ModuleSettingsStore.allowedPackageSet(this).toMutableSet()
         sanitizeSelectedPackages()
-        setContentView(buildContent())
+        setContentView(buildRoot())
+        applyEdgeToEdge()
         showPage(SettingsPage.STATUS)
         refreshDiagnostics()
     }
@@ -81,24 +99,76 @@ class ModuleSettingsActivity : Activity() {
     @Suppress("DEPRECATION")
     private fun configureSystemBars() {
         window.statusBarColor = Color.TRANSPARENT
-        window.navigationBarColor = SURFACE
-        window.decorView.systemUiVisibility = if (isDarkMode) {
-            0
-        } else {
-            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-        }
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) window.isNavigationBarContrastEnforced = false
     }
+
+    /** Edge-to-edge: draw behind the bars and pad content with the real insets. */
+    @Suppress("DEPRECATION")
+    private fun applyEdgeToEdge() {
+        val light = !isDarkMode
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+            val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            window.insetsController?.setSystemBarsAppearance(if (light) mask else 0, mask)
+        } else {
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                if (light) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR else 0
+        }
+        window.decorView.requestApplyInsets()
+    }
+
+    /** Root: content column plus the compact 17sp title bar that fades in when the large title collapses. */
+    private fun buildRoot(): FrameLayout =
+        FrameLayout(this).apply {
+            setBackgroundColor(SURFACE)
+            val content = buildContent()
+            addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            compactBar = TextView(this@ModuleSettingsActivity).apply {
+                text = "UClone Module"
+                textSize = ModuleType.COLLAPSED_TITLE
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(TEXT_PRIMARY)
+                gravity = Gravity.CENTER
+                alpha = 0f
+                visibility = View.INVISIBLE
+                background = LayerDrawable(arrayOf(ColorDrawable(colorWithAlpha(SURFACE, 240)), hairlineBottom()))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            addView(compactBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(ModuleDimens.COMPACT_BAR)))
+            setOnApplyWindowInsetsListener { _, insets ->
+                val bars: IntArray = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val system = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                    intArrayOf(system.left, system.top, system.right, system.bottom)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intArrayOf(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+                }
+                content.setPadding(
+                    bars[0] + dp(ModuleDimens.MD),
+                    bars[1] + dp(ModuleDimens.SM),
+                    bars[2] + dp(ModuleDimens.MD),
+                    bars[3] + dp(ModuleDimens.SM),
+                )
+                compactBar.setPadding(bars[0], bars[1], bars[2], 0)
+                compactBar.layoutParams = compactBar.layoutParams.apply { height = bars[1] + dp(ModuleDimens.COMPACT_BAR) }
+                insets
+            }
+        }
 
     private fun buildContent(): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), statusBarHeight() + dp(12), dp(16), navigationBarHeight() + dp(14))
+            setPadding(dp(ModuleDimens.MD), statusBarHeight() + dp(ModuleDimens.SM), dp(ModuleDimens.MD), navigationBarHeight() + dp(ModuleDimens.SM))
             background = softBackground()
 
-            addView(headerCard(), matchWrap())
-            addView(space(10))
+            largeHeader = headerCard()
+            addView(largeHeader, matchWrap())
+            addView(space(ModuleDimens.SM))
             addView(tabBar(), matchWrap())
-            addView(space(10))
+            addView(space(ModuleDimens.SM))
 
             pageContainer = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -125,7 +195,7 @@ class ModuleSettingsActivity : Activity() {
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 setTextColor(ON_PRIMARY)
-                background = roundedSolid(BLUE, dp(13))
+                background = roundedSolid(BLUE, dp(ModuleDimens.RADIUS_CONTROL))
             }
             top.addView(mark, LinearLayout.LayoutParams(dp(48), dp(48)))
 
@@ -133,8 +203,14 @@ class ModuleSettingsActivity : Activity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(12), 0, dp(8), 0)
             }
-            titleGroup.addView(text("UClone Module", 24f, TEXT_PRIMARY, true))
-            headerSubtitle = text("桌面长按入口控制", 13f, TEXT_SECONDARY, false)
+            titleGroup.addView(text("UClone Module", ModuleType.LARGE_TITLE, TEXT_PRIMARY, true).apply {
+                isSingleLine = true
+                ellipsize = TextUtils.TruncateAt.END
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) accessibilityHeading = true
+            })
+            headerSubtitle = text("桌面长按入口控制", ModuleType.SUBHEAD, TEXT_SECONDARY, false).apply {
+                fontFeatureSettings = "tnum"
+            }
             titleGroup.addView(headerSubtitle)
             top.addView(titleGroup, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
@@ -147,7 +223,8 @@ class ModuleSettingsActivity : Activity() {
                 minimumWidth = dp(52)
                 minHeight = dp(32)
                 applySwitchStyle()
-                setOnCheckedChangeListener { _, checked ->
+                setOnCheckedChangeListener { view, checked ->
+                    view.performHapticFeedback(ModuleHaptics.toggle(checked))
                     persistHookEnabled(checked)
                 }
             }
@@ -155,30 +232,40 @@ class ModuleSettingsActivity : Activity() {
             addView(top, matchWrap())
         }
 
-    private fun tabBar(): LinearLayout =
+    private fun tabBar(): View =
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassDrawable(dp(24), alpha = 238, strokeColor = GLASS_BORDER)
+            setPadding(dp(ModuleDimens.XXS), dp(ModuleDimens.XXS), dp(ModuleDimens.XXS), dp(ModuleDimens.XXS))
             SettingsPage.entries.forEach { page ->
                 val item = TextView(this@ModuleSettingsActivity).apply {
                     text = page.label
-                    textSize = 13f
+                    textSize = ModuleType.SUBHEAD
                     typeface = Typeface.DEFAULT_BOLD
                     includeFontPadding = false
                     gravity = Gravity.CENTER
-                    setOnClickListener { showPage(page) }
+                    setOnClickListener {
+                        if (page != currentPage) it.performHapticFeedback(ModuleHaptics.segmentTick())
+                        showPage(page)
+                    }
+                    pressable()
                 }
                 tabButtons[page] = item
-                addView(item, LinearLayout.LayoutParams(0, dp(48), 1f))
+                addView(item, LinearLayout.LayoutParams(0, dp(ModuleDimens.TOUCH), 1f))
             }
-        }
+        }.let(::segmented)
 
     private fun showPage(page: SettingsPage) {
+        val previous = lastShownPage
         currentPage = page
+        lastShownPage = page
         updateTabStyles()
         pageContainer.removeAllViews()
+        hookMetric = null
+        targetMetric = null
+        controlMetric = null
+        errorMetric = null
+        targetNavValue = null
         val content = when (page) {
             SettingsPage.STATUS -> statusPage()
             SettingsPage.APPS -> appsPage()
@@ -189,18 +276,87 @@ class ModuleSettingsActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
         ))
+        setHeaderCollapsed(false)
+        if (previous != null && previous != page) {
+            // Shared X axis: 30dp + fade, direction follows the tab order.
+            val direction = if (page.ordinal > previous.ordinal) 1f else -1f
+            content.alpha = 0f
+            content.translationX = dp(ModuleMotion.PAGE_OFFSET_DP) * direction
+            content.animate()
+                .alpha(1f)
+                .translationX(0f)
+                .setDuration(ModuleMotion.SPATIAL)
+                .setInterpolator(ModuleMotion.standard)
+                .start()
+        }
+        if (StaggerRegistry.played.add(page.name)) {
+            val group: ViewGroup? = when (content) {
+                is ScrollView -> content.getChildAt(0) as? ViewGroup
+                is ViewGroup -> content
+                else -> null
+            }
+            if (group != null) {
+                var order = 0
+                for (index in 0 until group.childCount) {
+                    val child = group.getChildAt(index)
+                    if (child is Space) continue
+                    if (order >= ModuleMotion.STAGGER_MAX) break
+                    staggerIn(child, order++)
+                }
+            }
+        }
         refreshDiagnostics()
+    }
+
+    /** Collapse / expand the large title; the compact 17sp bar and its hairline fade in. */
+    private fun setHeaderCollapsed(collapsed: Boolean) {
+        if (!::largeHeader.isInitialized || collapsed == headerCollapsed) return
+        headerCollapsed = collapsed
+        compactBar.visibility = View.VISIBLE
+        compactBar.animate()
+            .alpha(if (collapsed) 1f else 0f)
+            .setDuration(ModuleMotion.EFFECTS)
+            .setInterpolator(ModuleMotion.standard)
+            .withEndAction { if (!headerCollapsed) compactBar.visibility = View.INVISIBLE }
+            .start()
+        val parentWidth = (largeHeader.parent as? View)?.width ?: 0
+        largeHeader.measure(
+            View.MeasureSpec.makeMeasureSpec(parentWidth, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        val fullHeight = largeHeader.measuredHeight.coerceAtLeast(1)
+        val from = largeHeader.height
+        val to = if (collapsed) 0 else fullHeight
+        ValueAnimator.ofInt(from, to).apply {
+            duration = ModuleMotion.SPATIAL
+            interpolator = ModuleMotion.standard
+            addUpdateListener { animator ->
+                val value = animator.animatedValue as Int
+                largeHeader.layoutParams = largeHeader.layoutParams.apply {
+                    height = if (!collapsed && value == to) ViewGroup.LayoutParams.WRAP_CONTENT else value
+                }
+                largeHeader.alpha = value.toFloat() / fullHeight
+            }
+            start()
+        }
+    }
+
+    /** Pages report their scroll; the large title collapses once 56dp of content has scrolled. */
+    private fun ScrollView.reportCollapse(): ScrollView = apply {
+        setOnScrollChangeListener { _, _, scrollY, _, _ ->
+            setHeaderCollapsed(scrollY > dp(ModuleDimens.ROW_MIN))
+        }
     }
 
     private fun statusPage(): ScrollView =
         pageScroll().apply {
             val root = pageColumn()
             root.addView(sectionHeader("状态", "模块、权限和目标 App 的当前状态。"))
-            root.addView(space(10))
+            root.addView(space(ModuleDimens.SM))
             root.addView(statusSummaryCard(), matchWrap())
-            root.addView(space(10))
+            root.addView(space(ModuleDimens.SM))
             root.addView(diagnosticsCard(), matchWrap())
-            root.addView(space(10))
+            root.addView(space(ModuleDimens.SM))
             root.addView(navigationRow(
                 title = "目标 App",
                 subtitle = "进入 App 页选择显示快捷操作的应用",
@@ -217,15 +373,16 @@ class ModuleSettingsActivity : Activity() {
                 orientation = LinearLayout.VERTICAL
             }
             val row1 = LinearLayout(this@ModuleSettingsActivity).apply { orientation = LinearLayout.HORIZONTAL }
-            row1.addView(metricTile(if (hookEnabled) "可用" else "关闭", "Hook", if (hookEnabled) GREEN else ORANGE), weightedWrap())
-            row1.addView(space(8, horizontal = true))
-            row1.addView(metricTile("${selectedPackages.size} 个", "目标 App", BLUE), weightedWrap())
+            row1.addView(metricTile(if (hookEnabled) "可用" else "关闭", "Hook", if (hookEnabled) ModuleTone.SUCCESS else ModuleTone.WARNING).also { hookMetric = it }, weightedWrap())
+            row1.addView(space(ModuleDimens.XS, horizontal = true))
+            row1.addView(metricTile("${selectedPackages.size} 个", "目标 App", ModuleTone.INFO).also { targetMetric = it }, weightedWrap())
             grid.addView(row1, matchWrap())
-            grid.addView(space(8))
+            grid.addView(space(ModuleDimens.XS))
             val row2 = LinearLayout(this@ModuleSettingsActivity).apply { orientation = LinearLayout.HORIZONTAL }
-            row2.addView(metricTile(yesNo(hasControlPermission()), "CONTROL", if (hasControlPermission()) GREEN else ORANGE), weightedWrap())
-            row2.addView(space(8, horizontal = true))
-            row2.addView(metricTile(ModuleSettingsStore.consecutiveHookErrors(this@ModuleSettingsActivity).toString(), "Hook 异常", ORANGE), weightedWrap())
+            val hookErrors = ModuleSettingsStore.consecutiveHookErrors(this@ModuleSettingsActivity)
+            row2.addView(metricTile(yesNo(hasControlPermission()), "CONTROL", if (hasControlPermission()) ModuleTone.SUCCESS else ModuleTone.WARNING).also { controlMetric = it }, weightedWrap())
+            row2.addView(space(ModuleDimens.XS, horizontal = true))
+            row2.addView(metricTile(hookErrors.toString(), "Hook 异常", if (hookErrors == 0) ModuleTone.SUCCESS else ModuleTone.WARNING).also { errorMetric = it }, weightedWrap())
             grid.addView(row2, matchWrap())
             addView(grid, matchWrap())
         }
@@ -239,7 +396,7 @@ class ModuleSettingsActivity : Activity() {
             header.addView(cardTitle("健康检查"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             header.addView(iconButton("↻", "刷新") { refreshDiagnostics() })
             addView(header, matchWrap())
-            addView(space(8))
+            addView(space(ModuleDimens.XS))
             diagnosticsContainer = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
             }
@@ -254,7 +411,7 @@ class ModuleSettingsActivity : Activity() {
                 gravity = Gravity.CENTER_VERTICAL
                 val title = LinearLayout(this@ModuleSettingsActivity).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(text("App", 28f, TEXT_PRIMARY, true))
+                    addView(text("App", ModuleType.TITLE, TEXT_PRIMARY, true))
                     addView(bodyText("为桌面长按菜单启用目标应用。"))
                 }
                 addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -264,17 +421,17 @@ class ModuleSettingsActivity : Activity() {
                 })
             }
             addView(header, matchWrap())
-            addView(space(10))
+            addView(space(ModuleDimens.SM))
             addView(appFilterBar(), matchWrap())
-            addView(space(10))
+            addView(space(ModuleDimens.SM))
 
             val listSurface = glassCard().apply {
-                setPadding(dp(12), dp(8), dp(12), dp(8))
+                setPadding(dp(ModuleDimens.XS), dp(ModuleDimens.XXS), dp(ModuleDimens.XS), dp(ModuleDimens.XXS))
             }
             val scroller = ScrollView(this@ModuleSettingsActivity).apply {
                 isFillViewport = false
                 overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            }
+            }.reportCollapse()
             appListContainer = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
             }
@@ -288,25 +445,26 @@ class ModuleSettingsActivity : Activity() {
                 0,
                 1f,
             ))
-            addView(space(8))
+            addView(space(ModuleDimens.XS))
             addView(appBottomActionBar(), matchWrap())
             populateAppList()
         }
 
-    private fun appFilterBar(): LinearLayout =
+    private fun appFilterBar(): View =
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassDrawable(dp(22))
+            setPadding(dp(ModuleDimens.XXS), dp(ModuleDimens.XXS), dp(ModuleDimens.XXS), dp(ModuleDimens.XXS))
             AppFilter.entries.forEach { filter ->
                 val button = TextView(this@ModuleSettingsActivity).apply {
                     text = filter.label
-                    textSize = 12f
+                    textSize = ModuleType.SECTION_HEADER
                     typeface = Typeface.DEFAULT_BOLD
                     includeFontPadding = false
                     gravity = Gravity.CENTER
+                    pressable()
                     setOnClickListener {
+                        if (filter != currentAppFilter) it.performHapticFeedback(ModuleHaptics.segmentTick())
                         currentAppFilter = filter
                         updateAppFilterStyles()
                         populateAppList()
@@ -316,13 +474,13 @@ class ModuleSettingsActivity : Activity() {
                 addView(button, LinearLayout.LayoutParams(0, dp(48), 1f))
             }
             updateAppFilterStyles()
-        }
+        }.let(::segmented)
 
     private fun controlPage(): ScrollView =
         pageScroll().apply {
             val root = pageColumn()
             root.addView(sectionHeader("控制", "Hook 开关、作用域和恢复控制。"))
-            root.addView(space(10))
+            root.addView(space(ModuleDimens.SM))
             root.addView(glassCard().apply {
                 val row = LinearLayout(this@ModuleSettingsActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -336,31 +494,32 @@ class ModuleSettingsActivity : Activity() {
                 row.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 row.addView(hookSwitchMirror(), LinearLayout.LayoutParams(dp(58), dp(48)))
                 addView(row, matchWrap())
-                addView(space(10))
+                addView(space(ModuleDimens.SM))
                 addView(infoStrip("只负责把快捷入口注入桌面。真实备份、恢复和 Root 操作仍由 UClone Restore 执行。"))
             }, matchWrap())
-            root.addView(space(10))
+            root.addView(space(ModuleDimens.SM))
             root.addView(glassCard().apply {
                 addView(cardTitle("作用域"))
-                addView(space(8))
+                addView(space(ModuleDimens.XS))
                 addView(infoStrip("LSPosed 只勾选 com.miui.home。目标 App 在 App 页选择，不进入作用域。"))
-                addView(space(8))
-                addView(statusPill("com.miui.home", BLUE))
+                addView(space(ModuleDimens.XS))
+                addView(statusPill("com.miui.home", ModuleTone.INFO))
             }, matchWrap())
-            root.addView(space(10))
+            root.addView(space(ModuleDimens.SM))
             root.addView(glassCard().apply {
                 addView(cardTitle("恢复"))
-                addView(space(8))
+                addView(space(ModuleDimens.XS))
                 addView(bodyText("Hook 自动禁用后才需要解除。正常情况下不用点。"))
-                addView(space(10))
+                addView(space(ModuleDimens.SM))
                 addView(secondaryButton("解除 Hook 自动禁用", {
                     ModuleSettingsStore.resetAutoDisable(this@ModuleSettingsActivity)
                     Toast.makeText(this@ModuleSettingsActivity, "Hook 熔断计数已清零", Toast.LENGTH_SHORT).show()
                     refreshDiagnostics()
                 }, matchWrap()))
             }, matchWrap())
-            root.addView(space(14))
+            root.addView(space(ModuleDimens.LG))
             root.addView(primaryButton("保存设置", {
+                pageContainer.performHapticFeedback(ModuleHaptics.confirm())
                 saveValues()
                 Toast.makeText(this@ModuleSettingsActivity, "设置已保存", Toast.LENGTH_SHORT).show()
                 refreshDiagnostics()
@@ -376,18 +535,18 @@ class ModuleSettingsActivity : Activity() {
                 gravity = Gravity.CENTER_VERTICAL
                 val title = LinearLayout(this@ModuleSettingsActivity).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(text("日志", 28f, TEXT_PRIMARY, true))
+                    addView(text("日志", ModuleType.TITLE, TEXT_PRIMARY, true))
                     addView(bodyText("Hook、Relay 事件与诊断。"))
                 }
                 addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 addView(iconButton("↻", "刷新") { refreshDiagnostics() })
-                addView(space(8, horizontal = true))
+                addView(space(ModuleDimens.XS, horizontal = true))
                 addView(iconButton("⧉", "复制") { copyLogs() })
             }
             addView(header, matchWrap())
-            addView(space(10))
+            addView(space(ModuleDimens.SM))
             addView(logFilterBar(), matchWrap())
-            addView(space(10))
+            addView(space(ModuleDimens.SM))
 
             val logSurface = glassCard().apply {
                 setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -395,14 +554,14 @@ class ModuleSettingsActivity : Activity() {
             val scroller = ScrollView(this@ModuleSettingsActivity).apply {
                 isFillViewport = false
                 overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            }
+            }.reportCollapse()
             val body = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
             }
             hookLog = logText()
             relayLog = logText()
             body.addView(hookLog, matchWrap())
-            body.addView(space(10))
+            body.addView(space(ModuleDimens.SM))
             body.addView(relayLog, matchWrap())
             scroller.addView(body, matchWrap())
             logSurface.addView(scroller, LinearLayout.LayoutParams(
@@ -414,28 +573,30 @@ class ModuleSettingsActivity : Activity() {
                 0,
                 1f,
             ))
-            addView(space(10))
+            addView(space(ModuleDimens.SM))
             addView(secondaryButton("清空模块日志", {
+                pageContainer.performHapticFeedback(ModuleHaptics.confirm())
                 ModuleSettingsStore.clearEvents(this@ModuleSettingsActivity)
                 refreshDiagnostics()
                 Toast.makeText(this@ModuleSettingsActivity, "模块日志已清空", Toast.LENGTH_SHORT).show()
             }, matchWrap(), danger = true))
         }
 
-    private fun logFilterBar(): LinearLayout =
+    private fun logFilterBar(): View =
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = glassDrawable(dp(22))
+            setPadding(dp(ModuleDimens.XXS), dp(ModuleDimens.XXS), dp(ModuleDimens.XXS), dp(ModuleDimens.XXS))
             LogFilter.entries.forEach { filter ->
                 val button = TextView(this@ModuleSettingsActivity).apply {
                     text = filter.label
-                    textSize = 12f
+                    textSize = ModuleType.SECTION_HEADER
                     typeface = Typeface.DEFAULT_BOLD
                     includeFontPadding = false
                     gravity = Gravity.CENTER
+                    pressable()
                     setOnClickListener {
+                        if (filter != currentLogFilter) it.performHapticFeedback(ModuleHaptics.segmentTick())
                         currentLogFilter = filter
                         updateLogFilterStyles()
                         refreshDiagnostics()
@@ -445,7 +606,7 @@ class ModuleSettingsActivity : Activity() {
                 addView(button, LinearLayout.LayoutParams(0, dp(48), 1f))
             }
             updateLogFilterStyles()
-        }
+        }.let(::segmented)
 
     private fun hookSwitchMirror(): Switch =
         Switch(this).apply {
@@ -468,11 +629,8 @@ class ModuleSettingsActivity : Activity() {
 
     private fun persistHookEnabled(enabled: Boolean) {
         ModuleSettingsStore.setHookEnabled(this, enabled)
-        if (currentPage == SettingsPage.STATUS) {
-            showPage(SettingsPage.STATUS)
-        } else {
-            refreshDiagnostics()
-        }
+        // Status metrics update in place (tone cross-fade + rolling value) instead of a page rebuild.
+        refreshDiagnostics()
     }
 
     private fun refreshApps() {
@@ -500,11 +658,27 @@ class ModuleSettingsActivity : Activity() {
         appListContainer.removeAllViews()
         val apps = filteredApps()
         apps.forEachIndexed { index, app ->
-            appListContainer.addView(appRow(app), matchWrap())
-            if (index != apps.lastIndex) appListContainer.addView(divider(), matchWrap())
+            val row = appRow(app)
+            appListContainer.addView(row, matchWrap())
+            if (index < ModuleMotion.STAGGER_MAX) staggerIn(row, index)
         }
         if (apps.isEmpty()) {
-            appListContainer.addView(emptyState("没有符合条件的 App"))
+            val empty = emptyState(
+                title = "没有符合条件的 App",
+                message = if (currentAppFilter == AppFilter.SELECTED) {
+                    "还没有启用目标 App，切换到“用户 App”开始选择。"
+                } else {
+                    "没有可启动的 App，点右上角刷新重试。"
+                },
+                actionLabel = if (currentAppFilter == AppFilter.SELECTED) "查看用户 App" else null,
+                onAction = {
+                    currentAppFilter = AppFilter.USER
+                    updateAppFilterStyles()
+                    populateAppList()
+                },
+            )
+            appListContainer.addView(empty, matchWrap())
+            staggerIn(empty, 0)
         }
         updateSelectedCount()
     }
@@ -527,7 +701,8 @@ class ModuleSettingsActivity : Activity() {
             minimumWidth = dp(52)
             minHeight = dp(32)
             applySwitchStyle()
-            setOnCheckedChangeListener { _, checked ->
+            setOnCheckedChangeListener { view, checked ->
+                view.performHapticFeedback(ModuleHaptics.toggle(checked))
                 if (checked) {
                     selectedPackages.add(app.packageName)
                 } else {
@@ -544,22 +719,23 @@ class ModuleSettingsActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(10), 0, dp(10))
-            alpha = if (app.isSystem) 0.48f else 1f
+            minimumHeight = dp(ModuleDimens.ROW_MIN)
+            setPadding(dp(ModuleDimens.XS), dp(ModuleDimens.XS), dp(ModuleDimens.XXS), dp(ModuleDimens.XS))
+            alpha = if (app.isSystem) ModuleAlpha.DISABLED else 1f
             background = clippedRipple(
-                content = roundedSolid(Color.TRANSPARENT, dp(14)),
-                radius = dp(14),
-                rippleColor = colorWithAlpha(BLUE, 18),
+                content = roundedSolid(Color.TRANSPARENT, dp(ModuleDimens.RADIUS_ROW)),
+                radius = dp(ModuleDimens.RADIUS_ROW),
+                rippleColor = withAlpha(palette.onSurface, ModuleAlpha.STATE_LAYER),
             )
             setOnClickListener {
                 if (!app.isSystem) toggle.performClick()
             }
+            if (!app.isSystem) pressable(fullWidthRow = true)
 
             addView(ImageView(this@ModuleSettingsActivity).apply {
                 setImageDrawable(app.icon)
-                background = roundedSolid(CARD_SURFACE, dp(11))
+                background = roundedSolid(palette.neutral.container, dp(ModuleDimens.RADIUS_SMALL))
                 clipToOutline = true
-                setPadding(dp(3), dp(3), dp(3), dp(3))
             }, LinearLayout.LayoutParams(dp(40), dp(40)))
 
             val labelGroup = LinearLayout(this@ModuleSettingsActivity).apply {
@@ -568,17 +744,17 @@ class ModuleSettingsActivity : Activity() {
                 val titleLine = LinearLayout(this@ModuleSettingsActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    addView(text(app.label, 15f, TEXT_PRIMARY, true).apply {
+                    addView(text(app.label, ModuleType.BODY, TEXT_PRIMARY, true).apply {
                         isSingleLine = true
                         ellipsize = TextUtils.TruncateAt.END
                     }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                     if (app.isSystem) {
                         addView(space(6, horizontal = true))
-                        addView(tinyTag("系统", ORANGE))
+                        addView(tinyTag("系统", ModuleTone.WARNING))
                     }
                 }
                 addView(titleLine, matchWrap())
-                addView(text(app.packageName, 11f, TEXT_TERTIARY, false).apply {
+                addView(text(app.packageName, ModuleType.CAPTION, TEXT_SECONDARY, false).apply {
                     isSingleLine = true
                     ellipsize = TextUtils.TruncateAt.MIDDLE
                 })
@@ -622,9 +798,8 @@ class ModuleSettingsActivity : Activity() {
                 Triple("连续 Hook 异常", ModuleSettingsStore.consecutiveHookErrors(this).toString(), ModuleSettingsStore.consecutiveHookErrors(this) == 0),
                 Triple("目标 App", "${selectedPackages.size} 个", selectedPackages.isNotEmpty()),
             )
-            rows.forEachIndexed { index, row ->
+            rows.forEach { row ->
                 diagnosticsContainer.addView(diagnosticRow(row.first, row.second, row.third), matchWrap())
-                if (index != rows.lastIndex) diagnosticsContainer.addView(divider(), matchWrap())
             }
         }
         if (::hookLog.isInitialized && ::relayLog.isInitialized) {
@@ -635,29 +810,29 @@ class ModuleSettingsActivity : Activity() {
             hookLog.text = "Hook\n$hook"
             relayLog.text = "Relay\n$relay"
         }
+        updateStatusMetrics()
         updateSelectedCount()
     }
 
     private fun appBottomActionBar(): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(12))
-            background = glassDrawable(dp(22), alpha = 238)
+            setPadding(dp(ModuleDimens.SM), dp(ModuleDimens.SM), dp(ModuleDimens.SM), dp(ModuleDimens.SM))
+            background = glassDrawable(dp(ModuleDimens.RADIUS_CARD))
 
-            selectedCountText = text("", 13f, TEXT_SECONDARY, true).apply {
+            selectedCountText = text("", ModuleType.SUBHEAD, TEXT_SECONDARY, true).apply {
                 gravity = Gravity.CENTER
                 includeFontPadding = false
+                fontFeatureSettings = "tnum"
             }
             addView(selectedCountText, matchWrap())
-            addView(space(8))
+            addView(space(ModuleDimens.XS))
             addView(primaryButton("保存目标 App", {
+                pageContainer.performHapticFeedback(ModuleHaptics.confirm())
                 saveValues()
                 Toast.makeText(this@ModuleSettingsActivity, "目标 App 已保存", Toast.LENGTH_SHORT).show()
                 refreshDiagnostics()
-            }, matchWrap().apply {
-                leftMargin = dp(6)
-                rightMargin = dp(6)
-            }))
+            }, matchWrap()))
         }
 
     private fun updateHeaderSubtitle() {
@@ -669,8 +844,19 @@ class ModuleSettingsActivity : Activity() {
 
     private fun updateSelectedCount() {
         if (::selectedCountText.isInitialized) {
-            selectedCountText.text = "已选择 ${selectedPackages.size} 个 App"
+            rollText(selectedCountText, "已选择 ${selectedPackages.size} 个 App")
         }
+    }
+
+    private fun updateStatusMetrics() {
+        val hookEnabled = ModuleSettingsStore.isHookEnabled(this)
+        val control = hasControlPermission()
+        val hookErrors = ModuleSettingsStore.consecutiveHookErrors(this)
+        hookMetric?.let { updateMetric(it, if (hookEnabled) "可用" else "关闭", if (hookEnabled) ModuleTone.SUCCESS else ModuleTone.WARNING) }
+        targetMetric?.let { updateMetric(it, "${selectedPackages.size} 个", ModuleTone.INFO) }
+        controlMetric?.let { updateMetric(it, yesNo(control), if (control) ModuleTone.SUCCESS else ModuleTone.WARNING) }
+        errorMetric?.let { updateMetric(it, hookErrors.toString(), if (hookErrors == 0) ModuleTone.SUCCESS else ModuleTone.WARNING) }
+        targetNavValue?.let { rollText(it, "${selectedPackages.size} 个") }
     }
 
     private fun updateTabStyles() {
@@ -679,7 +865,12 @@ class ModuleSettingsActivity : Activity() {
             button.isSelected = selected
             button.contentDescription = if (selected) "${page.label}，当前页面" else "打开${page.label}页面"
             button.setTextColor(if (selected) BLUE else TEXT_SECONDARY)
-            button.background = segmentedButtonBackground(selected, dp(18))
+            button.background = clippedRipple(
+                roundedSolid(Color.TRANSPARENT, dp(ModuleDimens.RADIUS_CONTROL - 2)),
+                dp(ModuleDimens.RADIUS_CONTROL - 2),
+                withAlpha(palette.onSurface, ModuleAlpha.STATE_LAYER),
+            )
+            if (selected) moveSegmentIndicator(button)
         }
     }
 
@@ -689,7 +880,12 @@ class ModuleSettingsActivity : Activity() {
             button.isSelected = selected
             button.contentDescription = if (selected) "${filter.label}筛选，已选中" else "使用${filter.label}筛选"
             button.setTextColor(if (selected) BLUE else TEXT_SECONDARY)
-            button.background = segmentedButtonBackground(selected, dp(18))
+            button.background = clippedRipple(
+                roundedSolid(Color.TRANSPARENT, dp(ModuleDimens.RADIUS_CONTROL - 2)),
+                dp(ModuleDimens.RADIUS_CONTROL - 2),
+                withAlpha(palette.onSurface, ModuleAlpha.STATE_LAYER),
+            )
+            if (selected) moveSegmentIndicator(button)
         }
     }
 
@@ -699,7 +895,12 @@ class ModuleSettingsActivity : Activity() {
             button.isSelected = selected
             button.contentDescription = if (selected) "${filter.label}日志，已选中" else "显示${filter.label}日志"
             button.setTextColor(if (selected) BLUE else TEXT_SECONDARY)
-            button.background = segmentedButtonBackground(selected, dp(18))
+            button.background = clippedRipple(
+                roundedSolid(Color.TRANSPARENT, dp(ModuleDimens.RADIUS_CONTROL - 2)),
+                dp(ModuleDimens.RADIUS_CONTROL - 2),
+                withAlpha(palette.onSurface, ModuleAlpha.STATE_LAYER),
+            )
+            if (selected) moveSegmentIndicator(button)
         }
     }
 
@@ -749,144 +950,241 @@ class ModuleSettingsActivity : Activity() {
         ScrollView(this).apply {
             isFillViewport = true
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-        }
+            isVerticalScrollBarEnabled = false
+        }.reportCollapse()
 
     private fun pageColumn(): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(4))
+            setPadding(0, 0, 0, dp(ModuleDimens.XXS))
         }
 
     private fun sectionHeader(title: String, subtitle: String): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(text(title, 28f, TEXT_PRIMARY, true))
+            setPadding(dp(ModuleDimens.XXS), 0, dp(ModuleDimens.XXS), 0)
+            addView(text(title, ModuleType.TITLE, TEXT_PRIMARY, true))
             addView(bodyText(subtitle))
         }
 
+    /** GroupCard: depth from the card tone only — no border, no shadow. */
     private fun glassCard(compact: Boolean = false): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), if (compact) dp(12) else dp(16), dp(16), if (compact) dp(12) else dp(16))
+            val vertical = if (compact) dp(ModuleDimens.SM) else dp(ModuleDimens.MD)
+            setPadding(dp(ModuleDimens.MD), vertical, dp(ModuleDimens.MD), vertical)
             background = glassDrawable()
             elevation = 0f
         }
 
     private fun cardTitle(value: String): TextView =
-        text(value, 17f, TEXT_PRIMARY, true)
+        text(value, ModuleType.HEADLINE, TEXT_PRIMARY, true)
 
     private fun bodyText(value: String): TextView =
-        text(value, 15f, TEXT_SECONDARY, false).apply {
+        text(value, ModuleType.SUBHEAD, TEXT_SECONDARY, false).apply {
             setLineSpacing(dp(2).toFloat(), 1.0f)
         }
 
     private fun logText(): TextView =
-        text("", 12f, TEXT_TERTIARY, false).apply {
+        text("", ModuleType.CAPTION, TEXT_SECONDARY, false).apply {
             typeface = Typeface.MONOSPACE
             setLineSpacing(dp(3).toFloat(), 1.0f)
+            setTextIsSelectable(true)
         }
 
     private fun infoStrip(value: String): TextView =
         bodyText(value).apply {
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = roundedSolid(if (isDarkMode) Color.rgb(44, 44, 46) else Color.rgb(247, 247, 250), dp(12))
+            setPadding(dp(ModuleDimens.SM), dp(ModuleDimens.SM - 2), dp(ModuleDimens.SM), dp(ModuleDimens.SM - 2))
+            background = roundedSolid(palette.neutral.container, dp(ModuleDimens.RADIUS_CONTROL))
         }
 
-    private fun emptyState(value: String): TextView =
-        bodyText(value).apply {
-            gravity = Gravity.CENTER
-            setPadding(0, dp(28), 0, dp(28))
+    /** EmptyState: 64dp tonal circle + headline + one subhead + optional action. */
+    private fun emptyState(
+        title: String,
+        message: String,
+        actionLabel: String? = null,
+        onAction: () -> Unit = {},
+    ): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(ModuleDimens.MD), dp(ModuleDimens.LG), dp(ModuleDimens.MD), dp(ModuleDimens.LG))
+            addView(TextView(this@ModuleSettingsActivity).apply {
+                text = "∅"
+                textSize = 26f
+                gravity = Gravity.CENTER
+                setTextColor(palette.info.content)
+                background = roundedSolid(palette.info.container, dp(32))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(64), dp(64)))
+            addView(space(ModuleDimens.SM))
+            addView(text(title, ModuleType.HEADLINE, TEXT_PRIMARY, true).apply { gravity = Gravity.CENTER })
+            addView(space(ModuleDimens.XXS))
+            addView(bodyText(message).apply { gravity = Gravity.CENTER })
+            if (actionLabel != null) {
+                addView(space(ModuleDimens.SM))
+                addView(
+                    secondaryButton(
+                        actionLabel,
+                        onAction,
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+                    ).apply { setPadding(dp(ModuleDimens.LG), 0, dp(ModuleDimens.LG), 0) },
+                )
+            }
         }
 
     private fun navigationRow(title: String, subtitle: String, value: String, onClick: () -> Unit): LinearLayout =
         glassCard().apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = clippedRipple(glassDrawable(), dp(12), colorWithAlpha(BLUE, 18))
+            minimumHeight = dp(ModuleDimens.ROW_MIN)
+            background = clippedRipple(glassDrawable(), dp(ModuleDimens.RADIUS_CARD), withAlpha(palette.onSurface, ModuleAlpha.STATE_LAYER))
             setOnClickListener { onClick() }
+            pressable(fullWidthRow = true)
             val label = LinearLayout(this@ModuleSettingsActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(cardTitle(title))
                 addView(bodyText(subtitle))
             }
             addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(text(value, 18f, TEXT_PRIMARY, true))
-            addView(space(10, horizontal = true))
-            addView(text("›", 30f, BLUE, true))
+            addView(text(value, ModuleType.HEADLINE, TEXT_PRIMARY, true).apply {
+                fontFeatureSettings = "tnum"
+                if (title == "目标 App") targetNavValue = this
+            })
+            addView(space(ModuleDimens.XS, horizontal = true))
+            addView(text("›", 26f, TEXT_TERTIARY, false))
         }
 
-    private fun metricTile(value: String, label: String, color: Int): LinearLayout =
+    private fun metricTile(value: String, label: String, tone: ModuleTone): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = roundedSolid(colorWithAlpha(color, 24), dp(12))
-            addView(text(value, 18f, color, true))
-            addView(text(label, 12f, TEXT_SECONDARY, true))
+            val colors = palette.tone(tone)
+            setPadding(dp(ModuleDimens.SM), dp(ModuleDimens.SM - 2), dp(ModuleDimens.SM), dp(ModuleDimens.SM - 2))
+            background = roundedSolid(colors.container, dp(ModuleDimens.RADIUS_ROW))
+            tag = colors
+            addView(text(value, ModuleType.METRIC, colors.content, true).apply { fontFeatureSettings = "tnum" })
+            addView(text(label, ModuleType.CAPTION, withAlpha(colors.content, 0.8f), true))
         }
+
+    /** Metric change: tone cross-fades (effects 200ms) and the value rolls in from its direction. */
+    private fun updateMetric(tile: LinearLayout, value: String, tone: ModuleTone) {
+        val from = tile.tag as? ToneColor ?: return
+        val to = palette.tone(tone)
+        val valueView = tile.getChildAt(0) as? TextView ?: return
+        val labelView = tile.getChildAt(1) as? TextView
+        rollText(valueView, value)
+        if (from == to) return
+        tile.tag = to
+        val background = tile.background as? GradientDrawable ?: return
+        ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = ModuleMotion.EFFECTS
+            interpolator = ModuleMotion.standard
+            val evaluator = android.animation.ArgbEvaluator()
+            addUpdateListener { animator ->
+                val fraction = animator.animatedFraction
+                background.setColor(evaluator.evaluate(fraction, from.container, to.container) as Int)
+                val content = evaluator.evaluate(fraction, from.content, to.content) as Int
+                valueView.setTextColor(content)
+                labelView?.setTextColor(withAlpha(content, 0.8f))
+            }
+            start()
+        }
+    }
+
+    /** Rolling number: new text slides in upward when the number grows, downward when it shrinks. */
+    private fun rollText(view: TextView, newText: String) {
+        val old = view.text?.toString().orEmpty()
+        if (old == newText) return
+        view.text = newText
+        if (old.isEmpty() || !view.isAttachedToWindow) return
+        val oldNumber = Regex("\\d+").find(old)?.value?.toLongOrNull()
+        val newNumber = Regex("\\d+").find(newText)?.value?.toLongOrNull()
+        val direction = if (oldNumber != null && newNumber != null && newNumber < oldNumber) -1f else 1f
+        view.animate().cancel()
+        view.alpha = 0f
+        view.translationY = direction * view.height.coerceAtLeast(dp(16)) * 0.6f
+        view.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(ModuleMotion.SPATIAL)
+            .setInterpolator(ModuleMotion.standard)
+            .start()
+    }
 
     private fun diagnosticRow(label: String, value: String, ok: Boolean): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(9), 0, dp(9))
-            addView(statusDot(if (ok) GREEN else ORANGE), LinearLayout.LayoutParams(dp(10), dp(10)))
-            addView(space(10, horizontal = true))
-            addView(text(label, 14f, TEXT_SECONDARY, false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(text(value, 14f, if (ok) TEXT_PRIMARY else ORANGE, true).apply {
+            minimumHeight = dp(ModuleDimens.TOUCH)
+            setPadding(0, dp(ModuleDimens.XS), 0, dp(ModuleDimens.XS))
+            addView(statusDot(if (ok) palette.success.content else palette.warning.content), LinearLayout.LayoutParams(dp(8), dp(8)))
+            addView(space(ModuleDimens.SM, horizontal = true))
+            addView(text(label, ModuleType.SUBHEAD, TEXT_SECONDARY, false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(text(value, ModuleType.SUBHEAD, if (ok) TEXT_PRIMARY else palette.warning.content, true).apply {
                 gravity = Gravity.END
                 isSingleLine = true
                 ellipsize = TextUtils.TruncateAt.MIDDLE
+                fontFeatureSettings = "tnum"
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.35f))
         }
 
-    private fun statusPill(label: String, color: Int): TextView =
+    private fun statusPill(label: String, tone: ModuleTone): TextView =
         TextView(this).apply {
+            val colors = palette.tone(tone)
             text = "● $label"
-            textSize = 12f
+            textSize = ModuleType.SECTION_HEADER
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(color)
+            setTextColor(colors.content)
             gravity = Gravity.CENTER
-            setPadding(dp(12), 0, dp(12), 0)
-            background = roundedSolid(colorWithAlpha(color, 28), dp(18))
+            setPadding(dp(ModuleDimens.SM), 0, dp(ModuleDimens.SM), 0)
+            background = roundedSolid(colors.container, dp(16))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32))
         }
 
-    private fun tinyTag(label: String, color: Int): TextView =
+    private fun tinyTag(label: String, tone: ModuleTone): TextView =
         TextView(this).apply {
+            val colors = palette.tone(tone)
             text = label
-            textSize = 10f
+            textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(color)
+            setTextColor(colors.content)
             gravity = Gravity.CENTER
             setPadding(dp(7), 0, dp(7), 0)
-            background = roundedSolid(colorWithAlpha(color, 26), dp(10))
+            background = roundedSolid(colors.container, dp(11))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(22))
         }
 
     private fun statusDot(color: Int): View =
         View(this).apply {
-            background = roundedSolid(color, dp(5))
+            background = roundedSolid(color, dp(4))
         }
 
     private fun primaryButton(label: String, onClick: () -> Unit): TextView =
         primaryButton(label, onClick, matchWrap())
 
+    /** Primary: filled accent, 52dp, radius 16. */
     private fun primaryButton(label: String, onClick: () -> Unit, params: LinearLayout.LayoutParams): TextView =
         TextView(this).apply {
             text = label
-            textSize = 15f
+            textSize = ModuleType.BODY
             typeface = Typeface.DEFAULT_BOLD
             includeFontPadding = false
             gravity = Gravity.CENTER
             setTextColor(ON_PRIMARY)
-            background = primaryButtonDrawable()
+            background = clippedRipple(
+                roundedSolid(BLUE, dp(ModuleDimens.RADIUS_BUTTON)),
+                dp(ModuleDimens.RADIUS_BUTTON),
+                withAlpha(ON_PRIMARY, 0.2f),
+            )
             setOnClickListener { onClick() }
-            layoutParams = params.apply { height = dp(50) }
+            pressable()
+            layoutParams = params.apply { height = dp(ModuleDimens.PRIMARY_BUTTON) }
         }
 
     private fun secondaryButton(label: String, onClick: () -> Unit): TextView =
         secondaryButton(label, onClick, matchWrap(), danger = false)
 
+    /** Secondary = tonal (accent 12%); destructive = danger tone. */
     private fun secondaryButton(
         label: String,
         onClick: () -> Unit,
@@ -895,21 +1193,22 @@ class ModuleSettingsActivity : Activity() {
     ): TextView =
         TextView(this).apply {
             text = label
-            textSize = 14f
+            textSize = ModuleType.BODY
             typeface = Typeface.DEFAULT_BOLD
             includeFontPadding = false
             gravity = Gravity.CENTER
-            setTextColor(if (danger) RED else BLUE)
+            setTextColor(if (danger) palette.danger.content else BLUE)
             background = clippedRipple(
                 content = roundedSolid(
-                    if (danger) colorWithAlpha(RED, 20) else colorWithAlpha(BLUE, 20),
-                    dp(25),
+                    if (danger) palette.danger.container else palette.accentTonal,
+                    dp(ModuleDimens.RADIUS_BUTTON),
                 ),
-                radius = dp(25),
-                rippleColor = colorWithAlpha(if (danger) RED else BLUE, 28),
+                radius = dp(ModuleDimens.RADIUS_BUTTON),
+                rippleColor = withAlpha(palette.onSurface, ModuleAlpha.STATE_LAYER),
             )
             setOnClickListener { onClick() }
-            layoutParams = params.apply { height = dp(50) }
+            pressable()
+            layoutParams = params.apply { height = dp(ModuleDimens.PRIMARY_BUTTON) }
         }
 
     private fun iconButton(symbol: String, description: String, onClick: () -> Unit): TextView =
@@ -922,12 +1221,13 @@ class ModuleSettingsActivity : Activity() {
             gravity = Gravity.CENTER
             setTextColor(BLUE)
             background = clippedRipple(
-                roundedSolid(colorWithAlpha(BLUE, 16), dp(24)),
-                dp(24),
-                colorWithAlpha(BLUE, 24),
+                roundedSolid(palette.accentTonal, dp(ModuleDimens.TOUCH / 2)),
+                dp(ModuleDimens.TOUCH / 2),
+                withAlpha(palette.onSurface, ModuleAlpha.STATE_LAYER),
             )
             setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+            pressable()
+            layoutParams = LinearLayout.LayoutParams(dp(ModuleDimens.TOUCH), dp(ModuleDimens.TOUCH))
         }
 
     private fun text(value: String, size: Float, color: Int, bold: Boolean): TextView =
@@ -939,38 +1239,122 @@ class ModuleSettingsActivity : Activity() {
             if (bold) typeface = Typeface.DEFAULT_BOLD
         }
 
-    private fun divider(): View =
-        View(this).apply {
-            background = roundedSolid(colorWithAlpha(TEXT_TERTIARY, 24), 1)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1)
-        }
-
     private fun softBackground(): Drawable = ColorDrawable(SURFACE)
 
-    private fun glassDrawable(radius: Int = dp(12), alpha: Int = 255, strokeColor: Int = Color.TRANSPARENT): Drawable {
-        val fill = roundedSolid(colorWithAlpha(CARD_SURFACE, alpha), radius)
-        if (strokeColor == Color.TRANSPARENT) return fill
-        val stroke = roundedStroke(strokeColor, radius, 1)
-        return LayerDrawable(arrayOf(fill, stroke))
+    private fun glassDrawable(radius: Int = dp(ModuleDimens.RADIUS_CARD)): Drawable =
+        roundedSolid(CARD_SURFACE, radius)
+
+    /** 1px hairline along the bottom edge (compact title bar). */
+    private fun hairlineBottom(): Drawable =
+        object : Drawable() {
+            private val paint = android.graphics.Paint().apply { color = SEPARATOR }
+            override fun draw(canvas: android.graphics.Canvas) {
+                val b = bounds
+                canvas.drawRect(b.left.toFloat(), (b.bottom - 1).toFloat(), b.right.toFloat(), b.bottom.toFloat(), paint)
+            }
+            override fun setAlpha(alpha: Int) {
+                paint.alpha = alpha
+            }
+            override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
+                paint.colorFilter = colorFilter
+            }
+            @Deprecated("Deprecated in Java")
+            override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+        }
+
+    /**
+     * Segmented control: neutral track (radius 14) with a card-colored selection indicator that
+     * slides between segments on the spatial curve.
+     */
+    private fun segmented(row: LinearLayout): View =
+        FrameLayout(this).apply {
+            background = roundedSolid(palette.neutral.container, dp(ModuleDimens.RADIUS_CONTROL))
+            val indicator = View(this@ModuleSettingsActivity).apply {
+                background = roundedSolid(palette.raised, dp(ModuleDimens.RADIUS_CONTROL - 2))
+                elevation = if (palette.isDark) 0f else dp(1).toFloat()
+                visibility = View.INVISIBLE
+            }
+            addView(indicator, FrameLayout.LayoutParams(0, 0))
+            addView(row, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            row.background = null
+            segmentIndicators[row] = indicator
+            row.post {
+                (0 until row.childCount).map(row::getChildAt).firstOrNull { it.isSelected }?.let(::moveSegmentIndicator)
+            }
+        }
+
+    private fun moveSegmentIndicator(button: View) {
+        val row = button.parent as? LinearLayout ?: return
+        val indicator = segmentIndicators[row] ?: return
+        if (button.width == 0) {
+            button.post { moveSegmentIndicator(button) }
+            return
+        }
+        val params = indicator.layoutParams
+        if (params.width != button.width || params.height != button.height) {
+            params.width = button.width
+            params.height = button.height
+            indicator.layoutParams = params
+        }
+        val targetX = button.left.toFloat()
+        val targetY = button.top.toFloat()
+        if (indicator.visibility != View.VISIBLE) {
+            indicator.translationX = targetX
+            indicator.translationY = targetY
+            indicator.visibility = View.VISIBLE
+            return
+        }
+        indicator.animate()
+            .translationX(targetX)
+            .translationY(targetY)
+            .setDuration(ModuleMotion.SPATIAL)
+            .setInterpolator(ModuleMotion.standard)
+            .start()
     }
 
-    private fun primaryButtonDrawable(): Drawable {
-        val fill = roundedSolid(BLUE, dp(25))
-        return clippedRipple(fill, dp(25), colorWithAlpha(ON_PRIMARY, 54))
+    /** Staggered entrance: rise 16dp + fade, 26ms apart. */
+    private fun staggerIn(view: View, index: Int) {
+        view.alpha = 0f
+        view.translationY = dp(ModuleMotion.STAGGER_OFFSET_DP).toFloat()
+        view.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setStartDelay(index * ModuleMotion.STAGGER_STEP)
+            .setDuration(ModuleMotion.SPATIAL)
+            .setInterpolator(ModuleMotion.standard)
+            .start()
     }
 
-    private fun segmentedButtonBackground(selected: Boolean, radius: Int): Drawable =
-        clippedRipple(
-            content = roundedSolid(if (selected) colorWithAlpha(BLUE, 24) else Color.TRANSPARENT, radius),
-            radius = radius,
-            rippleColor = colorWithAlpha(BLUE, 24),
-        )
+    /** Press feedback: 100ms press-in to 0.965 (rows 0.985), springy 380ms release. Clicks still fire. */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun View.pressable(fullWidthRow: Boolean = false) {
+        val pressed = if (fullWidthRow) ModuleMotion.PRESSED_SCALE_ROW else ModuleMotion.PRESSED_SCALE
+        setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> view.animate()
+                    .scaleX(pressed)
+                    .scaleY(pressed)
+                    .setStartDelay(0)
+                    .setDuration(ModuleMotion.PRESS_IN)
+                    .setInterpolator(ModuleMotion.standard)
+                    .start()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> view.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setStartDelay(0)
+                    .setDuration(ModuleMotion.PRESS_RELEASE)
+                    .setInterpolator(ModuleMotion.release)
+                    .start()
+            }
+            false
+        }
+    }
 
     private fun clippedRipple(content: Drawable, radius: Int, rippleColor: Int): Drawable =
         RippleDrawable(
             ColorStateList.valueOf(rippleColor),
             content,
-            roundedSolid(CARD_SURFACE, radius),
+            roundedSolid(Color.WHITE, radius),
         )
 
     private fun roundedSolid(color: Int, radius: Int): GradientDrawable =
@@ -978,14 +1362,6 @@ class ModuleSettingsActivity : Activity() {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = radius.toFloat()
             setColor(color)
-        }
-
-    private fun roundedStroke(color: Int, radius: Int, width: Int): GradientDrawable =
-        GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = radius.toFloat()
-            setColor(Color.TRANSPARENT)
-            setStroke(width, color)
         }
 
     private fun Switch.applySwitchStyle() {
@@ -996,11 +1372,11 @@ class ModuleSettingsActivity : Activity() {
         )
         thumbTintList = ColorStateList(
             states,
-            intArrayOf(CARD_SURFACE, CARD_SURFACE, colorWithAlpha(CARD_SURFACE, 180)),
+            intArrayOf(Color.WHITE, Color.WHITE, withAlpha(Color.WHITE, 0.7f)),
         )
         trackTintList = ColorStateList(
             states,
-            intArrayOf(GREEN, SEPARATOR, colorWithAlpha(SEPARATOR, 150)),
+            intArrayOf(BLUE, withAlpha(palette.onSurface, 0.16f), withAlpha(palette.onSurface, 0.08f)),
         )
     }
 
@@ -1062,5 +1438,9 @@ class ModuleSettingsActivity : Activity() {
         HOOK("Hook"),
         RELAY("Relay"),
     }
+}
 
+/** Pages already staggered in this process (entrance plays once per page per process). */
+private object StaggerRegistry {
+    val played = mutableSetOf<String>()
 }
